@@ -1666,6 +1666,33 @@ void llama_model::load_hparams(llama_model_loader & ml) {
 
                 type = LLM_TYPE_UNKNOWN;
             } break;
+        case LLM_ARCH_GEMMA4_MTP:
+            {
+                hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
+                ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
+
+                uint32_t n_kv_shared_layers = 0;
+                ml.get_key(LLM_KV_ATTENTION_SHARED_KV_LAYERS, n_kv_shared_layers, false);
+
+                hparams.n_layer_kv_from_start = hparams.n_layer - (int32_t) n_kv_shared_layers;
+                hparams.f_attention_scale     = 1.0f;
+
+                ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,          hparams.rope_freq_base_train_swa, false);
+                ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,    hparams.n_swa);
+                ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+                ml.get_key(LLM_KV_FINAL_LOGIT_SOFTCAPPING,     hparams.f_final_logit_softcapping, false);
+
+                ml.get_key(LLM_KV_ATTENTION_KEY_LENGTH_SWA,   hparams.n_embd_head_k_swa);
+                ml.get_key(LLM_KV_ATTENTION_VALUE_LENGTH_SWA, hparams.n_embd_head_v_swa);
+
+                ml.get_key(LLM_KV_GEMMA4_MTP_N_EMBD_BACKBONE,               hparams.n_embd_backbone, false);
+                ml.get_key(LLM_KV_GEMMA4_MTP_N_CENTROIDS,                    hparams.n_centroids, false);
+                ml.get_key(LLM_KV_GEMMA4_MTP_CENTROID_TOP_K,                 hparams.centroid_top_k, false);
+                ml.get_key(LLM_KV_GEMMA4_MTP_ATTENTION_K_EQ_V,                hparams.attention_k_eq_v, false);
+                ml.get_key(LLM_KV_GEMMA4_MTP_USE_ORDERED_EMBEDDINGS,         hparams.use_ordered_embeddings, false);
+
+                type = LLM_TYPE_UNKNOWN;
+            } break;
         case LLM_ARCH_GEMMA_EMBEDDING:
             {
                 hparams.swa_type = LLAMA_SWA_TYPE_SYMMETRIC;
@@ -4731,23 +4758,24 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                     }
                 } break;
             case LLM_ARCH_GEMMA4_ASSISTANT:
+            case LLM_ARCH_GEMMA4_MTP:
                 {
                     const uint32_t n_bb = hparams.n_embd_backbone;
                     if (n_bb == 0) {
-                        throw std::runtime_error("gemma4_assistant: n_embd_backbone must be set in GGUF metadata");
+                        throw std::runtime_error("gemma4_mtp: n_embd_backbone must be set in GGUF metadata");
                     }
                     if (n_embd_head_k != n_embd_head_v) {
-                        throw std::runtime_error("Gemma 4 assistant requires n_embd_head_k == n_embd_head_v");
+                        throw std::runtime_error("Gemma 4 MTP requires n_embd_head_k == n_embd_head_v");
                     }
                     if (hparams.n_embd_head_k_swa != hparams.n_embd_head_v_swa) {
-                        throw std::runtime_error("Gemma 4 assistant requires n_embd_head_k_swa == n_embd_head_v_swa");
+                        throw std::runtime_error("Gemma 4 MTP requires n_embd_head_k_swa == n_embd_head_v_swa");
                     }
 
                     // Tied lm_head uses token_embd; inner hidden size is hparams.n_embd (e.g. 1024)
                     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
 
-                    mtp_pre_projection  = create_tensor(tn(LLM_TENSOR_MTP_PRE_PROJECTION,  "weight"), {2 * (int64_t) n_bb, n_embd}, 0);
-                    mtp_post_projection = create_tensor(tn(LLM_TENSOR_MTP_POST_PROJECTION, "weight"), {n_embd, (int64_t) n_bb}, 0);
+                    mtp_pre_projection  = create_tensor(tn(LLM_TENSOR_GEMMA4_MTP_PRE_PROJ,  "weight"), {2 * (int64_t) n_bb, n_embd}, 0);
+                    mtp_post_projection = create_tensor(tn(LLM_TENSOR_GEMMA4_MTP_POST_PROJ, "weight"), {n_embd, (int64_t) n_bb}, 0);
 
                     if (hparams.use_ordered_embeddings) {
                         const uint32_t n_c = hparams.n_centroids;
@@ -4761,7 +4789,7 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
 
                     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
 
-                    int rope_freqs_flag = 0;
+                    int rope_freqs_flag = TENSOR_NOT_REQUIRED;  // MTP draft models share KV cache with target, no rope_freqs
 
                     for (int i = 0; i < n_layer; ++i) {
                         auto & layer = layers[i];
@@ -9067,6 +9095,7 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
                 }
             } break;
         case LLM_ARCH_GEMMA4_ASSISTANT:
+        case LLM_ARCH_GEMMA4_MTP:
             {
                 throw std::runtime_error(
                     "gemma4_assistant cannot be used as a primary model (-m). "
@@ -9642,6 +9671,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_GEMMA3N:
         case LLM_ARCH_GEMMA4:
         case LLM_ARCH_GEMMA4_ASSISTANT:
+        case LLM_ARCH_GEMMA4_MTP:
         case LLM_ARCH_GEMMA_EMBEDDING:
         case LLM_ARCH_STARCODER2:
         case LLM_ARCH_OPENELM:

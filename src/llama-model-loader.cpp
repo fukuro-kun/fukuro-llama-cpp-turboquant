@@ -403,7 +403,16 @@ namespace GGUFMeta {
         const struct llama_model_kv_override * override =
             it != kv_overrides.end() ? &it->second : nullptr;
 
-        const bool found = GGUFMeta::GKV<T>::set(metadata, key, result, override);
+        bool found = GGUFMeta::GKV<T>::set(metadata, key, result, override);
+
+        // Fallback for gemma4_mtp compatibility: try gemma4_mtp.* when gemma4_assistant.* is not found
+        if (!found && key.find("gemma4_assistant.") == 0) {
+            std::string alt_key = key;
+            alt_key.replace(0, 16, "gemma4_mtp.");  // Replace "gemma4_assistant." with "gemma4_mtp."
+            it = kv_overrides.find(alt_key);
+            override = it != kv_overrides.end() ? &it->second : nullptr;
+            found = GGUFMeta::GKV<T>::set(metadata, alt_key, result, override);
+        }
 
         if (required && !found) {
             throw std::runtime_error(format("key not found in model: %s", key.c_str()));
