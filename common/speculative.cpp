@@ -58,7 +58,8 @@ struct common_speculative_config {
 
 static bool common_speculative_mtp_arch_ok(const llama_model * model_tgt, const llama_model * model_dft) {
     return std::strcmp(llama_model_arch_str(model_tgt), "gemma4") == 0
-        && std::strcmp(llama_model_arch_str(model_dft), "gemma4_assistant") == 0;
+        && (std::strcmp(llama_model_arch_str(model_dft), "gemma4_assistant") == 0
+            || std::strcmp(llama_model_arch_str(model_dft), "gemma4_mtp") == 0);
 }
 
 // MTP-specific vocab compatibility:

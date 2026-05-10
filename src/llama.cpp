@@ -1188,15 +1188,18 @@ int llama_model_load_mtp_from_file(struct llama_model * model, const char * path
         return -3;
     }
 
-    if (aux->arch != LLM_ARCH_GEMMA4_ASSISTANT) {
-        LLAMA_LOG_ERROR("%s: MTP weights must be arch gemma4_assistant (got %s)\n", __func__, llm_arch_name(aux->arch));
+    if (aux->arch != LLM_ARCH_GEMMA4_ASSISTANT && aux->arch != LLM_ARCH_GEMMA4_MTP) {
+        LLAMA_LOG_ERROR("%s: MTP weights must be arch gemma4_assistant or gemma4_mtp (got %s)\n", __func__, llm_arch_name(aux->arch));
         llama_model_free(aux);
         return -4;
     }
 
-    const auto req_it = aux->gguf_kv.find("gemma4_assistant.requires_target_arch");
-    if (req_it != aux->gguf_kv.end() && req_it->second != "gemma4") {
-        LLAMA_LOG_ERROR("%s: assistant requires_target_arch='%s' (expected gemma4)\n", __func__, req_it->second.c_str());
+    const auto req_it_assistant = aux->gguf_kv.find("gemma4_assistant.requires_target_arch");
+    const auto req_it_mtp = aux->gguf_kv.find("gemma4_mtp.requires_target_arch");
+    std::string req_arch = req_it_assistant != aux->gguf_kv.end() ? req_it_assistant->second : 
+                          req_it_mtp != aux->gguf_kv.end() ? req_it_mtp->second : "";
+    if (!req_arch.empty() && req_arch != "gemma4") {
+        LLAMA_LOG_ERROR("%s: assistant requires_target_arch='%s' (expected gemma4)\n", __func__, req_arch.c_str());
         llama_model_free(aux);
         return -5;
     }
