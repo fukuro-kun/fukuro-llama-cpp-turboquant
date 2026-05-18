@@ -73,6 +73,8 @@ add_library(llama
             models/gemma2-iswa.cpp
             models/gemma3.cpp
             models/gemma3n-iswa.cpp
+            models/gemma4-iswa.cpp
+            models/gemma4-assistant.cpp
             models/glm4-moe.cpp
             models/glm4.cpp
             models/gpt2.cpp
