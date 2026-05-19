@@ -187,7 +187,7 @@ static void gemma4_mtp_build_one_step(
     const int64_t n_vocab      = mtp.tok_embd->ne[1];
     const int64_t n_tokens_mtp = h_inner->ne[1];
 
-    if (mtp.hparams.use_ordered_embeddings) {
+    if (mtp.hparams.use_ordered_embeddings && n_tokens_mtp == 1) {
         // Centroid-routed LM head (HF Gemma4AssistantMaskedEmbedder): scatter candidate logits into a full
         // [n_vocab] row then argmax — matches masked full-vocab greedy (sparse-only argmax broke server accept).
         GGML_ASSERT(mtp.mtp_centroids != nullptr && mtp.mtp_token_ordering != nullptr);
