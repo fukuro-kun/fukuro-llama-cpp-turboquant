@@ -7867,7 +7867,15 @@ class Gemma4AssistantModel(Gemma4Model):
             yield (self.format_tensor_name(gguf.MODEL_TENSOR.MTP_CENTROIDS), data_torch)
             return
         if "masked_embedding.token_ordering" in name:
-            yield (self.format_tensor_name(gguf.MODEL_TENSOR.MTP_TOKEN_ORDERING), data_torch.to(torch.int32))
+            n_vocab = int(data_torch.shape[0])
+            # Compute inverse ordering using vectorized tensor ops
+            # Must materialize to CPU before yielding (meta tensors cannot be yielded)
+            if data_torch.device.type == "meta":
+                data_torch = data_torch.to("cpu")
+            indices = torch.arange(n_vocab, dtype=torch.int32)
+            inv_ordering = torch.zeros(n_vocab, dtype=torch.int32)
+            inv_ordering[data_torch.to(torch.int64)] = indices
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.MTP_TOKEN_ORDERING), inv_ordering)
             return
 
         # Gemma4Model.modify_tensors expects a language_model.* prefix on HF names
