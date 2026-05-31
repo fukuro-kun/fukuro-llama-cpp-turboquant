@@ -73,6 +73,7 @@ DispatchLoaderDynamic & ggml_vk_default_dispatcher();
 #include "ggml-backend-impl.h"
 
 #include "ggml-vulkan-shaders.hpp"
+#include <fstream>
 
 // remove this once it's more widely available in the SDK
 #if !defined(VK_KHR_shader_bfloat16)
@@ -664,6 +665,9 @@ struct vk_device_struct {
     bool coopmat2;
 
     bool pipeline_executable_properties_support {};
+    vk::PipelineCache pipeline_cache{};
+    std::string pipeline_cache_path{};
+    bool pipeline_cache_loaded{};
 
     size_t idx;
 
@@ -2274,7 +2278,7 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
 #endif
 
     try {
-        pipeline->pipeline = device->device.createComputePipeline(VK_NULL_HANDLE, compute_pipeline_create_info).value;
+        pipeline->pipeline = device->device.createComputePipeline(device->pipeline_cache, compute_pipeline_create_info).value;
     } catch (const vk::SystemError& e) {
         std::cerr << "ggml_vulkan: Compute pipeline creation failed for " << pipeline->name << std::endl;
         std::cerr << "ggml_vulkan: " << e.what() << std::endl;
@@ -5637,6 +5641,36 @@ static vk_device ggml_vk_get_device(size_t idx) {
         device->dsl = device->device.createDescriptorSetLayout(descriptor_set_layout_create_info);
 
         ggml_vk_load_shaders(device);
+        // Load or create pipeline cache
+        const std::string cache_dir = std::string(getenv("HOME") ? getenv("HOME") : "/tmp") + "/.cache/llama.cpp";
+        device->pipeline_cache_path = cache_dir + "/vulkan-pipeline-cache.bin";
+        
+        // Try to load existing cache
+        std::ifstream cache_file(device->pipeline_cache_path, std::ios::binary | std::ios::ate);
+        if (cache_file.is_open()) {
+            size_t cache_size = cache_file.tellg();
+            if (cache_size > 0) {
+                cache_file.seekg(0, std::ios::beg);
+                std::vector<char> cache_data(cache_size);
+                cache_file.read(cache_data.data(), cache_size);
+                if (cache_file.gcount() == (std::streamsize)cache_size) {
+                    vk::PipelineCacheCreateInfo cache_info({}, cache_size, cache_data.data());
+                    try {
+                        device->pipeline_cache = device->device.createPipelineCache(cache_info);
+                        device->pipeline_cache_loaded = true;
+                        std::cerr << "ggml_vulkan: Loaded pipeline cache from " << device->pipeline_cache_path << " (" << (cache_size/1024) << " KB)" << std::endl;
+                    } catch (...) {
+                        std::cerr << "ggml_vulkan: Failed to load pipeline cache, creating new" << std::endl;
+                    }
+                }
+            }
+        }
+        
+        // Create new cache if none loaded
+        if (!device->pipeline_cache) {
+            vk::PipelineCacheCreateInfo cache_info;
+            device->pipeline_cache = device->device.createPipelineCache(cache_info);
+        }
 
         // Only use transfer queue on AMD non-GCN, when the graphics queue is not enabled
         const bool prefers_transfer_queue = device->vendor_id == VK_VENDOR_ID_AMD && device->architecture != AMD_GCN && !allow_graphics_queue;
@@ -13573,6 +13607,33 @@ static void ggml_vk_graph_cleanup(ggml_backend_vk_context * ctx) {
 }
 
 // Clean up on backend free
+static void ggml_vk_save_pipeline_cache(vk_device& device) {
+    if (device->pipeline_cache && !device->pipeline_cache_path.empty()) {
+        try {
+            size_t cache_size = 0;
+            device->device.getPipelineCacheData(device->pipeline_cache, &cache_size, nullptr);
+            if (cache_size > 0) {
+                std::vector<char> cache_data(cache_size);
+                device->device.getPipelineCacheData(device->pipeline_cache, &cache_size, cache_data.data());
+                
+                size_t last_slash = device->pipeline_cache_path.find_last_of('/');
+                if (last_slash != std::string::npos) {
+                    std::string cache_dir = device->pipeline_cache_path.substr(0, last_slash);
+                    std::string cmd = "mkdir -p " + cache_dir;
+                    system(cmd.c_str());
+                }
+                
+                std::ofstream out_file(device->pipeline_cache_path, std::ios::binary);
+                if (out_file.is_open()) {
+                    out_file.write(cache_data.data(), cache_size);
+                    std::cerr << "ggml_vulkan: Saved pipeline cache to " << device->pipeline_cache_path << " (" << (cache_size/1024) << " KB)" << std::endl;
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "ggml_vulkan: Failed to save pipeline cache: " << e.what() << std::endl;
+        }
+    }
+}
 static void ggml_vk_cleanup(ggml_backend_vk_context * ctx) {
     VK_LOG_DEBUG("ggml_vk_cleanup(" << ctx->name << ")");
     // discard any unsubmitted command buffers
@@ -13613,6 +13674,7 @@ static void ggml_vk_cleanup(ggml_backend_vk_context * ctx) {
         ctx->device->device.destroySemaphore(ctx->transfer_semaphore.s);
 
         ctx->transfer_cmd_pool.destroy(ctx->device->device);
+    ggml_vk_save_pipeline_cache(ctx->device);
     }
     if (vk_perf_logger_enabled) {
         ctx->perf_logger->print_timings(true);
