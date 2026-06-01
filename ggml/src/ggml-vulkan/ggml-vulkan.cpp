@@ -2131,6 +2131,7 @@ static void ggml_vk_wait_for_fence(ggml_backend_vk_context * ctx) {
 static uint32_t compile_count = 0;
 static std::mutex compile_count_mutex;
 static std::condition_variable compile_count_cond;
+static void ggml_vk_save_pipeline_cache(vk_device& device);
 
 static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipeline, size_t spv_size, const void* spv_data, const std::string entrypoint,
                                          uint32_t parameter_count, std::array<uint32_t, 3> wg_denoms, std::vector<uint32_t> specialization_constants,
@@ -2285,6 +2286,7 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         throw e;
     }
     pipeline->compiled = true;
+    ggml_vk_save_pipeline_cache(device);
 
     if (vk_instance.debug_utils_support) {
         vk::DebugUtilsObjectNameInfoEXT duoni;
