@@ -2286,7 +2286,11 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         throw e;
     }
     pipeline->compiled = true;
-    ggml_vk_save_pipeline_cache(device);
+    // Periodischer Cache-Save: nur alle 10 Pipelines
+    static std::atomic<int> save_counter{0};
+    if (++save_counter % 10 == 0) {
+        ggml_vk_save_pipeline_cache(device);
+    }
 
     if (vk_instance.debug_utils_support) {
         vk::DebugUtilsObjectNameInfoEXT duoni;
