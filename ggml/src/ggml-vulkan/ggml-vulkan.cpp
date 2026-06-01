@@ -2133,6 +2133,10 @@ static std::mutex compile_count_mutex;
 static std::condition_variable compile_count_cond;
 static void ggml_vk_save_pipeline_cache(vk_device& device);
 
+// Pipeline tracking for debugging
+static std::atomic<int> pipeline_needed_count{0};
+static std::atomic<int> pipeline_compiled_count{0};
+
 static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipeline, size_t spv_size, const void* spv_data, const std::string entrypoint,
                                          uint32_t parameter_count, std::array<uint32_t, 3> wg_denoms, std::vector<uint32_t> specialization_constants,
                                          bool disable_robustness, bool require_full_subgroups, uint32_t required_subgroup_size) {
@@ -2286,6 +2290,11 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         throw e;
     }
     pipeline->compiled = true;
+    int compiled = ++pipeline_compiled_count;
+    std::cerr << "ggml_vulkan: Pipeline compiled: " << pipeline->name << " (" << compiled << "/" << pipeline_needed_count << ")" << std::endl;
+    if (compiled == pipeline_needed_count) {
+        std::cerr << "ggml_vulkan: ALL PIPELINES COMPILED - loading complete!" << std::endl;
+    }
     // Periodischer Cache-Save: nur alle 10 Pipelines
     static std::atomic<int> save_counter{0};
     if (++save_counter % 10 == 0) {
@@ -2300,44 +2309,41 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         vk_instance.pfn_vkSetDebugUtilsObjectNameEXT(device->device, &static_cast<VkDebugUtilsObjectNameInfoEXT &>(duoni));
     }
 
-    if (device->pipeline_executable_properties_support) {
-        vk::PipelineExecutableInfoKHR executableInfo;
-        executableInfo.pipeline = pipeline->pipeline;
-
-        auto statistics = device->device.getPipelineExecutableStatisticsKHR(executableInfo);
-
-        bool print_stats = !vk_pipeline_stats_filter.empty() &&
-                           pipeline->name.find(vk_pipeline_stats_filter) != std::string::npos;
-        if (print_stats) {
-            std::cerr << "ggml_vulkan: pipeline stats for " << pipeline->name << ":" << std::endl;
-        }
-
-        for (auto & s : statistics) {
-            if (print_stats) {
-                std::cerr << "ggml_vulkan:   " << s.name.data() << ": ";
-                switch (s.format) {
-                    case vk::PipelineExecutableStatisticFormatKHR::eBool32:
-                        std::cerr << (s.value.b32 ? "true" : "false");
-                        break;
-                    case vk::PipelineExecutableStatisticFormatKHR::eInt64:
-                        std::cerr << s.value.i64;
-                        break;
-                    case vk::PipelineExecutableStatisticFormatKHR::eUint64:
-                        std::cerr << s.value.u64;
-                        break;
-                    case vk::PipelineExecutableStatisticFormatKHR::eFloat64:
-                        std::cerr << s.value.f64;
-                        break;
-                }
-                std::cerr << std::endl;
-            }
-            // "Register Count" is reported by NVIDIA drivers.
-            if (strcmp(s.name, "Register Count") == 0) {
-                VK_LOG_DEBUG(pipeline->name << " " << s.name << ": " << s.value.u64 << " registers");
-                pipeline->register_count = (uint32_t)s.value.u64;
-            }
-        }
-    }
+    // DISABLED: getPipelineExecutableStatisticsKHR is extremely slow and causes hangs
+    // if (device->pipeline_executable_properties_support) {
+    //     vk::PipelineExecutableInfoKHR executableInfo;
+    //     executableInfo.pipeline = pipeline->pipeline;
+    //     auto statistics = device->device.getPipelineExecutableStatisticsKHR(executableInfo);
+    //     bool print_stats = !vk_pipeline_stats_filter.empty() &&
+    //                        pipeline->name.find(vk_pipeline_stats_filter) != std::string::npos;
+    //     if (print_stats) {
+    //         std::cerr << "ggml_vulkan: pipeline stats for " << pipeline->name << ":" << std::endl;
+    //     }
+    //     for (auto & s : statistics) {
+    //         if (print_stats) {
+    //             std::cerr << "ggml_vulkan:   " << s.name.data() << ": ";
+    //             switch (s.format) {
+    //                 case vk::PipelineExecutableStatisticFormatKHR::eBool32:
+    //                     std::cerr << (s.value.b32 ? "true" : "false");
+    //                     break;
+    //                 case vk::PipelineExecutableStatisticFormatKHR::eInt64:
+    //                     std::cerr << s.value.i64;
+    //                     break;
+    //                 case vk::PipelineExecutableStatisticFormatKHR::eUint64:
+    //                     std::cerr << s.value.u64;
+    //                     break;
+    //                 case vk::PipelineExecutableStatisticFormatKHR::eFloat64:
+    //                     std::cerr << s.value.f64;
+    //                     break;
+    //             }
+    //             std::cerr << std::endl;
+    //         }
+    //         if (strcmp(s.name, "Register Count") == 0) {
+    //             VK_LOG_DEBUG(pipeline->name << " " << s.name << ": " << s.value.u64 << " registers");
+    //             pipeline->register_count = (uint32_t)s.value.u64;
+    //         }
+    //     }
+    // }
 
     device->all_pipelines.push_back(pipeline);
 
@@ -3472,11 +3478,14 @@ static void ggml_vk_load_shaders(vk_device& device) {
             if (!pipeline->needed || pipeline->compiled) {
                 continue;
             }
+            int needed = ++pipeline_needed_count;
+            std::cerr << "ggml_vulkan: Pipeline needed: " << name << " (#" << needed << ")" << std::endl;
             // TODO: We're no longer benefitting from the async compiles (shaders are
             // compiled individually, as needed) and this complexity can be removed.
             {
                 // wait until fewer than N compiles are in progress
-                uint32_t N = std::max(1u, std::thread::hardware_concurrency());
+                // Increased from hardware_concurrency() to allow more parallel pipeline creation
+                uint32_t N = std::max(1u, std::thread::hardware_concurrency() * 4);
                 std::unique_lock<std::mutex> guard(compile_count_mutex);
                 while (compile_count >= N) {
                     compile_count_cond.wait(guard);
