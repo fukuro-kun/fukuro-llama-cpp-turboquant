@@ -2224,9 +2224,10 @@ ggml_tensor * llm_graph_context::build_attn(
     ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
     cb(cur, "kqv_out", il);
 
-    // TurboQuant: if Q was padded (K is turbo3), FA output has padded Q dimension.
-    // Extract original Q head_dim from FA output.
-    if (cparams.flash_attn && (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0)) {
+    // TurboQuant: if Q was padded (K is turbo3), attention output has padded Q dimension.
+    // Extract original Q head_dim from attention output.
+    // NOTE: This was previously gated on flash_attn, but we need it for non-FA paths too!
+    if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
         const int64_t orig_q_head = hparams.n_embd_head_k(il);
         const int64_t padded_q_head = q->ne[0];
         if (padded_q_head != orig_q_head) {
