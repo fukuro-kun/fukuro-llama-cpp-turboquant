@@ -2224,7 +2224,7 @@ ggml_tensor * llm_graph_context::build_attn(
     ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
     cb(cur, "kqv_out", il);
 
-    LLAMA_LOG_WARN("DEBUG: after build_attn_mha, cur dims = [%ld, %ld, %ld, %ld]\n",
+    fprintf(stderr, "DEBUG: after build_attn_mha, cur dims = [%ld, %ld, %ld, %ld]\n",
                     cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
 
     // TurboQuant: if V was padded, the output has padded dimensions.
@@ -2246,19 +2246,19 @@ ggml_tensor * llm_graph_context::build_attn(
             cur = ggml_cont(ctx0, cur);
             cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
             }
-            LLAMA_LOG_WARN("DEBUG: after padding block, cur dims = [%ld, %ld, %ld, %ld]\n",
+            fprintf(stderr, "DEBUG: after padding block, cur dims = [%ld, %ld, %ld, %ld]\n",
                             cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
         }
     }
 
     if (inp->self_v_rot) {
-        LLAMA_LOG_WARN("DEBUG: applying self_v_rot, cur dims = [%ld, %ld]\n", cur->ne[0], cur->ne[1]);
+        fprintf(stderr, "DEBUG: applying self_v_rot, cur dims = [%ld, %ld]\n", cur->ne[0], cur->ne[1]);
         cur = ggml_mul_mat_aux(ctx0, cur, inp->self_v_rot);
-        LLAMA_LOG_WARN("DEBUG: after self_v_rot, cur dims = [%ld, %ld]\n", cur->ne[0], cur->ne[1]);
+        fprintf(stderr, "DEBUG: after self_v_rot, cur dims = [%ld, %ld]\n", cur->ne[0], cur->ne[1]);
     }
 
     if (wo) {
-        LLAMA_LOG_WARN("DEBUG: applying wo, cur dims = [%ld, %ld], wo dims = [%ld, %ld]\n",
+        fprintf(stderr, "DEBUG: applying wo, cur dims = [%ld, %ld], wo dims = [%ld, %ld]\n",
                         cur->ne[0], cur->ne[1], wo->ne[0], wo->ne[1]);
         cur = build_lora_mm(wo, cur);
         if (arch == LLM_ARCH_GLM4 || arch == LLM_ARCH_GLM4_MOE || arch == LLM_ARCH_JAIS2) {
