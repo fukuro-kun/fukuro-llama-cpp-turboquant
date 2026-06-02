@@ -2235,12 +2235,14 @@ ggml_tensor * llm_graph_context::build_attn(
             // Reshape to 4D, extract original head_dim, reshape back to 2D
             const int64_t n_head_v = hparams.n_head_kv(il);
             const int64_t n_tokens_cur = cur->ne[1];
+            if (cur->ne[0] == padded_v_head * n_head_v) {
             cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
             // ggml_view_3d to extract first orig_v_head elements per head
             cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
                                cur->nb[1], cur->nb[2], 0);
             cur = ggml_cont(ctx0, cur);
             cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            }
         }
     }
 
@@ -2351,11 +2353,13 @@ ggml_tensor * llm_graph_context::build_attn(
             // cur is 2D: (padded_v_head * n_head, n_tokens) after build_attn_mha
             const int64_t n_head_v = hparams.n_head_kv(il);
             const int64_t n_tokens_cur = cur->ne[1];
+            if (cur->ne[0] == padded_v_head * n_head_v) {
             cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
             cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
                                cur->nb[1], cur->nb[2], 0);
             cur = ggml_cont(ctx0, cur);
             cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            }
         }
     }
 
@@ -2460,11 +2464,13 @@ ggml_tensor * llm_graph_context::build_attn(
         if (padded_v_head != orig_v_head) {
             const int64_t n_head_v = hparams.n_head_kv(il);
             const int64_t n_tokens_cur = cur->ne[1];
+            if (cur->ne[0] == padded_v_head * n_head_v) {
             cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
             cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
                                cur->nb[1], cur->nb[2], 0);
             cur = ggml_cont(ctx0, cur);
             cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            }
         }
     }
 
@@ -2543,11 +2549,13 @@ ggml_tensor * llm_graph_context::build_attn_mtp(
         if (padded_v_head != orig_v_head) {
             const int64_t n_head_v     = kv_n_head_v;
             const int64_t n_tokens_cur = cur->ne[1];
+            if (cur->ne[0] == padded_v_head * n_head_v) {
             cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
             cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
                                cur->nb[1], cur->nb[2], 0);
             cur = ggml_cont(ctx0, cur);
             cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            }
         }
     }
 
