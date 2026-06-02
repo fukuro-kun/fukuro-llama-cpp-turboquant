@@ -2224,9 +2224,6 @@ ggml_tensor * llm_graph_context::build_attn(
     ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
     cb(cur, "kqv_out", il);
 
-    fprintf(stderr, "DEBUG: after build_attn_mha, cur dims = [%ld, %ld, %ld, %ld]\n",
-                    cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
-
     // TurboQuant: if Q was padded (K is turbo3), FA output has padded Q dimension.
     // Extract original Q head_dim from FA output.
     if (cparams.flash_attn && (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0)) {
@@ -2241,8 +2238,6 @@ ggml_tensor * llm_graph_context::build_attn(
                                    cur->nb[1], cur->nb[2], 0);
                 cur = ggml_cont(ctx0, cur);
                 cur = ggml_reshape_2d(ctx0, cur, orig_q_head * n_head_q, n_tokens_cur);
-                fprintf(stderr, "DEBUG: extracted Q padding, cur dims = [%ld, %ld]\n",
-                        cur->ne[0], cur->ne[1]);
             }
         }
     }
@@ -2266,20 +2261,14 @@ ggml_tensor * llm_graph_context::build_attn(
             cur = ggml_cont(ctx0, cur);
             cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
             }
-            fprintf(stderr, "DEBUG: after padding block, cur dims = [%ld, %ld, %ld, %ld]\n",
-                            cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
         }
     }
 
     if (inp->self_v_rot) {
-        fprintf(stderr, "DEBUG: applying self_v_rot, cur dims = [%ld, %ld]\n", cur->ne[0], cur->ne[1]);
         cur = ggml_mul_mat_aux(ctx0, cur, inp->self_v_rot);
-        fprintf(stderr, "DEBUG: after self_v_rot, cur dims = [%ld, %ld]\n", cur->ne[0], cur->ne[1]);
     }
 
     if (wo) {
-        fprintf(stderr, "DEBUG: applying wo, cur dims = [%ld, %ld], wo dims = [%ld, %ld]\n",
-                        cur->ne[0], cur->ne[1], wo->ne[0], wo->ne[1]);
         cur = build_lora_mm(wo, cur);
         if (arch == LLM_ARCH_GLM4 || arch == LLM_ARCH_GLM4_MOE || arch == LLM_ARCH_JAIS2) {
             // GLM4, GLM4_MOE, and JAIS2 seem to have numerical issues with half-precision accumulators
