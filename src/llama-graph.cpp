@@ -2227,6 +2227,26 @@ ggml_tensor * llm_graph_context::build_attn(
     fprintf(stderr, "DEBUG: after build_attn_mha, cur dims = [%ld, %ld, %ld, %ld]\n",
                     cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
 
+    // TurboQuant: if Q was padded (K is turbo3), FA output has padded Q dimension.
+    // Extract original Q head_dim from FA output.
+    if (cparams.flash_attn && (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0)) {
+        const int64_t orig_q_head = hparams.n_embd_head_k(il);
+        const int64_t padded_q_head = q->ne[0];
+        if (padded_q_head != orig_q_head) {
+            const int64_t n_head_q = hparams.n_head(il);
+            const int64_t n_tokens_cur = cur->ne[1];
+            if (cur->ne[0] == padded_q_head * n_head_q) {
+                cur = ggml_reshape_3d(ctx0, cur, padded_q_head, n_head_q, n_tokens_cur);
+                cur = ggml_view_3d(ctx0, cur, orig_q_head, n_head_q, n_tokens_cur,
+                                   cur->nb[1], cur->nb[2], 0);
+                cur = ggml_cont(ctx0, cur);
+                cur = ggml_reshape_2d(ctx0, cur, orig_q_head * n_head_q, n_tokens_cur);
+                fprintf(stderr, "DEBUG: extracted Q padding, cur dims = [%ld, %ld]\n",
+                        cur->ne[0], cur->ne[1]);
+            }
+        }
+    }
+
     // TurboQuant: if V was padded, the output has padded dimensions.
     // Extract original V head_dim after inverse WHT (applied inside build_attn_mha).
     // NOTE: gate on v->type (not k->type) for asymmetric configs where K=q8_0 but V=turbo
