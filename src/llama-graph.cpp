@@ -2210,6 +2210,7 @@ ggml_tensor * llm_graph_context::build_attn(
     // TurboQuant pre-rotate-queries: O(d log d) WHT rotation via custom op
     // Q shape: (n_embd_head, n_head, n_tokens)
     // For zero-padded models (head_dim not 128-aligned), pad Q to match padded K dim first.
+    // DEBUG: Temporarily disable Q-WHT to test if the issue is in Q-WHT or elsewhere
     if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
         // Pad Q per-head to next multiple of 128 if needed
         if (q->ne[0] % 128 != 0) {
@@ -2217,8 +2218,10 @@ ggml_tensor * llm_graph_context::build_attn(
             q = ggml_pad(ctx0, q, pad, 0, 0, 0);
         }
         if (!ggml_is_contiguous(q)) { q = ggml_cont(ctx0, q); }
-        ggml_tensor * innerq_scale = mctx_cur->get_turbo_innerq_scale_inv();
-        q = ggml_turbo_wht(ctx0, q, 0, 0, innerq_scale);  // 0 = forward, 0 = auto group size from q->ne[0]
+        // DEBUG: Skip forward WHT on Q to test if that's the problem
+        // ggml_tensor * innerq_scale = mctx_cur->get_turbo_innerq_scale_inv();
+        // q = ggml_turbo_wht(ctx0, q, 0, 0, innerq_scale);  // 0 = forward, 0 = auto group size from q->ne[0]
+        fprintf(stderr, "DEBUG: Q-WHT DISABLED for testing\n");
     }
 
     ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
