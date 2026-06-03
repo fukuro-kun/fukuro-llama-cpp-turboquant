@@ -6281,6 +6281,7 @@ static vk_pipeline ggml_vk_get_to_fp16(ggml_backend_vk_context * ctx, ggml_type 
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_NVFP4:
         case GGML_TYPE_TQ4_1S:
+        case GGML_TYPE_TURBO3_0:
             break;
         default:
             return nullptr;
@@ -6389,6 +6390,7 @@ static vk_pipeline ggml_vk_get_dequantize_mul_mat_vec(ggml_backend_vk_context * 
             case GGML_TYPE_Q6_K:
             case GGML_TYPE_IQ1_S:
             case GGML_TYPE_IQ1_M:
+            case GGML_TYPE_TURBO3_0:
                 break;
             default:
                 return nullptr;
@@ -6422,6 +6424,7 @@ static vk_pipeline ggml_vk_get_dequantize_mul_mat_vec(ggml_backend_vk_context * 
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_NVFP4:
         case GGML_TYPE_TQ4_1S:
+        case GGML_TYPE_TURBO3_0:
             break;
         default:
             return nullptr;
