@@ -2113,7 +2113,7 @@ static void ggml_vk_trace_tensor(const ggml_tensor * tensor) {
     }
 
     // Op filter: the suspicious operations identified by Perplexity analysis
-    if (op == GGML_OP_MUL_MAT || op == GGML_OP_MUL_MAT_ID || op == GGML_OP_MUL_MAT_VEC ||
+    if (op == GGML_OP_MUL_MAT || op == GGML_OP_MUL_MAT_ID ||
         op == GGML_OP_SET_ROWS || op == GGML_OP_VIEW || op == GGML_OP_RESHAPE ||
         op == GGML_OP_ROPE || op == GGML_OP_CONT || op == GGML_OP_PERMUTE) {
         op_match = true;
@@ -2121,9 +2121,14 @@ static void ggml_vk_trace_tensor(const ggml_tensor * tensor) {
 
     if (!name_match && !op_match) return;
 
+    // Backend check: use buffer type name heuristics since ggml_backend_buffer_is_vk
+    // is defined later in this file
     const char * backend_name = "CPU";
-    if (tensor->buffer && ggml_backend_buffer_is_vk(tensor->buffer)) {
-        backend_name = "Vulkan";
+    if (tensor->buffer && tensor->buffer->buft && tensor->buffer->buft->iface.get_name) {
+        const char * buf_name = tensor->buffer->buft->iface.get_name(tensor->buffer->buft);
+        if (buf_name && strstr(buf_name, "Vulkan")) {
+            backend_name = "Vulkan";
+        }
     }
 
     fprintf(stderr, "[TURBO3_TRACE] name=%-40s op=%-16s type=%-6s ne=[%5ld,%5ld,%5ld,%5ld] nb=[%5zu,%5zu,%5zu,%5zu] backend=%-7s\n",
