@@ -567,8 +567,8 @@ static const std::map<llm_tensor, const char *> LLM_TENSOR_NAMES = {
     { LLM_TENSOR_MTP_POST_PROJECTION,                    "mtp.post_projection" },
     { LLM_TENSOR_MTP_CENTROIDS,                          "mtp.centroids" },
     { LLM_TENSOR_MTP_TOKEN_ORDERING,                     "mtp.token_ordering" },
-    { LLM_TENSOR_GEMMA4_MTP_PRE_PROJ,                    "mtp_pre_proj" },
-    { LLM_TENSOR_GEMMA4_MTP_POST_PROJ,                   "mtp_post_proj" },
+    { LLM_TENSOR_GEMMA4_MTP_PRE_PROJ,                    "mtp.pre_projection" },
+    { LLM_TENSOR_GEMMA4_MTP_POST_PROJ,                   "mtp.post_projection" },
 };
 
 // declare information about the model weight tensors:
@@ -853,7 +853,7 @@ llm_arch llm_arch_from_string(const std::string & name) {
     }
 
     // Aliases for compatibility
-    if (name == "gemma4_mtp") {
+    if (name == "gemma4_mtp" || name == "gemma4-assistant") {
         return LLM_ARCH_GEMMA4_ASSISTANT;
     }
 
