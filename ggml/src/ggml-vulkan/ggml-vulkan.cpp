@@ -15628,15 +15628,6 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
         case GGML_OP_MUL_MAT_ID:
             {
                 ggml_type src0_type = op->src[0]->type;
-
-                // === TEST A: Force turbo3 mul_mat to CPU ===
-                // If src0 is turbo3, reject this op so backend scheduler
-                // falls back to CPU. This isolates whether the corruption
-                // is in the Vulkan mul_mat path for turbo3 weights.
-                if (src0_type == GGML_TYPE_TURBO3_0) {
-                    return false;
-                }
-
                 if (op->op == GGML_OP_MUL_MAT_ID) {
                     if (!device->mul_mat_id_s[src0_type] && !device->mul_mat_id_m[src0_type] && !device->mul_mat_id_l[src0_type]) {
                         // If there's not enough shared memory for row_ids and the result tile, fallback to CPU
