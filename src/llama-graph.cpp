@@ -2210,15 +2210,18 @@ ggml_tensor * llm_graph_context::build_attn(
     // TurboQuant pre-rotate-queries: O(d log d) WHT rotation via custom op
     // Q shape: (n_embd_head, n_head, n_tokens)
     // For zero-padded models (head_dim not 128-aligned), pad Q to match padded K dim first.
+    // DEBUG: Disable Q-WHT to test if that's the cause of corruption
     if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
         // Pad Q per-head to next multiple of 128 if needed
         if (q->ne[0] % 128 != 0) {
             const int64_t pad = ((q->ne[0] + 127) / 128) * 128 - q->ne[0];
             q = ggml_pad(ctx0, q, pad, 0, 0, 0);
         }
-        if (!ggml_is_contiguous(q)) { q = ggml_cont(ctx0, q); }
-        ggml_tensor * innerq_scale = mctx_cur->get_turbo_innerq_scale_inv();
-        q = ggml_turbo_wht(ctx0, q, 0, 0, innerq_scale);  // 0 = forward, 0 = auto group size from q->ne[0]
+        // DEBUG: Skip forward WHT on Q
+        // if (!ggml_is_contiguous(q)) { q = ggml_cont(ctx0, q); }
+        // ggml_tensor * innerq_scale = mctx_cur->get_turbo_innerq_scale_inv();
+        // q = ggml_turbo_wht(ctx0, q, 0, 0, innerq_scale);
+        fprintf(stderr, "DEBUG: Q-WHT DISABLED\n");
     }
 
     ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
@@ -2349,15 +2352,17 @@ ggml_tensor * llm_graph_context::build_attn(
 
     // TurboQuant: pre-rotate Q for K-only (MLA) attention
     // For zero-padded models, pad Q to match padded K dim first.
+    // DEBUG: Q-WHT disabled for testing
     if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
         // Pad Q per-head to next multiple of 128 if needed
         if (q->ne[0] % 128 != 0) {
             const int64_t pad = ((q->ne[0] + 127) / 128) * 128 - q->ne[0];
             q = ggml_pad(ctx0, q, pad, 0, 0, 0);
         }
-        if (!ggml_is_contiguous(q)) { q = ggml_cont(ctx0, q); }
-        ggml_tensor * innerq_scale = mctx_cur->get_turbo_innerq_scale_inv();
-        q = ggml_turbo_wht(ctx0, q, 0, 0, innerq_scale);  // 0 = forward, 0 = auto group size
+        // DEBUG: Skip forward WHT on Q
+        // if (!ggml_is_contiguous(q)) { q = ggml_cont(ctx0, q); }
+        // ggml_tensor * innerq_scale = mctx_cur->get_turbo_innerq_scale_inv();
+        // q = ggml_turbo_wht(ctx0, q, 0, 0, innerq_scale);
     }
 
     ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
@@ -2462,14 +2467,16 @@ ggml_tensor * llm_graph_context::build_attn(
     ggml_tensor * v = mctx_cur->get_v(ctx0, il);
 
     // TurboQuant: pre-rotate Q for ISWA attention (pad to 128-aligned if needed)
+    // DEBUG: Q-WHT disabled for testing
     if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
         if (q->ne[0] % 128 != 0) {
             const int64_t pad = ((q->ne[0] + 127) / 128) * 128 - q->ne[0];
             q = ggml_pad(ctx0, q, pad, 0, 0, 0);
         }
-        if (!ggml_is_contiguous(q)) { q = ggml_cont(ctx0, q); }
-        ggml_tensor * innerq_scale = mctx_cur->get_turbo_innerq_scale_inv();
-        q = ggml_turbo_wht(ctx0, q, 0, 0, innerq_scale);
+        // DEBUG: Skip forward WHT on Q
+        // if (!ggml_is_contiguous(q)) { q = ggml_cont(ctx0, q); }
+        // ggml_tensor * innerq_scale = mctx_cur->get_turbo_innerq_scale_inv();
+        // q = ggml_turbo_wht(ctx0, q, 0, 0, innerq_scale);
     }
 
     ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
@@ -2549,14 +2556,16 @@ ggml_tensor * llm_graph_context::build_attn_mtp(
     ggml_tensor * v = use_k_as_v ? k : mctx_cur->get_v(ctx0, il_kv_tgt);
 
 
+    // DEBUG: Q-WHT disabled for testing
     if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
         if (q->ne[0] % 128 != 0) {
             const int64_t pad = ((q->ne[0] + 127) / 128) * 128 - q->ne[0];
             q = ggml_pad(ctx0, q, pad, 0, 0, 0);
         }
-        if (!ggml_is_contiguous(q)) { q = ggml_cont(ctx0, q); }
-        ggml_tensor * innerq_scale = mctx_cur->get_turbo_innerq_scale_inv();
-        q = ggml_turbo_wht(ctx0, q, 0, 0, innerq_scale);
+        // DEBUG: Skip forward WHT on Q
+        // if (!ggml_is_contiguous(q)) { q = ggml_cont(ctx0, q); }
+        // ggml_tensor * innerq_scale = mctx_cur->get_turbo_innerq_scale_inv();
+        // q = ggml_turbo_wht(ctx0, q, 0, 0, innerq_scale);
     }
 
     ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il_mtp);
