@@ -676,15 +676,22 @@ vec2 dequantize(uint ib, uint iqs, uint a_offset) {
     const uint idx0 = low2_0 | (hi1_0 << 2);
     const uint idx1 = low2_1 | (hi1_1 << 2);
 
-    return vec2(centroids[idx0], centroids[idx1]);
+    // FIX: Multiply norm immediately to avoid AMD float16_t conversion bug
+    // when get_dm() is called separately from dequantize().
+    // The norm is read here once and applied directly.
+    const float norm = float(data_a[a_offset + ib].norm);
+    return vec2(centroids[idx0] * norm, centroids[idx1] * norm);
 }
 vec4 dequantize4(uint ib, uint iqs, uint a_offset) {
     vec2 v0 = dequantize(ib, iqs, a_offset);
     vec2 v1 = dequantize(ib, iqs + 2, a_offset);
     return vec4(v0.x, v0.y, v1.x, v1.y);
 }
+// FIX: Return neutral scale (1.0, 0) since norm is already applied in dequantize().
+// This avoids the separate float16_t conversion and memory access in get_dm()
+// which triggers AMD Vulkan bugs with complex offset calculations.
 vec2 get_dm(uint ib, uint a_offset) {
-    return vec2(float(data_a[a_offset + ib].norm), 0);
+    return vec2(1.0, 0);
 }
 #endif
 
