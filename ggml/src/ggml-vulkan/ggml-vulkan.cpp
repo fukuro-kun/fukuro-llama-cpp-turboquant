@@ -2295,11 +2295,10 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
     if (compiled == pipeline_needed_count) {
         std::cerr << "ggml_vulkan: ALL PIPELINES COMPILED - loading complete!" << std::endl;
     }
-    // Periodischer Cache-Save: nur alle 10 Pipelines
-    static std::atomic<int> save_counter{0};
-    if (++save_counter % 10 == 0) {
-        ggml_vk_save_pipeline_cache(device);
-    }
+    // NOTE: Pipeline cache is saved in ggml_vk_cleanup() only.
+    // Saving during pipeline creation causes deadlock on RADV due to
+    // internal Vulkan locks colliding with parallel compiles.
+    // See FINDINGS_MASTER.md "Baseline-Hang" for details.
 
     if (vk_instance.debug_utils_support) {
         vk::DebugUtilsObjectNameInfoEXT duoni;
