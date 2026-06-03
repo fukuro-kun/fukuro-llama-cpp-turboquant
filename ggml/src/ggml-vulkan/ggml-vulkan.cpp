@@ -11091,15 +11091,17 @@ static void ggml_vk_turbo_wht(ggml_backend_vk_context * ctx, vk_context& subctx,
     vk_subbuffer src_buf = ggml_vk_tensor_subbuffer(ctx, src0, false);
     vk_subbuffer dst_buf = ggml_vk_tensor_subbuffer(ctx, dst, false);
     // Spread workgroups across Y/Z to stay within maxComputeWorkGroupCount[0].
-    // elements[0] / group_size = wg0; each row of 512 workgroups uses one Y slice.
+    // Each workgroup processes exactly one group of group_size elements.
+    // Shader workgroup size is 128 (local_size_x), so elements[0] must be
+    // n_groups * 128 to yield wg0 = n_groups workgroups.
     const uint32_t n_groups = pc.ne / (uint32_t)group_size;
     std::array<uint32_t, 3> elements;
     if (n_groups > 262144) {
-        elements = { 512 * (uint32_t)group_size, 512, CEIL_DIV(n_groups, 262144) };
+        elements = { 512 * 128, 512, CEIL_DIV(n_groups, 262144) };
     } else if (n_groups > 512) {
-        elements = { 512 * (uint32_t)group_size, CEIL_DIV(n_groups, 512), 1 };
+        elements = { 512 * 128, CEIL_DIV(n_groups, 512), 1 };
     } else {
-        elements = { pc.ne, 1, 1 };
+        elements = { n_groups * 128, 1, 1 };
     }
     ggml_vk_dispatch_pipeline(ctx, subctx, pipeline, { src_buf, dst_buf }, pc, elements);
 }
