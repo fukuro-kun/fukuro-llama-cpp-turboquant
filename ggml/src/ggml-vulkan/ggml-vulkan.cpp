@@ -1,5 +1,7 @@
 #include "ggml-vulkan.h"
 #include <vulkan/vulkan_core.h>
+#include <cstdlib>
+#include <cstring>
 #if defined(GGML_VULKAN_RUN_TESTS) || defined(GGML_VULKAN_CHECK_RESULTS)
 #include <chrono>
 #include "ggml-cpu.h"
@@ -2083,6 +2085,56 @@ static void ggml_vk_print_tensor(const ggml_tensor * tensor, const char * name);
 static void ggml_vk_check_results_0(ggml_backend_vk_context * ctx, ggml_cgraph * cgraph, int tensor_idx);
 static void ggml_vk_check_results_1(ggml_backend_vk_context * ctx, ggml_cgraph * cgraph, int tensor_idx);
 #endif
+
+// ============================================================================
+// Turbo3 Op-Trace: Dump tensor metadata for ngl=4 vs ngl=5 comparison
+// Enabled via environment variable: GGML_VK_TRACE_TENSORS=1
+// ============================================================================
+static bool vk_trace_tensors_enabled = false;
+static bool vk_trace_tensors_initialized = false;
+
+static void ggml_vk_trace_tensor(const ggml_tensor * tensor) {
+    if (!tensor) return;
+
+    // Filter: only trace tensors that are likely in layers 3-5 or have interesting ops
+    const char * name = tensor->name;
+    const ggml_op op = tensor->op;
+
+    // Accept if: name contains layer number 3,4,5 or blk number 3,4,5
+    // OR if op is one of the suspicious ones (mul_mat, set_rows, wht, rope, view, reshape)
+    bool name_match = false;
+    bool op_match = false;
+
+    // Name filter: layer 3, 4, 5 or blk 3, 4, 5 (0-indexed layers that map to layer.3, layer.4, layer.5)
+    if (strstr(name, "layer.3") || strstr(name, "layer.4") || strstr(name, "layer.5") ||
+        strstr(name, "blk.3")   || strstr(name, "blk.4")   || strstr(name, "blk.5") ||
+        strstr(name, "layers.3") || strstr(name, "layers.4") || strstr(name, "layers.5")) {
+        name_match = true;
+    }
+
+    // Op filter: the suspicious operations identified by Perplexity analysis
+    if (op == GGML_OP_MUL_MAT || op == GGML_OP_MUL_MAT_ID || op == GGML_OP_MUL_MAT_VEC ||
+        op == GGML_OP_SET_ROWS || op == GGML_OP_VIEW || op == GGML_OP_RESHAPE ||
+        op == GGML_OP_ROPE || op == GGML_OP_CONT || op == GGML_OP_PERMUTE) {
+        op_match = true;
+    }
+
+    if (!name_match && !op_match) return;
+
+    const char * backend_name = "CPU";
+    if (tensor->buffer && ggml_backend_buffer_is_vk(tensor->buffer)) {
+        backend_name = "Vulkan";
+    }
+
+    fprintf(stderr, "[TURBO3_TRACE] name=%-40s op=%-16s type=%-6s ne=[%5ld,%5ld,%5ld,%5ld] nb=[%5zu,%5zu,%5zu,%5zu] backend=%-7s\n",
+        name,
+        ggml_op_name(op),
+        ggml_type_name(tensor->type),
+        tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3],
+        tensor->nb[0], tensor->nb[1], tensor->nb[2], tensor->nb[3],
+        backend_name
+    );
+}
 
 typedef void (*ggml_vk_func_t)(ggml_backend_vk_context * ctx, vk_context& subctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst);
 
@@ -14607,6 +14659,16 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
     VK_LOG_DEBUG("ggml_backend_vk_graph_compute(" << cgraph->n_nodes << " nodes)");
     ggml_backend_vk_context * ctx = (ggml_backend_vk_context *)backend->context;
 
+    // Initialize tensor tracing (once)
+    if (!vk_trace_tensors_initialized) {
+        const char * trace_env = getenv("GGML_VK_TRACE_TENSORS");
+        if (trace_env && strcmp(trace_env, "1") == 0) {
+            vk_trace_tensors_enabled = true;
+            fprintf(stderr, "[TURBO3_TRACE] Tensor tracing ENABLED for ngl comparison\n");
+        }
+        vk_trace_tensors_initialized = true;
+    }
+
     if (vk_instance.debug_utils_support) {
         vk::DebugUtilsLabelEXT dul = {};
         dul.pLabelName = "ggml_backend_vk_graph_compute";
@@ -14685,6 +14747,11 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
     uint64_t total_mul_mat_bytes = 0;
     uint64_t mul_mat_bytes_per_submit = std::min(uint64_t(100*1000*1000), ctx->last_total_mul_mat_bytes / 40u);
     for (int i = 0; i < cgraph->n_nodes; i++) {
+        // Turbo3 Op-Trace: dump tensor metadata for ngl comparison
+        if (vk_trace_tensors_enabled) {
+            ggml_vk_trace_tensor(cgraph->nodes[i]);
+        }
+
         if (first_node_in_batch) {
             submit_node_idx = i;
         }
