@@ -73,6 +73,7 @@ DispatchLoaderDynamic & ggml_vk_default_dispatcher();
 #include "ggml-backend-impl.h"
 
 #include "ggml-vulkan-shaders.hpp"
+#include <fstream>
 
 // remove this once it's more widely available in the SDK
 #if !defined(VK_KHR_shader_bfloat16)
@@ -664,6 +665,9 @@ struct vk_device_struct {
     bool coopmat2;
 
     bool pipeline_executable_properties_support {};
+    vk::PipelineCache pipeline_cache{};
+    std::string pipeline_cache_path{};
+    bool pipeline_cache_loaded{};
 
     size_t idx;
 
@@ -2127,6 +2131,11 @@ static void ggml_vk_wait_for_fence(ggml_backend_vk_context * ctx) {
 static uint32_t compile_count = 0;
 static std::mutex compile_count_mutex;
 static std::condition_variable compile_count_cond;
+static void ggml_vk_save_pipeline_cache(vk_device& device);
+
+// Pipeline tracking for debugging
+static std::atomic<int> pipeline_needed_count{0};
+static std::atomic<int> pipeline_compiled_count{0};
 
 static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipeline, size_t spv_size, const void* spv_data, const std::string entrypoint,
                                          uint32_t parameter_count, std::array<uint32_t, 3> wg_denoms, std::vector<uint32_t> specialization_constants,
@@ -2274,13 +2283,23 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
 #endif
 
     try {
-        pipeline->pipeline = device->device.createComputePipeline(VK_NULL_HANDLE, compute_pipeline_create_info).value;
+        pipeline->pipeline = device->device.createComputePipeline(device->pipeline_cache, compute_pipeline_create_info).value;
     } catch (const vk::SystemError& e) {
         std::cerr << "ggml_vulkan: Compute pipeline creation failed for " << pipeline->name << std::endl;
         std::cerr << "ggml_vulkan: " << e.what() << std::endl;
         throw e;
     }
     pipeline->compiled = true;
+    int compiled = ++pipeline_compiled_count;
+    std::cerr << "ggml_vulkan: Pipeline compiled: " << pipeline->name << " (" << compiled << "/" << pipeline_needed_count << ")" << std::endl;
+    if (compiled == pipeline_needed_count) {
+        std::cerr << "ggml_vulkan: ALL PIPELINES COMPILED - loading complete!" << std::endl;
+    }
+    // Periodischer Cache-Save: nur alle 10 Pipelines
+    static std::atomic<int> save_counter{0};
+    if (++save_counter % 10 == 0) {
+        ggml_vk_save_pipeline_cache(device);
+    }
 
     if (vk_instance.debug_utils_support) {
         vk::DebugUtilsObjectNameInfoEXT duoni;
@@ -2290,44 +2309,41 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         vk_instance.pfn_vkSetDebugUtilsObjectNameEXT(device->device, &static_cast<VkDebugUtilsObjectNameInfoEXT &>(duoni));
     }
 
-    if (device->pipeline_executable_properties_support) {
-        vk::PipelineExecutableInfoKHR executableInfo;
-        executableInfo.pipeline = pipeline->pipeline;
-
-        auto statistics = device->device.getPipelineExecutableStatisticsKHR(executableInfo);
-
-        bool print_stats = !vk_pipeline_stats_filter.empty() &&
-                           pipeline->name.find(vk_pipeline_stats_filter) != std::string::npos;
-        if (print_stats) {
-            std::cerr << "ggml_vulkan: pipeline stats for " << pipeline->name << ":" << std::endl;
-        }
-
-        for (auto & s : statistics) {
-            if (print_stats) {
-                std::cerr << "ggml_vulkan:   " << s.name.data() << ": ";
-                switch (s.format) {
-                    case vk::PipelineExecutableStatisticFormatKHR::eBool32:
-                        std::cerr << (s.value.b32 ? "true" : "false");
-                        break;
-                    case vk::PipelineExecutableStatisticFormatKHR::eInt64:
-                        std::cerr << s.value.i64;
-                        break;
-                    case vk::PipelineExecutableStatisticFormatKHR::eUint64:
-                        std::cerr << s.value.u64;
-                        break;
-                    case vk::PipelineExecutableStatisticFormatKHR::eFloat64:
-                        std::cerr << s.value.f64;
-                        break;
-                }
-                std::cerr << std::endl;
-            }
-            // "Register Count" is reported by NVIDIA drivers.
-            if (strcmp(s.name, "Register Count") == 0) {
-                VK_LOG_DEBUG(pipeline->name << " " << s.name << ": " << s.value.u64 << " registers");
-                pipeline->register_count = (uint32_t)s.value.u64;
-            }
-        }
-    }
+    // DISABLED: getPipelineExecutableStatisticsKHR is extremely slow and causes hangs
+    // if (device->pipeline_executable_properties_support) {
+    //     vk::PipelineExecutableInfoKHR executableInfo;
+    //     executableInfo.pipeline = pipeline->pipeline;
+    //     auto statistics = device->device.getPipelineExecutableStatisticsKHR(executableInfo);
+    //     bool print_stats = !vk_pipeline_stats_filter.empty() &&
+    //                        pipeline->name.find(vk_pipeline_stats_filter) != std::string::npos;
+    //     if (print_stats) {
+    //         std::cerr << "ggml_vulkan: pipeline stats for " << pipeline->name << ":" << std::endl;
+    //     }
+    //     for (auto & s : statistics) {
+    //         if (print_stats) {
+    //             std::cerr << "ggml_vulkan:   " << s.name.data() << ": ";
+    //             switch (s.format) {
+    //                 case vk::PipelineExecutableStatisticFormatKHR::eBool32:
+    //                     std::cerr << (s.value.b32 ? "true" : "false");
+    //                     break;
+    //                 case vk::PipelineExecutableStatisticFormatKHR::eInt64:
+    //                     std::cerr << s.value.i64;
+    //                     break;
+    //                 case vk::PipelineExecutableStatisticFormatKHR::eUint64:
+    //                     std::cerr << s.value.u64;
+    //                     break;
+    //                 case vk::PipelineExecutableStatisticFormatKHR::eFloat64:
+    //                     std::cerr << s.value.f64;
+    //                     break;
+    //             }
+    //             std::cerr << std::endl;
+    //         }
+    //         if (strcmp(s.name, "Register Count") == 0) {
+    //             VK_LOG_DEBUG(pipeline->name << " " << s.name << ": " << s.value.u64 << " registers");
+    //             pipeline->register_count = (uint32_t)s.value.u64;
+    //         }
+    //     }
+    // }
 
     device->all_pipelines.push_back(pipeline);
 
@@ -3462,11 +3478,14 @@ static void ggml_vk_load_shaders(vk_device& device) {
             if (!pipeline->needed || pipeline->compiled) {
                 continue;
             }
+            int needed = ++pipeline_needed_count;
+            std::cerr << "ggml_vulkan: Pipeline needed: " << name << " (#" << needed << ")" << std::endl;
             // TODO: We're no longer benefitting from the async compiles (shaders are
             // compiled individually, as needed) and this complexity can be removed.
             {
                 // wait until fewer than N compiles are in progress
-                uint32_t N = std::max(1u, std::thread::hardware_concurrency());
+                // Increased from hardware_concurrency() to allow more parallel pipeline creation
+                uint32_t N = std::max(1u, std::thread::hardware_concurrency() * 4);
                 std::unique_lock<std::mutex> guard(compile_count_mutex);
                 while (compile_count >= N) {
                     compile_count_cond.wait(guard);
@@ -5637,6 +5656,36 @@ static vk_device ggml_vk_get_device(size_t idx) {
         device->dsl = device->device.createDescriptorSetLayout(descriptor_set_layout_create_info);
 
         ggml_vk_load_shaders(device);
+        // Load or create pipeline cache
+        const std::string cache_dir = std::string(getenv("HOME") ? getenv("HOME") : "/tmp") + "/.cache/llama.cpp";
+        device->pipeline_cache_path = cache_dir + "/vulkan-pipeline-cache.bin";
+        
+        // Try to load existing cache
+        std::ifstream cache_file(device->pipeline_cache_path, std::ios::binary | std::ios::ate);
+        if (cache_file.is_open()) {
+            size_t cache_size = cache_file.tellg();
+            if (cache_size > 0) {
+                cache_file.seekg(0, std::ios::beg);
+                std::vector<char> cache_data(cache_size);
+                cache_file.read(cache_data.data(), cache_size);
+                if (cache_file.gcount() == (std::streamsize)cache_size) {
+                    vk::PipelineCacheCreateInfo cache_info({}, cache_size, cache_data.data());
+                    try {
+                        device->pipeline_cache = device->device.createPipelineCache(cache_info);
+                        device->pipeline_cache_loaded = true;
+                        std::cerr << "ggml_vulkan: Loaded pipeline cache from " << device->pipeline_cache_path << " (" << (cache_size/1024) << " KB)" << std::endl;
+                    } catch (...) {
+                        std::cerr << "ggml_vulkan: Failed to load pipeline cache, creating new" << std::endl;
+                    }
+                }
+            }
+        }
+        
+        // Create new cache if none loaded
+        if (!device->pipeline_cache) {
+            vk::PipelineCacheCreateInfo cache_info;
+            device->pipeline_cache = device->device.createPipelineCache(cache_info);
+        }
 
         // Only use transfer queue on AMD non-GCN, when the graphics queue is not enabled
         const bool prefers_transfer_queue = device->vendor_id == VK_VENDOR_ID_AMD && device->architecture != AMD_GCN && !allow_graphics_queue;
@@ -13573,6 +13622,33 @@ static void ggml_vk_graph_cleanup(ggml_backend_vk_context * ctx) {
 }
 
 // Clean up on backend free
+static void ggml_vk_save_pipeline_cache(vk_device& device) {
+    if (device->pipeline_cache && !device->pipeline_cache_path.empty()) {
+        try {
+            size_t cache_size = 0;
+            device->device.getPipelineCacheData(device->pipeline_cache, &cache_size, nullptr);
+            if (cache_size > 0) {
+                std::vector<char> cache_data(cache_size);
+                device->device.getPipelineCacheData(device->pipeline_cache, &cache_size, cache_data.data());
+                
+                size_t last_slash = device->pipeline_cache_path.find_last_of('/');
+                if (last_slash != std::string::npos) {
+                    std::string cache_dir = device->pipeline_cache_path.substr(0, last_slash);
+                    std::string cmd = "mkdir -p " + cache_dir;
+                    system(cmd.c_str());
+                }
+                
+                std::ofstream out_file(device->pipeline_cache_path, std::ios::binary);
+                if (out_file.is_open()) {
+                    out_file.write(cache_data.data(), cache_size);
+                    std::cerr << "ggml_vulkan: Saved pipeline cache to " << device->pipeline_cache_path << " (" << (cache_size/1024) << " KB)" << std::endl;
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "ggml_vulkan: Failed to save pipeline cache: " << e.what() << std::endl;
+        }
+    }
+}
 static void ggml_vk_cleanup(ggml_backend_vk_context * ctx) {
     VK_LOG_DEBUG("ggml_vk_cleanup(" << ctx->name << ")");
     // discard any unsubmitted command buffers
@@ -13613,6 +13689,7 @@ static void ggml_vk_cleanup(ggml_backend_vk_context * ctx) {
         ctx->device->device.destroySemaphore(ctx->transfer_semaphore.s);
 
         ctx->transfer_cmd_pool.destroy(ctx->device->device);
+    ggml_vk_save_pipeline_cache(ctx->device);
     }
     if (vk_perf_logger_enabled) {
         ctx->perf_logger->print_timings(true);
@@ -16802,8 +16879,9 @@ static void ggml_vk_check_results_0(ggml_backend_vk_context * ctx, ggml_cgraph *
             tensor_clone = ggml_rwkv_wkv7(ggml_ctx, src_clone[0], src_clone[1], src_clone[2], src_clone[3],
             src_clone[4], src_clone[5], src_clone[6]);
         } else if (tensor->op == GGML_OP_GATED_DELTA_NET) {
+            const bool keep_intermediates = (((const int32_t *) tensor->op_params)[0] != 0);
             tensor_clone = ggml_gated_delta_net(ggml_ctx, src_clone[0], src_clone[1],
-            src_clone[2], src_clone[3], src_clone[4], src_clone[5]);
+            src_clone[2], src_clone[3], src_clone[4], src_clone[5], keep_intermediates);
         } else if (tensor->op == GGML_OP_OPT_STEP_ADAMW) {
             src_clone[0]->flags = tensor->src[0]->flags;
             tensor_clone = ggml_opt_step_adamw(ggml_ctx, src_clone[0], src_clone[1],

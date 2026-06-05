@@ -614,7 +614,11 @@ void llm_graph_input_mem_hybrid::set_input(const llama_ubatch * ubatch) {
 
     const int64_t n_rs = mctx->get_recr()->get_n_rs();
 
-    if (inp_rs->s_copy) {
+    // NextN draft graphs (Qwen 3.6) consume only the attention slot of the hybrid
+    // input. Their graphs never reference inp_rs->s_copy, so the scheduler never
+    // allocates a backend buffer for it. Skip the recurrent-state copy in that
+    // case instead of asserting on the missing buffer.
+    if (inp_rs->s_copy && inp_rs->s_copy->buffer != nullptr) {
         GGML_ASSERT(ggml_backend_buffer_is_host(inp_rs->s_copy->buffer));
         int32_t * data = (int32_t *) inp_rs->s_copy->data;
 
@@ -834,6 +838,8 @@ void llm_graph_result::reset() {
     t_embd        = nullptr;
     t_embd_pooled = nullptr;
     t_argmax      = nullptr;
+    t_h_pre_norm  = nullptr;
+    t_nextn_out   = nullptr;
     t_sampled.clear();
     t_sampled_probs.clear();
     t_sampled_logits.clear();
@@ -1932,12 +1938,12 @@ ggml_tensor * llm_graph_context::build_attn_mha(
         ggml_flash_attn_ext_add_sinks(cur, sinks);
         ggml_flash_attn_ext_set_prec (cur, GGML_PREC_F32);
 
-        // TurboQuant: inverse WHT on FA output when V values are WHT-rotated.
+        // TurboQuant: inverse WHT on FA output when Q was WHT-rotated (K is turbo).
         // For MLA, V is a view of K with different ne[0] (e.g. V=512, K=576).
         // Group size must come from K (which determines the WHT rotation), not V.
-        if (v->type == GGML_TYPE_TURBO3_0 || v->type == GGML_TYPE_TURBO4_0 || v->type == GGML_TYPE_TURBO2_0) {
-            const bool k_is_turbo = (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0);
-            const ggml_tensor * group_src = k_is_turbo ? k : v;
+        // IMPORTANT: Only apply inverse if K is turbo (Q was forward-WHT'd), not just V!
+        if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
+            const ggml_tensor * group_src = k;
             const int turbo_group = (group_src->ne[0] % 128 == 0) ? 128 : 64;
             if (cur->ne[0] % turbo_group == 0) {
                 if (!ggml_is_contiguous(cur)) { cur = ggml_cont(ctx0, cur); }
@@ -2013,9 +2019,9 @@ ggml_tensor * llm_graph_context::build_attn_mha(
         cb(kqv, "kqv", il);
 
         // TurboQuant: inverse WHT on attention output (non-FA path)
-        if (v->type == GGML_TYPE_TURBO3_0 || v->type == GGML_TYPE_TURBO4_0 || v->type == GGML_TYPE_TURBO2_0) {
-            const bool k_is_turbo = (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0);
-            const ggml_tensor * group_src = k_is_turbo ? k : v;
+        // Only apply if K is turbo (Q was forward-WHT'd)
+        if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
+            const ggml_tensor * group_src = k;
             const int turbo_group = (group_src->ne[0] % 128 == 0) ? 128 : 64;
             if (kqv->ne[0] % turbo_group == 0) {
                 if (!ggml_is_contiguous(kqv)) { kqv = ggml_cont(ctx0, kqv); }
@@ -2218,10 +2224,36 @@ ggml_tensor * llm_graph_context::build_attn(
     ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
     cb(cur, "kqv_out", il);
 
+    // TurboQuant: if Q was padded (K is turbo3), attention output has padded Q dimension.
+    // Extract original Q head_dim from attention output.
+    // NOTE: This was previously gated on flash_attn, but we need it for non-FA paths too!
+    if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
+        const int64_t orig_q_head = hparams.n_embd_head_k(il);
+        const int64_t padded_q_head = q->ne[0];
+        if (padded_q_head != orig_q_head) {
+            const int64_t n_head_q = hparams.n_head(il);
+            const int64_t n_tokens_cur = cur->ne[1];
+            // Defensive: ensure total element count matches before reshape to avoid assertion failure
+            const int64_t expected_elems = padded_q_head * n_head_q * n_tokens_cur;
+            const int64_t actual_elems   = cur->ne[0] * cur->ne[1];
+            if (cur->ne[0] == padded_q_head * n_head_q && actual_elems == expected_elems) {
+                cur = ggml_reshape_3d(ctx0, cur, padded_q_head, n_head_q, n_tokens_cur);
+                cur = ggml_view_3d(ctx0, cur, orig_q_head, n_head_q, n_tokens_cur,
+                                   cur->nb[1], cur->nb[2], 0);
+                cur = ggml_cont(ctx0, cur);
+                cur = ggml_reshape_2d(ctx0, cur, orig_q_head * n_head_q, n_tokens_cur);
+            } else {
+                LLAMA_LOG_WARN("build_attn: Q-pad extraction skipped — shape mismatch (expected %ld*%ld*%ld=%ld elements, got %ld*%ld=%ld)\n",
+                    (long)padded_q_head, (long)n_head_q, (long)n_tokens_cur, (long)expected_elems,
+                    (long)cur->ne[0], (long)cur->ne[1], (long)actual_elems);
+            }
+        }
+    }
+
     // TurboQuant: if V was padded, the output has padded dimensions.
     // Extract original V head_dim after inverse WHT (applied inside build_attn_mha).
-    // NOTE: gate on v->type (not k->type) for asymmetric configs where K=q8_0 but V=turbo
-    if (v->type == GGML_TYPE_TURBO3_0 || v->type == GGML_TYPE_TURBO4_0 || v->type == GGML_TYPE_TURBO2_0) {
+    // IMPORTANT: Gate on k->type (not v->type) because inverse WHT is applied when K is turbo
+    if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
         const int64_t orig_v_head = hparams.n_embd_head_v(il);
         // cur is 2D: (n_embd_head * n_head, n_tokens) after build_attn_mha
         const int64_t padded_v_head = v->ne[0];
@@ -2229,12 +2261,21 @@ ggml_tensor * llm_graph_context::build_attn(
             // Reshape to 4D, extract original head_dim, reshape back to 2D
             const int64_t n_head_v = hparams.n_head_kv(il);
             const int64_t n_tokens_cur = cur->ne[1];
-            cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
-            // ggml_view_3d to extract first orig_v_head elements per head
-            cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
-                               cur->nb[1], cur->nb[2], 0);
-            cur = ggml_cont(ctx0, cur);
-            cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            // Defensive: ensure total element count matches before reshape to avoid assertion failure
+            const int64_t expected_elems = padded_v_head * n_head_v * n_tokens_cur;
+            const int64_t actual_elems   = cur->ne[0] * cur->ne[1];
+            if (cur->ne[0] == padded_v_head * n_head_v && actual_elems == expected_elems) {
+                cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
+                // ggml_view_3d to extract first orig_v_head elements per head
+                cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
+                                   cur->nb[1], cur->nb[2], 0);
+                cur = ggml_cont(ctx0, cur);
+                cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            } else {
+                LLAMA_LOG_WARN("build_attn: V-pad extraction skipped — shape mismatch (expected %ld*%ld*%ld=%ld elements, got %ld*%ld=%ld)\n",
+                    (long)padded_v_head, (long)n_head_v, (long)n_tokens_cur, (long)expected_elems,
+                    (long)cur->ne[0], (long)cur->ne[1], (long)actual_elems);
+            }
         }
     }
 
@@ -2345,11 +2386,13 @@ ggml_tensor * llm_graph_context::build_attn(
             // cur is 2D: (padded_v_head * n_head, n_tokens) after build_attn_mha
             const int64_t n_head_v = hparams.n_head_kv(il);
             const int64_t n_tokens_cur = cur->ne[1];
+            if (cur->ne[0] == padded_v_head * n_head_v) {
             cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
             cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
                                cur->nb[1], cur->nb[2], 0);
             cur = ggml_cont(ctx0, cur);
             cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            }
         }
     }
 
@@ -2447,18 +2490,27 @@ ggml_tensor * llm_graph_context::build_attn(
     cb(cur, "kqv_out", il);
 
     // TurboQuant: if V was padded, extract original V head_dim after inverse WHT
-    // NOTE: gate on v->type (not k->type) for asymmetric configs where K=q8_0 but V=turbo
-    if (v->type == GGML_TYPE_TURBO3_0 || v->type == GGML_TYPE_TURBO4_0 || v->type == GGML_TYPE_TURBO2_0) {
+    // IMPORTANT: Gate on k->type because inverse WHT is applied when K is turbo
+    if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
         const int64_t orig_v_head = hparams.n_embd_head_v(il);
         const int64_t padded_v_head = v->ne[0];
         if (padded_v_head != orig_v_head) {
             const int64_t n_head_v = hparams.n_head_kv(il);
             const int64_t n_tokens_cur = cur->ne[1];
-            cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
-            cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
-                               cur->nb[1], cur->nb[2], 0);
-            cur = ggml_cont(ctx0, cur);
-            cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            // Defensive: ensure total element count matches before reshape to avoid assertion failure
+            const int64_t expected_elems = padded_v_head * n_head_v * n_tokens_cur;
+            const int64_t actual_elems   = cur->ne[0] * cur->ne[1];
+            if (cur->ne[0] == padded_v_head * n_head_v && actual_elems == expected_elems) {
+                cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
+                cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
+                                   cur->nb[1], cur->nb[2], 0);
+                cur = ggml_cont(ctx0, cur);
+                cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            } else {
+                LLAMA_LOG_WARN("build_attn(ISWA): V-pad extraction skipped — shape mismatch (expected %ld*%ld*%ld=%ld elements, got %ld*%ld=%ld)\n",
+                    (long)padded_v_head, (long)n_head_v, (long)n_tokens_cur, (long)expected_elems,
+                    (long)cur->ne[0], (long)cur->ne[1], (long)actual_elems);
+            }
         }
     }
 
@@ -2531,17 +2583,27 @@ ggml_tensor * llm_graph_context::build_attn_mtp(
     ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il_mtp);
     cb(cur, "kqv_out_mtp", il_mtp);
 
-    if (v->type == GGML_TYPE_TURBO3_0 || v->type == GGML_TYPE_TURBO4_0 || v->type == GGML_TYPE_TURBO2_0) {
+    // IMPORTANT: Gate on k->type because inverse WHT is applied when K is turbo
+    if (k->type == GGML_TYPE_TURBO3_0 || k->type == GGML_TYPE_TURBO4_0 || k->type == GGML_TYPE_TURBO2_0) {
         const int64_t orig_v_head   = kv_embd_head_v;
         const int64_t padded_v_head = v->ne[0];
         if (padded_v_head != orig_v_head) {
             const int64_t n_head_v     = kv_n_head_v;
             const int64_t n_tokens_cur = cur->ne[1];
-            cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
-            cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
-                               cur->nb[1], cur->nb[2], 0);
-            cur = ggml_cont(ctx0, cur);
-            cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            // Defensive: ensure total element count matches before reshape to avoid assertion failure
+            const int64_t expected_elems = padded_v_head * n_head_v * n_tokens_cur;
+            const int64_t actual_elems   = cur->ne[0] * cur->ne[1];
+            if (cur->ne[0] == padded_v_head * n_head_v && actual_elems == expected_elems) {
+                cur = ggml_reshape_3d(ctx0, cur, padded_v_head, n_head_v, n_tokens_cur);
+                cur = ggml_view_3d(ctx0, cur, orig_v_head, n_head_v, n_tokens_cur,
+                                   cur->nb[1], cur->nb[2], 0);
+                cur = ggml_cont(ctx0, cur);
+                cur = ggml_reshape_2d(ctx0, cur, orig_v_head * n_head_v, n_tokens_cur);
+            } else {
+                LLAMA_LOG_WARN("build_attn_mtp: V-pad extraction skipped — shape mismatch (expected %ld*%ld*%ld=%ld elements, got %ld*%ld=%ld)\n",
+                    (long)padded_v_head, (long)n_head_v, (long)n_tokens_cur, (long)expected_elems,
+                    (long)cur->ne[0], (long)cur->ne[1], (long)actual_elems);
+            }
         }
     }
 
@@ -2662,7 +2724,8 @@ ggml_tensor * llm_graph_context::build_rs(
             int32_t   rs_zero,
         const llm_graph_get_rows_fn & get_state_rows) const {
 
-    ggml_tensor * states = ggml_reshape_2d(ctx0, s, state_size, rs_size);
+    GGML_UNUSED(rs_size);
+    ggml_tensor * states = ggml_reshape_2d(ctx0, s, state_size, s->ne[1]);
 
     // Clear a single state which will then be copied to the other cleared states.
     // Note that this is a no-op when the view is zero-sized.
