@@ -1,5 +1,7 @@
 #include "ggml-vulkan.h"
 #include <vulkan/vulkan_core.h>
+#include <cstdlib>
+#include <cstring>
 #if defined(GGML_VULKAN_RUN_TESTS) || defined(GGML_VULKAN_CHECK_RESULTS)
 #include <chrono>
 #include "ggml-cpu.h"
@@ -2084,6 +2086,61 @@ static void ggml_vk_check_results_0(ggml_backend_vk_context * ctx, ggml_cgraph *
 static void ggml_vk_check_results_1(ggml_backend_vk_context * ctx, ggml_cgraph * cgraph, int tensor_idx);
 #endif
 
+// ============================================================================
+// Turbo3 Op-Trace: Dump tensor metadata for ngl=4 vs ngl=5 comparison
+// Enabled via environment variable: GGML_VK_TRACE_TENSORS=1
+// ============================================================================
+static bool vk_trace_tensors_enabled = false;
+static bool vk_trace_tensors_initialized = false;
+
+static void ggml_vk_trace_tensor(const ggml_tensor * tensor) {
+    if (!tensor) return;
+
+    // Filter: only trace tensors that are likely in layers 3-5 or have interesting ops
+    const char * name = tensor->name;
+    const ggml_op op = tensor->op;
+
+    // Accept if: name contains layer number 3,4,5 or blk number 3,4,5
+    // OR if op is one of the suspicious ones (mul_mat, set_rows, wht, rope, view, reshape)
+    bool name_match = false;
+    bool op_match = false;
+
+    // Name filter: layer 3, 4, 5 or blk 3, 4, 5 (0-indexed layers that map to layer.3, layer.4, layer.5)
+    if (strstr(name, "layer.3") || strstr(name, "layer.4") || strstr(name, "layer.5") ||
+        strstr(name, "blk.3")   || strstr(name, "blk.4")   || strstr(name, "blk.5") ||
+        strstr(name, "layers.3") || strstr(name, "layers.4") || strstr(name, "layers.5")) {
+        name_match = true;
+    }
+
+    // Op filter: the suspicious operations identified by Perplexity analysis
+    if (op == GGML_OP_MUL_MAT || op == GGML_OP_MUL_MAT_ID ||
+        op == GGML_OP_SET_ROWS || op == GGML_OP_VIEW || op == GGML_OP_RESHAPE ||
+        op == GGML_OP_ROPE || op == GGML_OP_CONT || op == GGML_OP_PERMUTE) {
+        op_match = true;
+    }
+
+    if (!name_match && !op_match) return;
+
+    // Backend check: use buffer type name heuristics since ggml_backend_buffer_is_vk
+    // is defined later in this file
+    const char * backend_name = "CPU";
+    if (tensor->buffer && tensor->buffer->buft && tensor->buffer->buft->iface.get_name) {
+        const char * buf_name = tensor->buffer->buft->iface.get_name(tensor->buffer->buft);
+        if (buf_name && strstr(buf_name, "Vulkan")) {
+            backend_name = "Vulkan";
+        }
+    }
+
+    fprintf(stderr, "[TURBO3_TRACE] name=%-40s op=%-16s type=%-6s ne=[%5ld,%5ld,%5ld,%5ld] nb=[%5zu,%5zu,%5zu,%5zu] backend=%-7s\n",
+        name,
+        ggml_op_name(op),
+        ggml_type_name(tensor->type),
+        tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3],
+        tensor->nb[0], tensor->nb[1], tensor->nb[2], tensor->nb[3],
+        backend_name
+    );
+}
+
 typedef void (*ggml_vk_func_t)(ggml_backend_vk_context * ctx, vk_context& subctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst);
 
 static void ggml_backend_vk_free(ggml_backend_t backend);
@@ -2295,11 +2352,10 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
     if (compiled == pipeline_needed_count) {
         std::cerr << "ggml_vulkan: ALL PIPELINES COMPILED - loading complete!" << std::endl;
     }
-    // Periodischer Cache-Save: nur alle 10 Pipelines
-    static std::atomic<int> save_counter{0};
-    if (++save_counter % 10 == 0) {
-        ggml_vk_save_pipeline_cache(device);
-    }
+    // NOTE: Pipeline cache is saved in ggml_vk_cleanup() only.
+    // Saving during pipeline creation causes deadlock on RADV due to
+    // internal Vulkan locks colliding with parallel compiles.
+    // See FINDINGS_MASTER.md "Baseline-Hang" for details.
 
     if (vk_instance.debug_utils_support) {
         vk::DebugUtilsObjectNameInfoEXT duoni;
@@ -4239,6 +4295,7 @@ static void ggml_vk_load_shaders(vk_device& device) {
             ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_f32_f32[w][GGML_TYPE_IQ4_NL][i],  "mul_mat_vec_iq4_nl_f32_f32",  arr_dmmv_iq4_nl_f32_f32_len[reduc16],  arr_dmmv_iq4_nl_f32_f32_data[reduc16],  "main", mul_mat_vec_num_bindings, sizeof(vk_mat_vec_push_constants), {rm_iq, 1, 1}, {wg_size_subgroup16, rm_iq, i+1}, 1, true, use_subgroups16, force_subgroup_size16);
             ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_f32_f32[w][GGML_TYPE_MXFP4][i],   "mul_mat_vec_mxfp4_f32_f32",   arr_dmmv_mxfp4_f32_f32_len[reduc16],   arr_dmmv_mxfp4_f32_f32_data[reduc16],   "main", mul_mat_vec_num_bindings, sizeof(vk_mat_vec_push_constants), {rm_iq, 1, 1}, {wg_size_subgroup16, rm_iq, i+1}, 1, true, use_subgroups16, force_subgroup_size16);
             ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_f32_f32[w][GGML_TYPE_NVFP4][i],   "mul_mat_vec_nvfp4_f32_f32",   arr_dmmv_nvfp4_f32_f32_len[reduc16],   arr_dmmv_nvfp4_f32_f32_data[reduc16],   "main", mul_mat_vec_num_bindings, sizeof(vk_mat_vec_push_constants), {rm_iq, 1, 1}, {wg_size_subgroup16, rm_iq, i+1}, 1, true, use_subgroups16, force_subgroup_size16);
+            ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_f32_f32[w][GGML_TYPE_TURBO3_0][i],  "mul_mat_vec_turbo3_0_f32_f32", arr_dmmv_turbo3_0_f32_f32_len[reduc], arr_dmmv_turbo3_0_f32_f32_data[reduc], "main", mul_mat_vec_num_bindings, sizeof(vk_mat_vec_push_constants), {1*rm_stdq, 1, 1}, {wg_size_subgroup, 1*rm_stdq, i+1}, 1, true, use_subgroups, force_subgroup_size);
             // TQ4_1S: fixed 32-thread workgroup, shared-memory WHT butterfly,
             // shared-memory reduction.  NUM_ROWS=8 amortises the butterfly cost
             // across 8 output rows per workgroup.
@@ -4269,6 +4326,7 @@ static void ggml_vk_load_shaders(vk_device& device) {
             ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_f16_f32[w][GGML_TYPE_IQ4_NL][i],  "mul_mat_vec_iq4_nl_f16_f32",  arr_dmmv_iq4_nl_f16_f32_len[reduc16],  arr_dmmv_iq4_nl_f16_f32_data[reduc16],  "main", mul_mat_vec_num_bindings, sizeof(vk_mat_vec_push_constants), {rm_iq, 1, 1}, {wg_size_subgroup16, rm_iq, i+1}, 1, true, use_subgroups16, force_subgroup_size16);
             ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_f16_f32[w][GGML_TYPE_MXFP4][i],   "mul_mat_vec_mxfp4_f16_f32",   arr_dmmv_mxfp4_f16_f32_len[reduc16],   arr_dmmv_mxfp4_f16_f32_data[reduc16],   "main", mul_mat_vec_num_bindings, sizeof(vk_mat_vec_push_constants), {rm_iq, 1, 1}, {wg_size_subgroup16, rm_iq, i+1}, 1, true, use_subgroups16, force_subgroup_size16);
             ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_f16_f32[w][GGML_TYPE_NVFP4][i],   "mul_mat_vec_nvfp4_f16_f32",   arr_dmmv_nvfp4_f16_f32_len[reduc16],   arr_dmmv_nvfp4_f16_f32_data[reduc16],   "main", mul_mat_vec_num_bindings, sizeof(vk_mat_vec_push_constants), {rm_iq, 1, 1}, {wg_size_subgroup16, rm_iq, i+1}, 1, true, use_subgroups16, force_subgroup_size16);
+            ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_f16_f32[w][GGML_TYPE_TURBO3_0][i],  "mul_mat_vec_turbo3_0_f16_f32", arr_dmmv_turbo3_0_f16_f32_len[reduc], arr_dmmv_turbo3_0_f16_f32_data[reduc], "main", mul_mat_vec_num_bindings, sizeof(vk_mat_vec_push_constants), {1*rm_stdq, 1, 1}, {wg_size_subgroup, 1*rm_stdq, i+1}, 1, true, use_subgroups, force_subgroup_size);
             ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_f16_f32[w][GGML_TYPE_TQ4_1S][i],  "mul_mat_vec_tq4_1s_f16_f32",  arr_dmmv_tq4_1s_f16_f32_len[tq4_1s_reduc],  arr_dmmv_tq4_1s_f16_f32_data[tq4_1s_reduc],  "main", mul_mat_vec_num_bindings, sizeof(vk_mat_vec_push_constants), {8, 1, 1}, {tq4_1s_wg_size, 8, i+1}, 1, true, tq4_1s_use_subgroups, tq4_1s_force_sg_size);
 
 #if defined(GGML_VULKAN_INTEGER_DOT_GLSLC_SUPPORT)
@@ -6223,6 +6281,7 @@ static vk_pipeline ggml_vk_get_to_fp16(ggml_backend_vk_context * ctx, ggml_type 
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_NVFP4:
         case GGML_TYPE_TQ4_1S:
+        case GGML_TYPE_TURBO3_0:
             break;
         default:
             return nullptr;
@@ -6331,6 +6390,7 @@ static vk_pipeline ggml_vk_get_dequantize_mul_mat_vec(ggml_backend_vk_context * 
             case GGML_TYPE_Q6_K:
             case GGML_TYPE_IQ1_S:
             case GGML_TYPE_IQ1_M:
+            case GGML_TYPE_TURBO3_0:
                 break;
             default:
                 return nullptr;
@@ -6364,6 +6424,7 @@ static vk_pipeline ggml_vk_get_dequantize_mul_mat_vec(ggml_backend_vk_context * 
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_NVFP4:
         case GGML_TYPE_TQ4_1S:
+        case GGML_TYPE_TURBO3_0:
             break;
         default:
             return nullptr;
@@ -11090,15 +11151,17 @@ static void ggml_vk_turbo_wht(ggml_backend_vk_context * ctx, vk_context& subctx,
     vk_subbuffer src_buf = ggml_vk_tensor_subbuffer(ctx, src0, false);
     vk_subbuffer dst_buf = ggml_vk_tensor_subbuffer(ctx, dst, false);
     // Spread workgroups across Y/Z to stay within maxComputeWorkGroupCount[0].
-    // elements[0] / group_size = wg0; each row of 512 workgroups uses one Y slice.
+    // Each workgroup processes exactly one group of group_size elements.
+    // Shader workgroup size is 128 (local_size_x), so elements[0] must be
+    // n_groups * 128 to yield wg0 = n_groups workgroups.
     const uint32_t n_groups = pc.ne / (uint32_t)group_size;
     std::array<uint32_t, 3> elements;
     if (n_groups > 262144) {
-        elements = { 512 * (uint32_t)group_size, 512, CEIL_DIV(n_groups, 262144) };
+        elements = { 512 * 128, 512, CEIL_DIV(n_groups, 262144) };
     } else if (n_groups > 512) {
-        elements = { 512 * (uint32_t)group_size, CEIL_DIV(n_groups, 512), 1 };
+        elements = { 512 * 128, CEIL_DIV(n_groups, 512), 1 };
     } else {
-        elements = { pc.ne, 1, 1 };
+        elements = { n_groups * 128, 1, 1 };
     }
     ggml_vk_dispatch_pipeline(ctx, subctx, pipeline, { src_buf, dst_buf }, pc, elements);
 }
@@ -14604,6 +14667,16 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
     VK_LOG_DEBUG("ggml_backend_vk_graph_compute(" << cgraph->n_nodes << " nodes)");
     ggml_backend_vk_context * ctx = (ggml_backend_vk_context *)backend->context;
 
+    // Initialize tensor tracing (once)
+    if (!vk_trace_tensors_initialized) {
+        const char * trace_env = getenv("GGML_VK_TRACE_TENSORS");
+        if (trace_env && strcmp(trace_env, "1") == 0) {
+            vk_trace_tensors_enabled = true;
+            fprintf(stderr, "[TURBO3_TRACE] Tensor tracing ENABLED for ngl comparison\n");
+        }
+        vk_trace_tensors_initialized = true;
+    }
+
     if (vk_instance.debug_utils_support) {
         vk::DebugUtilsLabelEXT dul = {};
         dul.pLabelName = "ggml_backend_vk_graph_compute";
@@ -14682,6 +14755,11 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
     uint64_t total_mul_mat_bytes = 0;
     uint64_t mul_mat_bytes_per_submit = std::min(uint64_t(100*1000*1000), ctx->last_total_mul_mat_bytes / 40u);
     for (int i = 0; i < cgraph->n_nodes; i++) {
+        // Turbo3 Op-Trace: dump tensor metadata for ngl comparison
+        if (vk_trace_tensors_enabled) {
+            ggml_vk_trace_tensor(cgraph->nodes[i]);
+        }
+
         if (first_node_in_batch) {
             submit_node_idx = i;
         }
@@ -15585,6 +15663,7 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
                     case GGML_TYPE_IQ4_NL:
                     case GGML_TYPE_MXFP4:
                     case GGML_TYPE_NVFP4:
+                    case GGML_TYPE_TURBO3_0:
                     case GGML_TYPE_TQ4_1S:
                         break;
                     default:
