@@ -36,25 +36,34 @@ const float S2[128] = float[128](
     -1,  1, -1,  1,  1, -1,  1, -1,  1, -1, -1, -1, -1, -1,  1, -1
 );
 
-const float INV_SQRT_128 = 0.08838834764831845;  // 1 / sqrt(128)
+// NOTE: group_size is passed via push_constant but was previously ignored.
+// The shader now correctly handles both 64 and 128 element groups.
 
 void main() {
-    const uint tid  = gl_LocalInvocationID.x;
-    const uint base = (gl_WorkGroupID.z * 262144 + gl_WorkGroupID.y * 512 + gl_WorkGroupID.x) * 128;
+    const uint tid        = gl_LocalInvocationID.x;
+    const uint group_size = p.group_size;
 
-    if (base + tid >= p.ne) return;
+    // Each workgroup processes one group (group_size elements)
+    const uint grp_id = gl_WorkGroupID.z * 262144 + gl_WorkGroupID.y * 512 + gl_WorkGroupID.x;
+    const uint base   = grp_id * group_size;
+    const bool tid_active = (tid < group_size) && (base + tid < p.ne);
 
-    const float fs = (p.direction == 0) ? S1[tid] : S2[tid];
-    const float ss = (p.direction == 0) ? S2[tid] : S1[tid];
-
-    x[tid] = data_a[base + tid];
+    // ALL threads must participate in barriers.
+    // Inactive threads initialise x[tid] to 0.0 so active threads
+    // can safely read x[tid + h] even when tid + h >= group_size.
+    x[tid] = tid_active ? data_a[base + tid] : 0.0;
     barrier();
 
-    x[tid] *= fs;
+    if (tid_active) {
+        const float fs = (p.direction == 0) ? S1[tid] : S2[tid];
+        x[tid] *= fs;
+    }
     barrier();
 
-    [[unroll]] for (uint h = 1; h < 128; h *= 2) {
-        if ((tid % (2 * h)) < h) {
+    // Dynamically iterate up to group_size.
+    // Only active threads perform the butterfly; barrier is global.
+    for (uint h = 1; h < group_size; h *= 2) {
+        if (tid_active && (tid % (2 * h)) < h) {
             float a    = x[tid];
             float b    = x[tid + h];
             x[tid]     = a + b;
@@ -63,5 +72,9 @@ void main() {
         barrier();
     }
 
-    data_d[base + tid] = x[tid] * INV_SQRT_128 * ss;
+    if (tid_active) {
+        const float ss = (p.direction == 0) ? S2[tid] : S1[tid];
+        const float inv_sqrt = 1.0 / sqrt(float(group_size));
+        data_d[base + tid] = x[tid] * inv_sqrt * ss;
+    }
 }

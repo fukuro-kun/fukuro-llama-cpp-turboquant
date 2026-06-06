@@ -101,8 +101,10 @@ layout (binding = 2) readonly buffer V_PACKED32 {A_TYPE_PACKED32 v_data_packed32
 #define BLOCK_SIZE 1
 #endif
 
-// turbo3: define BLOCK_BYTE_SIZE early (before first use in FA offset computation)
-#if defined(DATA_A_TURBO3_0) && !defined(BLOCK_BYTE_SIZE)
+// turbo3: define BLOCK_SIZE and BLOCK_BYTE_SIZE early (before first use in FA offset computation)
+#if defined(DATA_A_TURBO3_0)
+#undef BLOCK_SIZE
+#define BLOCK_SIZE 128  // turbo3 processes 128-element blocks
 #define BLOCK_BYTE_SIZE 50 // block_turbo3_0: 2 (norm) + 32 (qs) + 16 (signs) = 50 bytes
 #endif
 
