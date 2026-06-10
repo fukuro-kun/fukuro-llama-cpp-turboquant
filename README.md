@@ -106,8 +106,11 @@ footprint is ~4× lower). Also published: `Q4_K_S`, `Q5_K_M`, `Q8_0`, `F16`.
 |---|---|
 | Gemma 4 E2B | [`AtomicChat/gemma-4-E2B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-E2B-it-assistant-GGUF) |
 | Gemma 4 E4B | [`AtomicChat/gemma-4-E4B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-E4B-it-assistant-GGUF) |
+| Gemma 4 12B | `google/gemma-4-12B-it-assistant` (self-convert via this fork's `convert_hf_to_gguf.py`) |
 | Gemma 4 26B-A4B | [`AtomicChat/gemma-4-26B-A4B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-26B-A4B-it-assistant-GGUF) |
 | Gemma 4 31B | [`AtomicChat/gemma-4-31B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-31B-it-assistant-GGUF) |
+
+> **Note:** Gemma 4 12B uses `Gemma4UnifiedAssistantForCausalLM` (not `Gemma4AssistantForCausalLM`). The converter registers this architecture as an alias since commit `5204897a5`.
 
 ### Quick start
 
@@ -718,11 +721,12 @@ To learn more about model quantization, [read this documentation](tools/quantize
     |---|---|
     | Gemma 4 E2B | [`AtomicChat/gemma-4-E2B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-E2B-it-assistant-GGUF) |
     | Gemma 4 E4B | [`AtomicChat/gemma-4-E4B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-E4B-it-assistant-GGUF) |
+    | Gemma 4 12B | `google/gemma-4-12B-it-assistant` (self-convert) |
     | Gemma 4 26B-A4B | [`AtomicChat/gemma-4-26B-A4B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-26B-A4B-it-assistant-GGUF) |
     | Gemma 4 31B | [`AtomicChat/gemma-4-31B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-31B-it-assistant-GGUF) |
 
     ```bash
-    # Manual invocation — works for any of the four targets above.
+    # Manual invocation — works for any of the five targets above.
     llama-server \
       -m   /path/to/gemma-4-target.gguf \
       --mtp-head /path/to/gemma-4-assistant-Q4_K_M.gguf \
