@@ -10,7 +10,13 @@ Performance testing tool for llama.cpp.
     2. [Prompt processing with different batch sizes](#prompt-processing-with-different-batch-sizes)
     3. [Different numbers of threads](#different-numbers-of-threads)
     4. [Different numbers of layers offloaded to the GPU](#different-numbers-of-layers-offloaded-to-the-gpu)
-3. [Output formats](#output-formats)
+3. [Speculative Decoding (MTP)](#speculative-decoding-mtp)
+    1. [Parameters](#parameters)
+    2. [Usage Example](#usage-example)
+    3. [Acceptance Rate Measurement](#acceptance-rate-measurement)
+    4. [Why Noise-Based Measurement?](#why-noise-based-measurement)
+    5. [Example: Comparing Draft Quantizations](#example-comparing-draft-quantizations)
+4. [Output formats](#output-formats)
     1. [Markdown](#markdown)
     2. [CSV](#csv)
     3. [JSON](#json)
@@ -64,6 +70,11 @@ test parameters:
   -nopo, --no-op-offload <0|1>              (default: 0)
   -fitt, --fit-target <MiB>                 fit model to device memory with this margin per device in MiB (default: off)
   -fitc, --fit-ctx <n>                      minimum ctx size for --fit-target (default: 4096)
+
+speculative decoding parameters:
+  --mtp-head <filename>                      MTP assistant model for speculative decoding (Gemma 4)
+  --spec-type <type>                         speculative decoding type: mtp, draft, eagle3, ngram-simple,
+                                               ngram-cache, nextn, none (default: none)
 
 Multiple values can be given for each parameter by separating them with ','
 or by specifying the parameter multiple times. Ranges can be given as
