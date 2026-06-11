@@ -2289,6 +2289,7 @@ static bool test_gen_speculative(llama_context * ctx, int n_gen, int n_threads, 
         }
     }
 
+    common_speculative_print_stats(spec);
     common_speculative_free(spec);
     return true;
 }
