@@ -23,6 +23,7 @@
 #include "download.h"
 #include "ggml.h"
 #include "llama.h"
+#include "speculative.h"
 
 #ifdef _WIN32
 #    define WIN32_LEAN_AND_MEAN
@@ -2173,6 +2174,125 @@ static bool test_gen(llama_context * ctx, int n_gen, int n_threads) {
     return true;
 }
 
+static bool test_gen_speculative(llama_context * ctx, int n_gen, int n_threads, common_speculative_type spec_type, const std::string & draft_model) {
+    llama_set_n_threads(ctx, n_threads, n_threads);
+
+    const llama_model * model   = llama_get_model(ctx);
+    const llama_vocab * vocab   = llama_model_get_vocab(model);
+    const int32_t       n_vocab = llama_vocab_n_tokens(vocab);
+
+    // Initialize speculative decoder
+    common_params_speculative spec_params;
+    spec_params.type = spec_type;
+    spec_params.n_max = 16;
+    spec_params.n_min = 1;
+    spec_params.draft_block_size = 3;
+    spec_params.p_min = 0.75f;
+
+    if (spec_type == COMMON_SPECULATIVE_TYPE_MTP || spec_type == COMMON_SPECULATIVE_TYPE_DRAFT) {
+        spec_params.mparams_dft.path = draft_model;
+    }
+
+    common_speculative * spec = common_speculative_init(spec_params, ctx);
+    if (!spec) {
+        fprintf(stderr, "%s: failed to initialize speculative decoder\n", __func__);
+        return false;
+    }
+
+    common_speculative_set_seq_id(spec, 0);
+
+    llama_token token = llama_vocab_get_add_bos(vocab) ? llama_vocab_bos(vocab) : std::rand() % n_vocab;
+
+    for (int i = 0; i < n_gen; i++) {
+        // Generate draft tokens
+        llama_tokens prompt; // empty for llama-bench (random tokens)
+        llama_tokens draft = common_speculative_draft(spec, spec_params, prompt, token);
+
+        if (draft.empty()) {
+            // Fallback to normal decode if no drafts
+            int res = llama_decode(ctx, llama_batch_get_one(&token, 1));
+            if (res != 0) {
+                fprintf(stderr, "%s: failed to decode fallback batch, res = %d\n", __func__, res);
+                common_speculative_free(spec);
+                return false;
+            }
+            llama_synchronize(ctx);
+            token = std::rand() % n_vocab;
+            continue;
+        }
+
+        // Decode target token first
+        int res = llama_decode(ctx, llama_batch_get_one(&token, 1));
+        if (res != 0) {
+            fprintf(stderr, "%s: failed to decode target token, res = %d\n", __func__, res);
+            common_speculative_free(spec);
+            return false;
+        }
+        llama_synchronize(ctx);
+
+        // Verify first draft token against target logits
+        llama_token target_best_token = 0;
+        float * target_logits = llama_get_logits_ith(ctx, -1);
+        if (target_logits) {
+            float best_logit = target_logits[0];
+            for (int32_t k = 1; k < n_vocab; k++) {
+                if (target_logits[k] > best_logit) {
+                    best_logit = target_logits[k];
+                    target_best_token = k;
+                }
+            }
+        }
+
+        int n_accepted = 0;
+        if (target_best_token == draft[0]) {
+            n_accepted = 1;
+            // Continue checking remaining drafts
+            for (size_t j = 1; j < draft.size() && n_accepted < (int)draft.size(); j++) {
+                res = llama_decode(ctx, llama_batch_get_one(&draft[j-1], 1));
+                if (res != 0) {
+                    fprintf(stderr, "%s: failed to decode draft token %zu, res = %d\n", __func__, j-1, res);
+                    break;
+                }
+                llama_synchronize(ctx);
+
+                float * draft_logits = llama_get_logits_ith(ctx, -1);
+                if (draft_logits) {
+                    llama_token draft_best = 0;
+                    float best_logit = draft_logits[0];
+                    for (int32_t k = 1; k < n_vocab; k++) {
+                        if (draft_logits[k] > best_logit) {
+                            best_logit = draft_logits[k];
+                            draft_best = k;
+                        }
+                    }
+                    if (draft_best == draft[j]) {
+                        n_accepted++;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Inform speculative decoder about acceptance
+        common_speculative_accept(spec, n_accepted);
+
+        // Get next token (random for benchmark)
+        token = std::rand() % n_vocab;
+
+        // Prepare for next iteration
+        common_speculative_prepare_next(spec, token);
+
+        // Adjust position based on accepted tokens
+        if (n_accepted > 0) {
+            i += n_accepted;
+        }
+    }
+
+    common_speculative_free(spec);
+    return true;
+}
+
 static void llama_null_log_callback(enum ggml_log_level level, const char * text, void * user_data) {
     (void) level;
     (void) text;
@@ -2389,7 +2509,12 @@ int main(int argc, char ** argv) {
                 if (params.progress) {
                     fprintf(stderr, "llama-bench: benchmark %d/%zu: warmup generation run\n", params_idx, params_count);
                 }
-                bool res = test_gen(ctx, 1, t.n_threads);
+                bool res;
+                if (t.spec_type != COMMON_SPECULATIVE_TYPE_NONE && !t.draft_model.empty()) {
+                    res = test_gen_speculative(ctx, 1, t.n_threads, t.spec_type, t.draft_model);
+                } else {
+                    res = test_gen(ctx, 1, t.n_threads);
+                }
                 if (!res) {
                     fprintf(stderr, "%s: error: failed to run gen warmup\n", __func__);
                     llama_free(ctx);
@@ -2459,7 +2584,12 @@ int main(int argc, char ** argv) {
                     fprintf(stderr, "llama-bench: benchmark %d/%zu: generation run %d/%d\n", params_idx, params_count,
                             i + 1, params.reps);
                 }
-                bool res = test_gen(ctx, t.n_gen, t.n_threads);
+                bool res;
+                if (t.spec_type != COMMON_SPECULATIVE_TYPE_NONE && !t.draft_model.empty()) {
+                    res = test_gen_speculative(ctx, t.n_gen, t.n_threads, t.spec_type, t.draft_model);
+                } else {
+                    res = test_gen(ctx, t.n_gen, t.n_threads);
+                }
                 if (!res) {
                     fprintf(stderr, "%s: error: failed to run gen\n", __func__);
                     llama_free(ctx);
