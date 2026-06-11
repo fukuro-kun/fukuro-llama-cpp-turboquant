@@ -2152,7 +2152,7 @@ static bool test_prompt(llama_context * ctx, int n_prompt, int n_batch, int n_th
     return true;
 }
 
-static bool test_gen(llama_context * ctx, int n_gen, int n_threads, bool use_mtp = false, int n_mtp_steps = 8) {
+static bool test_gen(llama_context * ctx, int n_gen, int n_threads) {
     llama_set_n_threads(ctx, n_threads, n_threads);
 
     const llama_model * model   = llama_get_model(ctx);
@@ -2161,55 +2161,14 @@ static bool test_gen(llama_context * ctx, int n_gen, int n_threads, bool use_mtp
 
     llama_token token = llama_vocab_get_add_bos(vocab) ? llama_vocab_bos(vocab) : std::rand() % n_vocab;
 
-    if (use_mtp && llama_model_has_mtp_assistant(model)) {
-        // MTP speculative decoding path
-        const uint32_t n_embd_bb = llama_model_mtp_n_embd_backbone(model);
-        std::vector<float> h_prev(n_embd_bb, 0.0f);
-        std::vector<float> h_prev_last(n_embd_bb, 0.0f);
-        std::vector<llama_token> drafts(n_mtp_steps);
-
-        // Get position from KV cache
-        llama_memory_t mem = llama_get_memory(ctx);
-        llama_pos pos = mem ? llama_memory_seq_pos_max(mem, 0) : (llama_pos) 0;
-
-        for (int i = 0; i < n_gen; i++) {
-            // Initialize h_prev from target embeddings (not zeros!)
-            std::fill(h_prev.begin(), h_prev.end(), 0.0f);
-            if (float * h_tgt = llama_get_embeddings_ith(ctx, -1)) {
-                const int32_t n_out_tgt = llama_model_n_embd_out(model);
-                const int32_t n_copy = std::min((int32_t)n_embd_bb, n_out_tgt);
-                std::memcpy(h_prev.data(), h_tgt, (size_t) n_copy * sizeof(float));
-            }
-
-            int32_t res = llama_decode_mtp_async(ctx, 0, pos, token, h_prev.data(), n_mtp_steps);
-            if (res != 0) {
-                fprintf(stderr, "%s: llama_decode_mtp_async failed, res = %d\n", __func__, (int)res);
-                return false;
-            }
-
-            res = llama_decode_mtp_wait(ctx, drafts.data(), h_prev_last.data());
-            if (res < 0) {
-                fprintf(stderr, "%s: llama_decode_mtp_wait failed, res = %d\n", __func__, (int)res);
-                return false;
-            }
-
-            llama_synchronize(ctx);
-
-            // Use first draft token as next input (fall back to random)
-            token = (drafts[0] > 0) ? drafts[0] : (std::rand() % n_vocab);
-            pos++;
+    for (int i = 0; i < n_gen; i++) {
+        int res = llama_decode(ctx, llama_batch_get_one(&token, 1));
+        if (res != 0) {
+            fprintf(stderr, "%s: failed to decode generation batch, res = %d\n", __func__, res);
+            return false;
         }
-    } else {
-        // Standard decode path
-        for (int i = 0; i < n_gen; i++) {
-            int res = llama_decode(ctx, llama_batch_get_one(&token, 1));
-            if (res != 0) {
-                fprintf(stderr, "%s: failed to decode generation batch, res = %d\n", __func__, res);
-                return false;
-            }
-            llama_synchronize(ctx);
-            token = std::rand() % n_vocab;
-        }
+        llama_synchronize(ctx);
+        token = std::rand() % n_vocab;
     }
     return true;
 }
@@ -2430,8 +2389,7 @@ int main(int argc, char ** argv) {
                 if (params.progress) {
                     fprintf(stderr, "llama-bench: benchmark %d/%zu: warmup generation run\n", params_idx, params_count);
                 }
-                bool res = test_gen(ctx, 1, t.n_threads,
-                    t.spec_type == COMMON_SPECULATIVE_TYPE_MTP && !t.draft_model.empty());
+                bool res = test_gen(ctx, 1, t.n_threads);
                 if (!res) {
                     fprintf(stderr, "%s: error: failed to run gen warmup\n", __func__);
                     llama_free(ctx);
@@ -2501,8 +2459,7 @@ int main(int argc, char ** argv) {
                     fprintf(stderr, "llama-bench: benchmark %d/%zu: generation run %d/%d\n", params_idx, params_count,
                             i + 1, params.reps);
                 }
-                bool res = test_gen(ctx, t.n_gen, t.n_threads,
-                    t.spec_type == COMMON_SPECULATIVE_TYPE_MTP && !t.draft_model.empty());
+                bool res = test_gen(ctx, t.n_gen, t.n_threads);
                 if (!res) {
                     fprintf(stderr, "%s: error: failed to run gen\n", __func__);
                     llama_free(ctx);
