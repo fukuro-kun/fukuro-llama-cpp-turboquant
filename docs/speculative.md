@@ -8,6 +8,8 @@ llama.cpp supports speculative decoding, a technique that can significantly acce
 
 The `llama-server` application supports several implementations of speculative decoding. An implementation with draft model can be mixed with an implementation without draft model.
 
+Additionally, `llama-bench` supports benchmarking speculative decoding performance and measuring draft acceptance rates (see [`tools/llama-bench/README.md`](../tools/llama-bench/README.md#speculative-decoding-mtp)).
+
 ### Multimodal (`--mmproj`) compatibility (atomic-llama-cpp-turboquant)
 
 When `--mmproj` is set, **`mtp`**, **`nextn`**, and **`eagle3`** speculative types remain **enabled at load**: their draft paths do not depend on `get_text_tokens()` / `prompt_tgt` the way `draft` and `ngram_*` do. Other types are auto-disabled at load with a warning. Mixed speculative chains (e.g. `ngram_simple` + `draft`) are rejected at slot init if any impl is not multimodal-safe.

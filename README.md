@@ -938,6 +938,17 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
+- <details>
+    <summary>Benchmark with speculative decoding (MTP for Gemma 4)</summary>
+
+    ```bash
+    llama-bench -m gemma-4-12b-it-Q4_K_M.gguf \
+        --mtp-head gemma-4-12b-it-assistant-Q4_K_M.gguf \
+        --spec-type mtp -ngl 99 -p 512 -n 32
+    ```
+
+    </details>
+
 ## [`llama-simple`](examples/simple)
 
 #### A minimal example for implementing apps with `llama.cpp`. Useful for developers.
