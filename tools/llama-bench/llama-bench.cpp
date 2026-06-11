@@ -2174,7 +2174,14 @@ static bool test_gen(llama_context * ctx, int n_gen, int n_threads) {
     return true;
 }
 
-static bool test_gen_speculative(llama_context * ctx, int n_gen, int n_threads, common_speculative_type spec_type, const std::string & draft_model) {
+struct speculative_stats {
+    int n_drafts_generated = 0;
+    int n_drafts_accepted  = 0;
+    int n_tokens_generated = 0;
+    int n_tokens_accepted  = 0;
+};
+
+static bool test_gen_speculative(llama_context * ctx, int n_gen, int n_threads, common_speculative_type spec_type, const std::string & draft_model, speculative_stats & stats) {
     llama_set_n_threads(ctx, n_threads, n_threads);
 
     const llama_model * model   = llama_get_model(ctx);
@@ -2208,20 +2215,7 @@ static bool test_gen_speculative(llama_context * ctx, int n_gen, int n_threads, 
         llama_tokens prompt; // empty for llama-bench (random tokens)
         llama_tokens draft = common_speculative_draft(spec, spec_params, prompt, token);
 
-        if (draft.empty()) {
-            // Fallback to normal decode if no drafts
-            int res = llama_decode(ctx, llama_batch_get_one(&token, 1));
-            if (res != 0) {
-                fprintf(stderr, "%s: failed to decode fallback batch, res = %d\n", __func__, res);
-                common_speculative_free(spec);
-                return false;
-            }
-            llama_synchronize(ctx);
-            token = std::rand() % n_vocab;
-            continue;
-        }
-
-        // Decode target token first
+        // Decode target token (always needed for benchmark timing)
         int res = llama_decode(ctx, llama_batch_get_one(&token, 1));
         if (res != 0) {
             fprintf(stderr, "%s: failed to decode target token, res = %d\n", __func__, res);
@@ -2230,63 +2224,66 @@ static bool test_gen_speculative(llama_context * ctx, int n_gen, int n_threads, 
         }
         llama_synchronize(ctx);
 
-        // Verify first draft token against target logits
-        llama_token target_best_token = 0;
-        float * target_logits = llama_get_logits_ith(ctx, -1);
-        if (target_logits) {
-            float best_logit = target_logits[0];
-            for (int32_t k = 1; k < n_vocab; k++) {
-                if (target_logits[k] > best_logit) {
-                    best_logit = target_logits[k];
-                    target_best_token = k;
+        // Measure acceptance rate: compare target logits with draft
+        if (!draft.empty()) {
+            stats.n_drafts_generated++;
+            stats.n_tokens_generated += draft.size();
+
+            // Verify first draft token against target logits
+            llama_token target_best_token = 0;
+            float * target_logits = llama_get_logits_ith(ctx, -1);
+            if (target_logits) {
+                float best_logit = target_logits[0];
+                for (int32_t k = 1; k < n_vocab; k++) {
+                    if (target_logits[k] > best_logit) {
+                        best_logit = target_logits[k];
+                        target_best_token = k;
+                    }
                 }
             }
-        }
 
-        int n_accepted = 0;
-        if (target_best_token == draft[0]) {
-            n_accepted = 1;
-            // Continue checking remaining drafts
-            for (size_t j = 1; j < draft.size() && n_accepted < (int)draft.size(); j++) {
-                res = llama_decode(ctx, llama_batch_get_one(&draft[j-1], 1));
-                if (res != 0) {
-                    fprintf(stderr, "%s: failed to decode draft token %zu, res = %d\n", __func__, j-1, res);
-                    break;
-                }
-                llama_synchronize(ctx);
-
-                float * draft_logits = llama_get_logits_ith(ctx, -1);
-                if (draft_logits) {
-                    llama_token draft_best = 0;
-                    float best_logit = draft_logits[0];
-                    for (int32_t k = 1; k < n_vocab; k++) {
-                        if (draft_logits[k] > best_logit) {
-                            best_logit = draft_logits[k];
-                            draft_best = k;
-                        }
-                    }
-                    if (draft_best == draft[j]) {
-                        n_accepted++;
-                    } else {
+            int n_accepted = 0;
+            if (target_best_token == draft[0]) {
+                n_accepted = 1;
+                // Continue checking remaining drafts
+                for (size_t j = 1; j < draft.size() && n_accepted < (int)draft.size(); j++) {
+                    res = llama_decode(ctx, llama_batch_get_one(&draft[j-1], 1));
+                    if (res != 0) {
                         break;
                     }
+                    llama_synchronize(ctx);
+
+                    float * draft_logits = llama_get_logits_ith(ctx, -1);
+                    if (draft_logits) {
+                        llama_token draft_best = 0;
+                        float best_logit = draft_logits[0];
+                        for (int32_t k = 1; k < n_vocab; k++) {
+                            if (draft_logits[k] > best_logit) {
+                                best_logit = draft_logits[k];
+                                draft_best = k;
+                            }
+                        }
+                        if (draft_best == draft[j]) {
+                            n_accepted++;
+                        } else {
+                            break;
+                        }
+                    }
                 }
             }
+
+            stats.n_drafts_accepted++;
+            stats.n_tokens_accepted += n_accepted;
+
+            // Inform speculative decoder about acceptance
+            common_speculative_accept(spec, n_accepted);
         }
 
-        // Inform speculative decoder about acceptance
-        common_speculative_accept(spec, n_accepted);
-
-        // Get next token (random for benchmark)
+        // CRITICAL: Use random token for next iteration (maintains benchmark behavior)
         token = std::rand() % n_vocab;
 
-        // Prepare for next iteration
+        // Prepare for next iteration (with random token)
         common_speculative_prepare_next(spec, token);
-
-        // Adjust position based on accepted tokens
-        if (n_accepted > 0) {
-            i += n_accepted;
-        }
     }
 
     common_speculative_print_stats(spec);
@@ -2511,8 +2508,9 @@ int main(int argc, char ** argv) {
                     fprintf(stderr, "llama-bench: benchmark %d/%zu: warmup generation run\n", params_idx, params_count);
                 }
                 bool res;
+                speculative_stats stats;
                 if (t.spec_type != COMMON_SPECULATIVE_TYPE_NONE && !t.draft_model.empty()) {
-                    res = test_gen_speculative(ctx, 1, t.n_threads, t.spec_type, t.draft_model);
+                    res = test_gen_speculative(ctx, 1, t.n_threads, t.spec_type, t.draft_model, stats);
                 } else {
                     res = test_gen(ctx, 1, t.n_threads);
                 }
@@ -2586,8 +2584,18 @@ int main(int argc, char ** argv) {
                             i + 1, params.reps);
                 }
                 bool res;
+                speculative_stats stats;
                 if (t.spec_type != COMMON_SPECULATIVE_TYPE_NONE && !t.draft_model.empty()) {
-                    res = test_gen_speculative(ctx, t.n_gen, t.n_threads, t.spec_type, t.draft_model);
+                    res = test_gen_speculative(ctx, t.n_gen, t.n_threads, t.spec_type, t.draft_model, stats);
+                    // Ausgabe der Akzeptanzrate
+                    if (stats.n_drafts_generated > 0) {
+                        double draft_accept_rate = 100.0 * stats.n_drafts_accepted / stats.n_drafts_generated;
+                        double token_accept_rate = 100.0 * stats.n_tokens_accepted / stats.n_tokens_generated;
+                        fprintf(stderr, "llama-bench: speculative acceptance: %.1f%% drafts, %.1f%% tokens (%d/%d drafts, %d/%d tokens)\n",
+                            draft_accept_rate, token_accept_rate,
+                            stats.n_drafts_accepted, stats.n_drafts_generated,
+                            stats.n_tokens_accepted, stats.n_tokens_generated);
+                    }
                 } else {
                     res = test_gen(ctx, t.n_gen, t.n_threads);
                 }
