@@ -176,6 +176,57 @@ $ ./llama-bench -d 0,512
 | qwen2 7B Q4_K - Medium         |   4.36 GiB |     7.62 B | CUDA       |  99 |    pp512 @ d512 |      6425.91 ± 18.88 |
 | qwen2 7B Q4_K - Medium         |   4.36 GiB |     7.62 B | CUDA       |  99 |    tg128 @ d512 |        116.71 ± 0.60 |
 
+## Speculative Decoding (MTP)
+
+llama-bench supports speculative decoding for Gemma 4 models via MTP (Multi-Token Prediction).
+
+### Parameters
+
+```sh
+  --mtp-head <filename>     MTP assistant model (draft model for speculative decoding)
+  --spec-type <type>      Speculative decoding type: mtp, draft, eagle3, ngram-simple, ngram-cache, nextn, none
+```
+
+### Usage Example
+
+```sh
+$ ./llama-bench -m gemma-4-12b-it-Q4_K_M.gguf --mtp-head assistant-IQ4_XS.gguf --spec-type mtp -ngl 99 -p 512 -n 32
+```
+
+### Acceptance Rate Measurement
+
+When using speculative decoding, llama-bench measures the **acceptance rate** alongside performance:
+
+```
+llama-bench: speculative acceptance: 100.0% drafts, 3.1% tokens (32/32 drafts, 2/64 tokens)
+```
+
+**Important:** llama-bench uses **random tokens** for reproducible hardware benchmarking. The low acceptance rate (~3%) with random inputs is **expected** and measures **draft model compatibility** with the target model (how similar their internal representations are).
+
+- **High noise-acceptance** (>5%): Draft model closely matches target internal structure
+- **Low noise-acceptance** (<2%): Draft model diverges significantly (over-quantized)
+
+For **real-world acceptance rates** (60-80% with actual prompts), use `llama-cli` instead.
+
+### Why Noise-Based Measurement?
+
+Random tokens create a "stress test" for draft model compatibility:
+- Both target and draft see meaningless input
+- If they still agree occasionally, their internal representations are aligned
+- This isolates the "model similarity" factor from "understanding quality"
+
+### Example: Comparing Draft Quantizations
+
+```sh
+# Test Q4_K_M draft
+$ ./llama-bench -m target.gguf --mtp-head draft-Q4_K_M.gguf --spec-type mtp -n 128
+# → acceptance: 3.5% tokens
+
+# Test IQ3_S draft (more compressed)
+$ ./llama-bench -m target.gguf --mtp-head draft-IQ3_S.gguf --spec-type mtp -n 128
+# → acceptance: 1.2% tokens (draft too compressed, diverges from target)
+```
+
 ## Output formats
 
 By default, llama-bench outputs the results in markdown format. The results can be output in other formats by using the `-o` option.

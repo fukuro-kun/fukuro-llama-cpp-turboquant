@@ -425,6 +425,9 @@ static void print_usage(int /* argc */, char ** argv) {
     printf("  -fitc, --fit-ctx <n>                        minimum ctx size for --fit-target (default: 4096)\n");
     printf("  --mtp-head <filename>                        MTP assistant model for speculative decoding (Gemma 4)\n");
     printf("  --spec-type <type>                          speculative decoding type: mtp, draft, eagle3, ngram-simple, ngram-cache, nextn, none (default: none)\n");
+    printf("                                               Note: Acceptance rate is measured with random tokens (noise benchmark).\n");
+    printf("                                               Low rates (~3%%) are expected and indicate draft model compatibility.\n");
+    printf("                                               For real-world acceptance rates, use llama-cli with actual prompts.\n");
     if (llama_supports_rpc()) {
         printf("  -rpc, --rpc <rpc_servers>                   register RPC devices (comma separated)\n");
     }
@@ -2224,7 +2227,12 @@ static bool test_gen_speculative(llama_context * ctx, int n_gen, int n_threads, 
         }
         llama_synchronize(ctx);
 
-        // Measure acceptance rate: compare target logits with draft
+        // Measure acceptance rate: compare target logits with draft.
+        // NOTE: llama-bench uses random tokens for reproducible hardware benchmarking.
+        // The acceptance rate with random inputs measures draft model compatibility
+        // (how similar the internal representations are), not real-world MTP quality.
+        // Low rates (~3%) are expected with random tokens. For real-world rates,
+        // use llama-cli with actual prompts.
         if (!draft.empty()) {
             stats.n_drafts_generated++;
             stats.n_tokens_generated += draft.size();
