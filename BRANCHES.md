@@ -85,6 +85,26 @@ Dieses Repository enthaelt mehrere Branches mit unterschiedlichen Zwecken.
 
 ---
 
+## Build mit CUDA (Wichtig!)
+
+**Problem:** glibc >= 2.43 (z.B. Ubuntu 26.04) fuegt `noexcept` zu `rsqrt` hinzu. CUDA 13.1 kann das nicht verarbeiten.
+
+**Loesung:** `scripts/build-cuda-glibc-patch.sh`
+- Patched `mathcalls.h` temporaer fuer den Build
+- Stellt die System-Datei nach dem Build wieder her
+- Verwendet `gcc-13` als Host-Compiler
+
+```bash
+./scripts/build-cuda-glibc-patch.sh
+```
+
+**Alternativen (falls Patch nicht gewuenscht):**
+1. Docker mit aelterer glibc verwenden
+2. Lokale Header-Kopie fuer NVCC bereitstellen
+3. Auf CUDA 13.2+ warten (offizieller Fix erwartet)
+
+---
+
 ## Empfohlener Workflow
 
 ```bash
