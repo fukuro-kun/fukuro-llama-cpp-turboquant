@@ -415,7 +415,13 @@ centroid-head Edge variants), are published as a Hugging Face collection:
 | Gemma 4 E2B | [`AtomicChat/gemma-4-E2B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-E2B-it-assistant-GGUF) | **Q4_K_M** |
 | Gemma 4 E4B | [`AtomicChat/gemma-4-E4B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-E4B-it-assistant-GGUF) | **Q4_K_M** |
 | Gemma 4 26B-A4B | [`AtomicChat/gemma-4-26B-A4B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-26B-A4B-it-assistant-GGUF) | **Q4_K_M** / Q4_K_S |
+| Gemma 4 12B | [google/gemma-4-12B-it-assistant](https://huggingface.co/google/gemma-4-12B-it-assistant) (self-convert) | **Q3_K_M** / Q4_K_M / Q5_K_M |
 | Gemma 4 31B | [`AtomicChat/gemma-4-31B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-31B-it-assistant-GGUF) | **Q4_K_M** / Q4_K_S |
+
+> **Note:** Gemma 4 12B uses Gemma4UnifiedAssistantForCausalLM (not
+> Gemma4AssistantForCausalLM). The converter registers this architecture
+> as an alias since commit 287ad1b90; load from the official HF checkpoint
+> and quantize with this fork's llama-quantize.
 
 Q4_K_M is the recommended default: throughput is identical to F16 in the
 matrix bench (the head is small enough that bandwidth, not weight precision,
