@@ -15,7 +15,7 @@ Dieses Repository enthaelt mehrere Branches mit unterschiedlichen Zwecken.
 | Gemma4Assistant | Integriert |
 | MTP Tensor Fix | Integriert |
 
-**Fuer:** Lokale Entwicklung auf allen Hosts (Hydra, Uranus, Mars, Venus, Styx)
+**Fuer:** Lokale Entwicklung auf allen GPUs (NVIDIA CUDA, AMD ROCm/Vulkan, Intel)
 
 ---
 
@@ -73,7 +73,7 @@ Dieses Repository enthaelt mehrere Branches mit unterschiedlichen Zwecken.
 
 **Enthaelt:** UMA (Unified Memory Architecture) Attention fuer AMD iGPUs
 
-**Relevant fuer:** Venus (Ryzen AI), Mars (AMD APU)
+**Relevant fuer:** AMD iGPUs und APUs (Unified Memory Architecture)
 
 ---
 
