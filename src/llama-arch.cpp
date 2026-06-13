@@ -841,6 +841,11 @@ llm_arch llm_arch_from_string(const std::string & name) {
         }
     }
 
+    // Aliases for compatibility
+    if (name == "gemma4_mtp" || name == "gemma4-assistant") {
+        return LLM_ARCH_GEMMA4_ASSISTANT;
+    }
+
     return LLM_ARCH_UNKNOWN;
 }
 
