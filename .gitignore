@@ -65,6 +65,9 @@
 
 !/.github/workflows/*.yml
 
+# Local configuration (host-specific, not committed)
+/LOCAL.md
+
 # Models
 
 /models/*

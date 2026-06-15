@@ -97,6 +97,15 @@ grep -ri "hydra\|uranus\|mars\|venus\|styx\|helene\|telesto\|/home/fukuro\|/medi
 ```
 Falls Treffer → Bereinigen!
 
+### Lokale Gegebenheiten
+
+- Host-spezifische Pfade, GPU-Architekturen und Build-Besonderheiten stehen in `LOCAL.md` (in `.gitignore`, nicht committet).
+- Agenten muessen `LOCAL.md` lesen, bevor sie Host-spezifische Aktionen durchfuehren.
+- GPU-Architektur-Build-Matrix (generisch):
+  - **Pascal (GTX 1070):** `-DLLAMA_CUDA=ON`, FP16 nur via emulation, kein FlashAttention
+  - **Ampere/Ada (RTX 3070/4060):** Volle Feature-Unterstuetzung, FlashAttention, TurboQuant
+  - **AMD iGPU/APU:** `-DLLAMA_VULKAN=ON`, ROCm experimentell
+
 ### Build-System
 
 - **CMake** mit Backend-Optionen (`-DLLAMA_CUDA=ON`, `-DLLAMA_VULKAN=ON`, etc.)
