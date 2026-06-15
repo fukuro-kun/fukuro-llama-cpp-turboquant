@@ -168,6 +168,24 @@ Falls Treffer → Bereinigen!
 - [ ] Keine privaten Daten in oeffentliche Repos committet
 - [ ] Build erfolgreich (`build/` existiert und enthaelt Zielbinaries)
 
+### Systematische Tests ueber InferenzQuelle (benachbartes Repo)
+
+Das Hauptprojekt **InferenzQuelle** (`~/projects/inferenzquelle/`) besitzt eine umfangreiche Test-Infrastruktur, die auch fuer diesen Fork genutzt werden kann. Vor manuellen Einzeltests dort nachsehen:
+
+| Test-Typ | Befehl (ausgefuehrt in `~/projects/inferenzquelle/`) | Zweck |
+|----------|------------------------------------------------------|-------|
+| **Smoke-Test** | `uv run pytest tests/performance/mtp/test_mtp_baseline.py::TestMTPBaseline::test_baseline_smoke -v -s` | Laedt Modell, generiert 32 Tokens, prueft t/s > 5 |
+| **MTP-Baseline** | `uv run pytest tests/performance/mtp/test_mtp_baseline.py -v -s` | Durchsatz ohne Draft |
+| **MTP-mit-Draft** | `uv run pytest tests/performance/mtp/test_mtp_with_draft.py -v -s` | Spekulatives Decoding (MTP/NextN) |
+| **Qualitaet-Short** | `uv run pytest tests/qualitaet/test_short_context.py -k 1.1_factual -v -s` | Einzelner Qualitaetstest |
+| **Langkontext** | `tests/performance/langkontext/test_context_scaling.sh` | Kontext-Scaling-Benchmark |
+
+**Hinweise:**
+- Modell-Pfade sind host-adaptiv (`config/hydra.json`, `config/uranus.json`)
+- GPU-Speicher vorher leeren: `pkill -f llama-cli`
+- Ergebnisse werden automatisch in Trilium exportiert und als HTML-Report gespeichert (`ergebnisse/report_auto_*.html`)
+- **Nie** manuelle `curl`-Tests gegen `llama-server` machen, wenn das pytest-Framework verfuegbar ist
+
 ---
 
 ## Child-DOX-Index
