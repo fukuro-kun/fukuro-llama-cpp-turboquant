@@ -168,7 +168,125 @@ Ein Merge des Refactors wuerde **alle diese Features gleichzeitig** anfassen. Di
 
 ---
 
-## 5. Feature-Matrix (Vergleich)
+## 5. Was uns von upstream fehlt
+
+> Analyse vom **2026-06-15**.  
+> Divergenz: **849 Commits** in `ggml-org/llama.cpp`, die nicht in unserem `master` sind.  
+> TheTom und AtomicBot fehlen uns praktisch nichts — fast alle verpassten Verbesserungen kommen aus upstream.
+
+### 5.1 Divergenz-Zahlen
+
+| Vergleich | Commits, die uns fehlen | Richtung |
+|-----------|------------------------|----------|
+| TheTom → wir | 1 (HIP-FA-Pool-Retention) | Wir sind fast auf gleichem Stand |
+| AtomicBot feature/tqc → wir | 0 | Wir sind *ahead* (50 Commits: DiffusionGemma + Vulkan-Turbo3) |
+| ggml-org (upstream) → wir | **849** | Wir sind deutlich hinterher |
+| ggml-org → TheTom | 1003 | TheTom ist noch weiter hinter upstream |
+
+### 5.2 SYCL — Was ist das?
+
+**SYCL** (Single-source heterogeneous programming with C++) ist Intels offener Standard fuer heterogene Berechnung. In llama.cpp wird er als **Intel-GPU-Backend** eingesetzt:
+
+- **Zielhardware:** Intel Arc (A770 etc.), Intel iGPUs (Xe), Intel Data Center GPUs (Max/Ponte Vecchio)
+- **Vorteil:** Ein C++-Code-Base laeuft auf CPU und GPU; keine separaten CUDA-Kernel
+- **Nutzung in llama.cpp:** `-DLLAMA_SYCL=ON` statt CUDA/Vulkan
+- **Relevanz fuer uns:** **Niedrig**. Unsere Hardware ist NVIDIA (CUDA) und AMD (Vulkan). Kein Intel Arc im Einsatz. SYCL-Verbesserungen interessieren uns nur als Referenzimplementierung fuer neue Ops.
+
+### 5.3 Priorisierte Uebersicht (was uns fehlt)
+
+#### 🔴 Hoch — sollten wir nachziehen
+
+| Kategorie | Feature / Commit | Warum relevant |
+|-----------|------------------|----------------|
+| **AMD/Vulkan** | FlashAttention BFloat16 KV (`6e093b80e`) | BFloat16 wird auf modernen AMD-GPUs wichtig (RDNA3) |
+| **AMD/Vulkan** | `v_dot2_f32_f16` in FA (`b4e3dc613`) | Schnelleres FlashAttention auf Vulkan |
+| **AMD/Vulkan** | Walsh-Hadamard-Transform (`48e7078ee`, `e82beaa60`) | **Direkt fuer TurboQuant** — WHT ist Kernoperation |
+| **AMD/Vulkan** | coopmat2 Feature-Check (`5a69c9743`) | Stabilere Vulkan auf Intel/AMD |
+| **AMD/Vulkan** | `GL_NV_cooperative_matrix_decode_vector` (`b36eefc1b`) | Schnelleres MatMul auf NVIDIA-Vulkan |
+| **CUDA** | Fast Walsh-Hadamard-Transform (`c1f1e28d2`) | TurboQuant-Performance auf CUDA |
+| **CUDA** | Quantize KV-Cache Reservierung (`f8f0a47a5`) | Speicherverwaltung |
+| **Neue Modelle** | **Llama 4** Scout / Maverick | Wichtige neue Meta-Modelle |
+| **Neue Modelle** | **DeepSeek 3.2** | Wichtiger OSS-Modell-Trend |
+| **Multimodal** | Video-Input-Support (`8f83d6c27`) | `llama-server` kann jetzt Videos verarbeiten |
+| **Server** | Real-time Reasoning Interruption (`354ebac8c`) | Bessere Chat-UX |
+| **Server** | mtmd Post-Decode Callback (`e3cab403b`) | Erweiterte Multimodal-Kontrolle |
+| **Server** | Build-time gzip compression (`e8067a8b3`) | Kleinere Assets |
+| **Server** | SSE Ping-Interval (`60130d18f`) | Verbindungsstabilitaet |
+| **GGUF-Convert** | Fix Gemma 4 Unified conversion (`e8023568d`) | Wir haben Gemma 4 MTP — Audio-Fixes relevant |
+| **GGUF-Convert** | Gemma 4 audio projector embedding size fix (`e3ba22d6c`) | Audio-Modality fuer Gemma 4 |
+
+#### 🟡 Mittel — gezielt evaluieren
+
+| Kategorie | Feature | Warum |
+|-----------|---------|-------|
+| Vulkan | Q3_K/Q6_K Block-Load (`19620004f`) | Quantisierungs-Performance |
+| Vulkan | Fast path fuer Buffer-Transfers (`fdc3db9b6`) | Performance |
+| Vulkan | Pipeline-Barriers (`3e7bd4f39`) | Korrektheit |
+| Multimodal | HEIC/HEIF-Bilder (`5f04dc7ac`) | Format-Unterstuetzung |
+| Multimodal | Frame-Merge fuer Qwen-VL (`31e82494c`) | Vision-Modelle |
+| Neue Formate | MXFP4 / NVFP4 | Neue NVIDIA-4-bit-Formate |
+| Server | Prompt-Logging (`1e912561d`) | Debugging |
+| Server | PWA-Support (`f7ca93d12`) | Mobile UX |
+
+#### 🟢 Niedrig / irrelevant
+
+| Kategorie | Feature | Grund |
+|-----------|---------|-------|
+| **Metal** | *alle* Metal-Commits | Wir haben **keine** Apple-Hardware |
+| **EAGLE3** | Spekulatives Decodieren (`88a39274e`) | Wir fokussieren auf **Gemma 4 MTP + Qwen NextN**, nicht Llama-EAGLE |
+| **SYCL** | *alle* SYCL-Commits | Keine Intel Arc / oneAPI-Hardware |
+| **Hexagon** | Qualcomm-Optimierungen | Keine Qualcomm-Hardware |
+| **WebGPU** | Browser-Backend | Kein Web-Einsatz |
+| **OpenCL** | Adreno-/Mobile-Optimierungen | Kein Mobile-Einsatz |
+| **RISC-V** | RVV-Erweiterungen, Spacemit | Keine RISC-V-Hardware |
+| **Tensor-Parallelism** | Multi-GPU (experimentell) | Wir haben nur Single-GPU-Systeme |
+
+### 5.4 Neue Modell-Architekturen (upstream hat sie, wir nicht)
+
+| Modell | Relevanz | Anmerkung |
+|--------|----------|-----------|
+| **llama4** | 🔴 Hoch | Llama 4 Scout / Maverick — wichtige Meta-Modelle |
+| **deepseek32** | 🔴 Hoch | DeepSeek 3.2 |
+| **deepseek2ocr** | 🟡 Mittel | OCR-Modus |
+| **mistral4** | 🟡 Mittel | Mistral-Nachfolger |
+| **eagle3** | 🟢 Niedrig | Draft-Modell — wir haben MTP/NextN |
+| **mamba2** | 🟡 Mittel | SSM-Architektur |
+| **cohere2-MoE** | 🟢 Niedrig | Nicht auf unserer Roadmap |
+| **granite-moe** | 🟢 Niedrig | IBM — nicht prioritaer |
+| **mellum** | 🟢 Niedrig | Nische |
+| **nomic-bert / nomic-bert-moe** | 🟢 Niedrig | Embedding-Modelle |
+| **jina-bert-v2/v3** | 🟢 Niedrig | Embedding |
+| **glm-dsa** | 🟢 Niedrig | Nische |
+| **lfm2moe** | 🟢 Niedrig | Liquid Foundation |
+| **mimo2** | 🟢 Niedrig | Nische |
+| **minicpm / minicpm3** | 🟢 Niedrig | Kleine Modelle |
+| **nemotron-h-moe** | 🟢 Niedrig | NVIDIA — nicht prioritaer |
+
+**Anmerkung:** `diffusion-gemma.cpp` existiert in upstream **nicht mehr** als eigenstaendige Datei — es wurde in die `llama_model_base`-Hierarchie integriert. Wir haben es als monolithischen Port.
+
+### 5.5 Warum Cherry-Pick schwierig ist
+
+Die meisten dieser 849 Commits **haengen voneinander ab**:
+
+- **Vulkan-WHT** baut auf Refactor-Kernaenderungen auf (Op-Enum in `ggml.c`).
+- **Video-Input** erfordert neue mtmd-APIs, die mit Server-Aenderungen gekoppelt sind.
+- **Llama 4** nutzt die neue `llama_model_base`-Hierarchie fuer `load_hparams`.
+- **MXFP4/NVFP4** erfordern neue GGML-Typen in `ggml.h` + `ggml-quants.c` + alle Backends.
+
+**Strategie:** Nicht einzelne Commits, sondern **Ketten** cherry-picken. Zuerst die Backend-Verbesserungen (Vulkan, CUDA), dann die Modell-Dateien. Server-Features nur, wenn sie keine Architektur-Aenderung brauchen.
+
+### 5.6 Empfohlene Cherry-Pick-Reihenfolge
+
+1. **Vulkan: Walsh-Hadamard + v_dot2 + BFloat16 FA** — direkter TurboQuant-Nutzen
+2. **CUDA: Fast WHT + KV-Reserve** — Performance auf unserer Hauptplattform
+3. **Gemma 4 Audio-Fixes** — passt zu unserem MTP-Fokus
+4. **Server: Reasoning Interruption + gzip + SSE ping** — UX-Verbesserungen
+5. **Multimodal: Video-Input + HEIC** — wenn mtmd-Kompatibilitaet gegeben
+6. **Llama 4 / DeepSeek 3.2** — als monolithische `case`-Erweiterung (nicht als Klasse)
+
+---
+
+## 6. Feature-Matrix (Vergleich)
 
 | Feature | ggml-org | TheTom | AtomicBot | fukuro |
 |---------|----------|--------|-----------|--------|
@@ -185,7 +303,7 @@ Ein Merge des Refactors wuerde **alle diese Features gleichzeitig** anfassen. Di
 
 ---
 
-## 5. Branch-Strategie
+## 7. Branch-Strategie
 
 | Branch | Remote | Zweck |
 |--------|--------|-------|
@@ -201,7 +319,7 @@ Details: [BRANCHES.md](BRANCHES.md)
 
 ---
 
-## 6. Sync- und PR-Workflow
+## 8. Sync- und PR-Workflow
 
 ### Saubere Aenderungen an AtomicBot-ai
 
@@ -213,12 +331,12 @@ Details: [BRANCHES.md](BRANCHES.md)
 ### Upstream-Sync (ggml-org)
 
 - Aktuell **nicht empfohlen** als grosser Merge. Unser Fork hat die alte monolithische Architektur; upstream ist auf Klassen-Hierarchie umgestellt. Siehe [§4](FORKS.md#4-architektur-refactor-stand-und-bedeutung).
-- Einzelne Features (z. B. neue Modelle, Bugfixes) koennen gezielt cherry-picked werden.
+- Einzelne Features (z. B. neue Modell-Unterstuetzungen, Bugfixes) koennen gezielt cherry-picked werden. Siehe [§5](FORKS.md#5-was-uns-von-upstream-fehlt) fuer die priorisierte Liste.
 - Langfristig: Gezielter Sync des Refactor-Commits, wenn DiffusionGemma stabil ist. Siehe [pocs/DIFFUSION_GEMMA_ENTSCHEIDUNG.md](pocs/DIFFUSION_GEMMA_ENTSCHEIDUNG.md).
 
 ---
 
-## 7. Historie und Attribution
+## 9. Historie und Attribution
 
 | Beitragender | Rolle | Repository |
 |--------------|-------|------------|
