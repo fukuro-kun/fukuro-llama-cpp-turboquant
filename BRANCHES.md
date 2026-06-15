@@ -2,6 +2,8 @@
 
 Dieses Repository enthaelt mehrere Branches mit unterschiedlichen Zwecken.
 
+> **Fork-Lineage und Feature-Vergleich:** Siehe [FORKS.md](FORKS.md) fuer die vollstaendige Abstammungskette und den detaillierten Unterschied zwischen den Fork-Ebenen.
+
 ---
 
 ## `master` — Hauptentwicklung
@@ -108,7 +110,7 @@ Dieses Repository enthaelt mehrere Branches mit unterschiedlichen Zwecken.
 ## Empfohlener Workflow
 
 ```bash
-# Entwicklung:
+# Entwicklung (Primary Remote = Codeberg):
 git checkout master
 
 # Sync mit AtomicBot pruefen:
@@ -119,3 +121,5 @@ git log --oneline upstream/feature/turboquant-kv-cache..feature/turboquant-kv-ca
 git push origin feature/turboquant-kv-cache-sync
 # → Auf GitHub: Create Pull Request gegen AtomicBot-ai/atomic-llama-cpp-turboquant
 ```
+
+**Remotes:** Siehe [FORKS.md §2](FORKS.md#2-remotes) fuer die vollstaendige Remote-Konfiguration.

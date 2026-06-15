@@ -1,6 +1,6 @@
 # fukuro-llama-cpp-turboquant — AGENTS.md (Root-DOX)
 
-**Zweck:** Fork von llama.cpp mit TurboQuant KV-Kompression, Gemma 4 MTP und Qwen NextN spekulativer Decodierung. Inference Engine (Motor) fuer das Hauptprojekt InferenzQuelle.
+**Zweck:** Fork von llama.cpp mit TurboQuant KV-Kompression, Gemma 4 MTP, Qwen NextN spekulativer Decodierung und DiffusionGemma-Integration. Inference Engine (Motor) fuer das Hauptprojekt InferenzQuelle. Siehe [FORKS.md](FORKS.md) fuer die vollstaendige Fork-Lineage und den Feature-Vergleich.
 
 **Eigentuemer:** fukuro + KI-Agent
 
@@ -127,6 +127,7 @@ Falls Treffer → Bereinigen!
 | Gemma 4 MTP | `src/models/gemma4-assistant.cpp`, `src/llama-context.cpp`, `common/speculative.cpp` |
 | Qwen 3.6 NextN | `src/models/qwen35-nextn.cpp`, `src/models/qwen35moe-nextn.cpp` |
 | Multimodal + Spec | `tools/server/server-context.cpp`, `docs/speculative.md` |
+| DiffusionGemma | `src/models/diffusion-gemma.cpp`, `src/llama-model.cpp`, `tools/diffusion-cli/` |
 | GGUF-Konvertierung | `convert_hf_to_gguf.py` |
 
 ---

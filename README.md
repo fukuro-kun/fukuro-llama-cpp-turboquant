@@ -10,6 +10,9 @@
 
 LLM inference in C/C++
 
+> **Fork-Lineage:** `ggml-org/llama.cpp` → `TheTom/llama-cpp-turboquant` → `AtomicBot-ai/atomic-llama-cpp-turboquant` → **dieser Fork** (`codeberg.org:fukuro/fukuro-llama-cpp-turboquant`).  
+> Details, Remotes und Feature-Vergleich: **[FORKS.md](FORKS.md)**
+
 ## Recent API changes
 
 - [Changelog for `libllama` API](https://github.com/ggml-org/llama.cpp/issues/9289)
