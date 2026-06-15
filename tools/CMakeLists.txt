@@ -39,4 +39,8 @@ else()
     endif()
     add_subdirectory(fit-params)
     add_subdirectory(results)
+    # DiffusionGemma tools
+    add_subdirectory(diffusion-cli)
+    # add_subdirectory(diffusion-gemma-eval)
+    # add_subdirectory(diffusion-gemma-server)
 endif()

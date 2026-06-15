@@ -1,0 +1,500 @@
++                batch.seq_id[i][0] = 0;
++                batch.logits[i]    = 1;
++            }
++        }
++
++        // self-conditioning = softmax(previous step's logits / previous t); gated off on the first step.
++        // device SC ignores the host pointer (reads sc_dev), so pass nullptr; the gate + temp are identical.
++        llama_diffusion_set_sc(model, dev_sc ? nullptr : sc_buffer.data(),
++                               step_idx == 0 ? 0.0f : 1.0f, prev_temp_inv, true);
++
++        if (llama_decode(ctx, batch) != 0) {
++            LOG_ERR("%s: failed to decode at step %d\n", __func__, step_idx);
++            break;
++        }
++
++        // Stage-1: when on, skip the 268 MB logits D2H + host reductions and sample on the GPU from sc_dev.
++        const bool gpu_reduce  = dev_sc && device_sample_ok;
++        const bool want_logits = !gpu_reduce;
++        const float * logits = nullptr;                           // canvas rows packed: [C or max_length, n_vocab]
++        if (want_logits) {
++            logits = llama_get_logits(ctx);
++        } else {
++            llama_synchronize(ctx);                               // sc_dev write must complete before we read it
++        }
++
++        // pre-draw the step's randomness single-threaded so the output is seed-reproducible
++        for (int32_t pos = 0; pos < C; pos++) {
++            u[pos]       = uni01(rng);
++            renoise[pos] = vocab_dist(rng);
++        }
++
++        // per position: argmax, entropy of softmax(raw/t), and a multinomial sample; stash raw row for SC
++        auto worker = [&](int32_t p0, int32_t p1) {
++            for (int32_t pos = p0; pos < p1; pos++) {
++                const float * row = logits + (size_t) (logit_off + pos) * n_vocab;
++                float m = -INFINITY; int32_t amax = 0;
++                for (int32_t v = 0; v < n_vocab; v++) {
++                    const float z = row[v] * temp_inv;
++                    if (z > m) { m = z; amax = v; }
++                }
++                float Z = 0.0f;
++                for (int32_t v = 0; v < n_vocab; v++) {
++                    Z += expf(row[v] * temp_inv - m);
++                }
++                const float target = u[pos] * Z;
++                float   cum = 0.0f, H = 0.0f;
++                int32_t sampled = n_vocab - 1; bool picked = false;
++                for (int32_t v = 0; v < n_vocab; v++) {
++                    const float e = expf(row[v] * temp_inv - m);
++                    const float p = e / Z;
++                    if (p > 0.0f) { H -= p * logf(p); }
++                    cum += e;
++                    if (!picked && cum >= target) { sampled = v; picked = true; }
++                }
++                entropy[pos]       = H;
++                argmax_canvas[pos] = amax;
++                denoiser[pos]      = sampled;
++                // device SC keeps prev-step logits on-device (cpy in-graph), so no host stash needed
++                if (!dev_sc) {
++                    std::memcpy(sc_buffer.data() + (size_t) pos * n_vocab, row, n_vocab * sizeof(float));
++                }
++            }
++        };
++        auto run_host_worker = [&]() {
++            std::vector<std::thread> pool;
++            const int32_t chunk = (C + (int32_t) nth - 1) / (int32_t) nth;
++            for (unsigned ti = 0; ti < nth; ti++) {
++                const int32_t p0 = (int32_t) ti * chunk;
++                const int32_t p1 = std::min(p0 + chunk, C);
++                if (p0 < p1) { pool.emplace_back(worker, p0, p1); }
++            }
++            for (auto & th : pool) { th.join(); }
++        };
++
++        if (gpu_reduce) {
++            // Stage-1: argmax/entropy/sampled straight from sc_dev. argmax matches the host bit-for-bit; Z and
++            // entropy differ only by the parallel-reduction order, so some sampled tokens may shift near ties.
++            if (!llama_diffusion_device_sample(model, u.data(), argmax_canvas.data(), entropy.data(),
++                                               denoiser.data(), C, temp_inv)) {
++                // Some backends (e.g. Metal) cannot run the on-device sampler. Warn once and use the host
++                // reduction for the rest of the run instead of retrying (and logging) on every step.
++                if (device_sample_ok) {
++                    LOG_WRN("%s: on-device sampling unsupported on this backend; using host sampling\n", __func__);
++                    device_sample_ok = false;
++                }
++                if (!logits) { logits = llama_get_logits(ctx); }
++                run_host_worker();
++            }
++        } else {
++            run_host_worker();
++        }
++
++        // accept the lowest-entropy positions within the MI bound (sum of strictly-earlier entropies <= bound)
++        std::iota(order.begin(), order.end(), 0);
++        std::sort(order.begin(), order.end(), [&](int32_t a, int32_t b) { return entropy[a] < entropy[b]; });
++        std::vector<char> accepted(C, 0);
++        double cumE = 0.0;
++        for (int32_t k = 0; k < C; k++) {
++            const int32_t pos = order[k];
++            cumE += entropy[pos];
++            if (cumE - entropy[pos] <= params.entropy_bound) { accepted[pos] = 1; }
++        }
++
++        // renoise: accepted -> sampled token, rest -> fresh random; the displayed/output canvas is the argmax
++        float entropy_sum = 0.0f;
++        for (int32_t pos = 0; pos < C; pos++) {
++            current_canvas[pos]          = accepted[pos] ? denoiser[pos] : renoise[pos];
++            output_tokens[n_input + pos] = argmax_canvas[pos];
++            entropy_sum += entropy[pos];
++        }
++
++        // adaptive stop: argmax stable for stability_threshold steps AND confident (low mean entropy)
++        held = (prev_argmax == argmax_canvas) ? held + 1 : 0;
++        const bool confident = (entropy_sum / (float) C) < params.confidence_threshold;
++        if (held >= params.stability_threshold && confident) { finished = true; }
++        prev_argmax   = argmax_canvas;
++        prev_temp_inv = temp_inv;
++
++        if (params.step_callback &&
++            !params.step_callback(step_idx, S, output_tokens, params.max_length, params.step_callback_user_data)) {
++            break;
++        }
++    }
++
++    if (params.kv_cache) {
++        llama_diffusion_set_phase(model, /*PKV_UNIFIED=*/0, 0);  // restore default for later turns / masked path
++    }
++    if (dev_sc) {
++        llama_diffusion_set_device_sc(model, false);             // restore host SC path for later turns
++    }
++    llama_batch_free(batch);
++    n_generated = params.max_length;
++}
+diff --git a/examples/diffusion/diffusion.h b/examples/diffusion/diffusion.h
+index 7831445224c9..a7f305e29213 100644
+--- a/examples/diffusion/diffusion.h
++++ b/examples/diffusion/diffusion.h
+@@ -33,6 +33,10 @@ struct diffusion_params {
+     int32_t                   seed                    = 0;
+     bool                      visual_mode             = false;
+     bool                      shift_logits            = false;  // Shift logits by -1 after decode
++    bool                      suppress_mask_token     = false;  // forbid revealing a position as the mask token
++                                                                // (masked-diffusion models that can emit it)
++    bool                      self_conditioning       = false;  // feed each step's canvas logits back into the
++                                                                // next step (DiffusionGemma; no-op for others)
+ 
+     float   top_p = 0.;
+     int32_t top_k = 0.;
+@@ -55,3 +59,37 @@ void diffusion_generate(llama_context *          ctx,
+                         int32_t                  n_input,
+                         const diffusion_params & params,
+                         int32_t &                n_generated);
++
++// Entropy-bound denoiser for block-diffusion canvas models (DiffusionGemma). Unlike the masked path, the
++// canvas is random-initialized and non-accepted positions are renoised each step; tokens are accepted by a
++// per-position entropy (mutual-information) bound, under a linear temperature schedule, with adaptive
++// stopping. Writes the final argmax canvas into output_tokens[n_input .. max_length).
++struct diffusion_eb_params {
++    int32_t max_denoising_steps  = 48;
++    float   t_min                = 0.4f;   // temperature at the last step
++    float   t_max                = 0.8f;   // temperature at the first step
++    float   entropy_bound        = 0.1f;   // accept lowest-entropy tokens within this MI bound
++    int32_t stability_threshold  = 1;      // steps the argmax canvas must hold to count as stable
++    float   confidence_threshold = 0.005f; // stop once mean canvas entropy drops below this
++    int32_t seed                 = 0;
++    int32_t max_length           = 0;      // n_input + canvas_length
++    bool    kv_cache             = false;  // prefix-KV-cache the prompt (PREFILL once, decode canvas-only
++                                           // per step) instead of re-decoding [prompt|canvas] every step
++    bool    gpu_sampling         = false;  // device-resident self-conditioning: keep the prev step's canvas
++                                           // logits on-device for SC instead of a per-step 268 MB host upload
++                                           // (exact; the SC math/values are unchanged)
++    bool    gpu_sample_reduce    = false;  // Stage-1: argmax/entropy/one multinomial draw per position done on
++                                           // the GPU from sc_dev (skips the 268 MB logits D2H + host reductions).
++                                           // Requires gpu_sampling. FP-equivalent: argmax exact, Z/entropy ~1e-4.
++
++    diffusion_step_callback_t step_callback           = nullptr;
++    void *                    step_callback_user_data = nullptr;
++    bool                      visual_mode             = false;
++};
++
++void diffusion_generate_entropy_bound(llama_context *             ctx,
++                                      const llama_token *         input_tokens,
++                                      llama_token *               output_tokens,
++                                      int32_t                     n_input,
++                                      const diffusion_eb_params & params,
++                                      int32_t &                   n_generated);
+diff --git a/ggml/src/ggml-cuda/diffusion-sampling.cu b/ggml/src/ggml-cuda/diffusion-sampling.cu
+new file mode 100644
+index 000000000000..2347002d8a77
+--- /dev/null
++++ b/ggml/src/ggml-cuda/diffusion-sampling.cu
+@@ -0,0 +1,178 @@
++#include "diffusion-sampling.cuh"
++
++#include <cfloat>
++#include <map>
++#include <mutex>
++
++// One block per canvas position. Parallel max->argmax, parallel Z and T (T=sum d*e), entropy=logZ-T/Z,
++// then thread 0 walks the multinomial CDF with r=u[row]*Z. Only the reduction order differs from the host
++// worker, so argmax is exact and Z/entropy match to FP reduction tolerance (~1e-4 rel). Dense, top_k==0.
++static __global__ void diffusion_dense_sample_kernel(
++        const float * __restrict__ logits,
++        const float * __restrict__ u,
++        int   * __restrict__ argmax,
++        float * __restrict__ entropy,
++        int   * __restrict__ sampled,
++        const int   n_vocab,
++        const float inv_temp) {
++    const int row = blockIdx.x;
++    const int tid = threadIdx.x;
++
++    __shared__ float s_val[256];
++    __shared__ float s_sum[256];
++    __shared__ int   s_idx[256];
++
++    const float * row_logits = logits + (size_t) row * n_vocab;
++
++    float local_max = -FLT_MAX;
++    int   local_idx = 0;
++    for (int v = tid; v < n_vocab; v += blockDim.x) {
++        const float x = row_logits[v] * inv_temp;
++        if (x > local_max) { local_max = x; local_idx = v; }
++    }
++    s_val[tid] = local_max;
++    s_idx[tid] = local_idx;
++    __syncthreads();
++    for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
++        if (tid < stride && s_val[tid + stride] > s_val[tid]) {
++            s_val[tid] = s_val[tid + stride];
++            s_idx[tid] = s_idx[tid + stride];
++        }
++        __syncthreads();
++    }
++    const float max_l = s_val[0];
++    const int   amax  = s_idx[0];
++
++    float local_sum = 0.0f;
++    float local_t   = 0.0f;
++    for (int v = tid; v < n_vocab; v += blockDim.x) {
++        const float d = row_logits[v] * inv_temp - max_l;
++        const float e = expf(d);
++        local_sum += e;
++        local_t   += d * e;
++    }
++    s_sum[tid] = local_sum;
++    s_val[tid] = local_t;
++    __syncthreads();
++    for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
++        if (tid < stride) {
++            s_sum[tid] += s_sum[tid + stride];
++            s_val[tid] += s_val[tid + stride];
++        }
++        __syncthreads();
++    }
++    const float z = s_sum[0];
++    const float t = s_val[0];
++    if (tid == 0) {
++        argmax[row]  = amax;
++        entropy[row] = logf(z) - t / z;
++    }
++    __syncthreads();
++
++    // multinomial draw (first v with cumulative exp(d) >= r, in vocab order). Split the vocab into 256
++    // contiguous slices: each thread sums its slice, we exclusive-scan the slice sums, then only the thread
++    // whose slice spans r walks its ~ceil(n_vocab/256) elements serially. Serial work drops from n_vocab to
++    // one slice; pick the same vocab-order first-crossing as the host (FP reduction order aside).
++    const float r = u[row] * z;
++    const int   chunk = (n_vocab + blockDim.x - 1) / blockDim.x;
++    const int   beg   = tid * chunk;
++    const int   end   = min(beg + chunk, n_vocab);
++
++    float slice_sum = 0.0f;
++    for (int v = beg; v < end; ++v) {
++        slice_sum += expf(row_logits[v] * inv_temp - max_l);
++    }
++    s_sum[tid] = slice_sum;
++    __syncthreads();
++
++    __shared__ int s_tok;
++    if (tid == 0) {
++        s_tok    = n_vocab - 1;                // host default if cum never reaches r (FP guard)
++        s_idx[0] = -1;                         // no crossing slice -> no thread walks, default stands
++        float pref = 0.0f;
++        for (int i = 0; i < blockDim.x; ++i) { // exclusive scan + locate the crossing slice (256 iters)
++            const float next = pref + s_sum[i];
++            if (next >= r) { s_idx[0] = i; s_val[0] = pref; break; }
++            pref = next;
++        }
++    }
++    __syncthreads();
++
++    if (tid == s_idx[0]) {                      // only the crossing thread walks its slice from its prefix
++        float cum = s_val[0];
++        for (int v = beg; v < end; ++v) {
++            cum += expf(row_logits[v] * inv_temp - max_l);
++            if (cum >= r) { s_tok = v; break; }
++        }
++    }
++    __syncthreads();
++    if (tid == 0) { sampled[row] = s_tok; }
++}
++
++// Per-device scratch: u + the 3 outputs, grow-only and cached so the steady state has no cudaMalloc.
++struct dg_devsample_scratch {
++    float * u       = nullptr;
++    int   * argmax  = nullptr;
++    float * entropy = nullptr;
++    int   * sampled = nullptr;
++    int     cap     = 0;
++};
++
++static std::mutex g_dg_devsample_mutex;
++static std::map<int, dg_devsample_scratch> g_dg_devsample;
++
++static void dg_devsample_reserve(dg_devsample_scratch & s, int n) {
++    if (s.cap >= n) { return; }
++    if (s.u)       { CUDA_CHECK(cudaFree(s.u)); }
++    if (s.argmax)  { CUDA_CHECK(cudaFree(s.argmax)); }
++    if (s.entropy) { CUDA_CHECK(cudaFree(s.entropy)); }
++    if (s.sampled) { CUDA_CHECK(cudaFree(s.sampled)); }
++    CUDA_CHECK(cudaMalloc((void **) &s.u,       (size_t) n * sizeof(float)));
++    CUDA_CHECK(cudaMalloc((void **) &s.argmax,  (size_t) n * sizeof(int)));
++    CUDA_CHECK(cudaMalloc((void **) &s.entropy, (size_t) n * sizeof(float)));
++    CUDA_CHECK(cudaMalloc((void **) &s.sampled, (size_t) n * sizeof(int)));
++    s.cap = n;
++}
++
++bool ggml_cuda_diffusion_sample(
++        struct ggml_tensor * logits,
++        const float        * u_host,
++        int                * argmax_host,
++        float              * entropy_host,
++        int                * sampled_host,
++        int                  n_tokens,
++        float                inv_temp) {
++    if (!logits || !u_host || !argmax_host || !entropy_host || !sampled_host || n_tokens <= 0) {
++        return false;
++    }
++    if (logits->type != GGML_TYPE_F32 || !ggml_is_contiguous(logits) || logits->data == nullptr) {
++        return false;
++    }
++    const int n_vocab = (int) logits->ne[0];
++    if (n_vocab <= 0 || (int) ggml_nrows(logits) < n_tokens) {
++        return false;
++    }
++    if (!logits->buffer || ggml_backend_buffer_is_host(logits->buffer)) {
++        return false;  // host tensor -> caller falls back to the host path
++    }
++    const float * logits_d = (const float *) logits->data;
++
++    // gated to a single CUDA device, so the tensor is on the current device; run there on the default
++    // stream (the caller has already synchronized the backend).
++    int device = 0;
++    CUDA_CHECK(cudaGetDevice(&device));
++
++    std::lock_guard<std::mutex> lock(g_dg_devsample_mutex);
++    dg_devsample_scratch & s = g_dg_devsample[device];
++    dg_devsample_reserve(s, n_tokens);
++
++    CUDA_CHECK(cudaMemcpyAsync(s.u, u_host, (size_t) n_tokens * sizeof(float), cudaMemcpyHostToDevice, 0));
++    diffusion_dense_sample_kernel<<<n_tokens, 256, 0, 0>>>(
++            logits_d, s.u, s.argmax, s.entropy, s.sampled, n_vocab, inv_temp);
++    CUDA_CHECK(cudaGetLastError());
++    CUDA_CHECK(cudaMemcpyAsync(argmax_host,  s.argmax,  (size_t) n_tokens * sizeof(int),   cudaMemcpyDeviceToHost, 0));
++    CUDA_CHECK(cudaMemcpyAsync(entropy_host, s.entropy, (size_t) n_tokens * sizeof(float), cudaMemcpyDeviceToHost, 0));
++    CUDA_CHECK(cudaMemcpyAsync(sampled_host, s.sampled, (size_t) n_tokens * sizeof(int),   cudaMemcpyDeviceToHost, 0));
++    CUDA_CHECK(cudaStreamSynchronize(0));
++    return true;
++}
+diff --git a/ggml/src/ggml-cuda/diffusion-sampling.cuh b/ggml/src/ggml-cuda/diffusion-sampling.cuh
+new file mode 100644
+index 000000000000..678611e0d856
+--- /dev/null
++++ b/ggml/src/ggml-cuda/diffusion-sampling.cuh
+@@ -0,0 +1,19 @@
++#pragma once
++
++#include "common.cuh"
++
++// Stage-1 dense device sampler for DiffusionGemma. Reads per-position canvas logits straight from a
++// device tensor [n_vocab, n_tokens] (row-major per position) and returns the small per-position arrays,
++// removing the per-step full-canvas D2H logits download + host full-vocab reductions.
++//   logits   : device tensor, F32, contiguous, ne[0]=n_vocab, nrows>=n_tokens
++//   u_host   : host [n_tokens] pre-drawn uniforms (kept on the host RNG stream for reproducibility)
++//   *_host   : host outputs [n_tokens] (argmax, entropy, sampled)
++// Returns false on a non-CUDA / unsupported tensor (caller falls back to the host path).
++bool ggml_cuda_diffusion_sample(
++        struct ggml_tensor * logits,
++        const float        * u_host,
++        int                * argmax_host,
++        float              * entropy_host,
++        int                * sampled_host,
++        int                  n_tokens,
++        float                inv_temp);
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index e779a9be9e95..8ea462ae611a 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -23,6 +23,7 @@
+ #include "ggml-cuda/cumsum.cuh"
+ #include "ggml-cuda/diagmask.cuh"
+ #include "ggml-cuda/diag.cuh"
++#include "ggml-cuda/diffusion-sampling.cuh"
+ #include "ggml-cuda/fattn.cuh"
+ #include "ggml-cuda/fwht.cuh"
+ #include "ggml-cuda/getrows.cuh"
+@@ -5664,6 +5665,9 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
+     if (strcmp(name, "ggml_backend_get_features") == 0) {
+         return (void *)ggml_backend_cuda_get_features;
+     }
++    if (strcmp(name, "ggml_backend_cuda_diffusion_sample") == 0) {
++        return (void *)ggml_cuda_diffusion_sample;
++    }
+     return nullptr;
+ }
+ 
+diff --git a/gguf-py/gguf/constants.py b/gguf-py/gguf/constants.py
+index 584594097346..1c715dc7feee 100644
+--- a/gguf-py/gguf/constants.py
++++ b/gguf-py/gguf/constants.py
+@@ -367,7 +367,14 @@ class Projector:
+             HEAD_COUNT      = "clip.audio.projector.head_count"
+ 
+     class Diffusion:
+-        SHIFT_LOGITS        = "diffusion.shift_logits"
++        SHIFT_LOGITS         = "diffusion.shift_logits"
++        CANVAS_LENGTH        = "diffusion.canvas_length"
++        EB_MAX_STEPS         = "diffusion.eb_max_steps"
++        EB_T_MIN             = "diffusion.eb_t_min"
++        EB_T_MAX             = "diffusion.eb_t_max"
++        EB_ENTROPY_BOUND     = "diffusion.eb_entropy_bound"
++        EB_STABILITY         = "diffusion.eb_stability_threshold"
++        EB_CONFIDENCE        = "diffusion.eb_confidence_threshold"
+ 
+     class xIELU:
+         ALPHA_P             = "xielu.alpha_p"
+@@ -441,6 +448,7 @@ class MODEL_ARCH(IntEnum):
+     GEMMA3N          = auto()
+     GEMMA4           = auto()
+     GEMMA4_ASSISTANT = auto()
++    DIFFUSION_GEMMA  = auto()
+     GEMMA_EMBEDDING  = auto()
+     STARCODER2       = auto()
+     RWKV6            = auto()
+@@ -591,6 +599,11 @@ class MODEL_TENSOR(IntEnum):
+     ATTN_K_NORM          = auto()
+     LAYER_OUT_NORM       = auto()
+     LAYER_OUT_SCALE      = auto()
++    ENC_LAYER_OUT_SCALE  = auto() # diffusion-gemma (encoder-mode per-layer scalar)
++    SC_PRE_NORM          = auto() # diffusion-gemma self-conditioning
++    SC_GATE              = auto() # diffusion-gemma self-conditioning
++    SC_UP                = auto() # diffusion-gemma self-conditioning
++    SC_DOWN              = auto() # diffusion-gemma self-conditioning
+     PER_LAYER_TOKEN_EMBD = auto() # gemma3n
+     PER_LAYER_MODEL_PROJ = auto() # gemma3n
+     PER_LAYER_INP_GATE   = auto() # gemma3n
+@@ -992,6 +1005,7 @@ class MODEL_TENSOR(IntEnum):
+     MODEL_ARCH.GEMMA3N:          "gemma3n",
+     MODEL_ARCH.GEMMA4:           "gemma4",
+     MODEL_ARCH.GEMMA4_ASSISTANT: "gemma4-assistant",
++    MODEL_ARCH.DIFFUSION_GEMMA:  "diffusion-gemma",
+     MODEL_ARCH.GEMMA_EMBEDDING:  "gemma-embedding",
+     MODEL_ARCH.STARCODER2:       "starcoder2",
+     MODEL_ARCH.RWKV6:            "rwkv6",
+@@ -1141,6 +1155,11 @@ class MODEL_TENSOR(IntEnum):
+     MODEL_TENSOR.MOE_LATENT_UP:             "blk.{bid}.ffn_latent_up",        # nemotron 3 super
+     MODEL_TENSOR.LAYER_OUT_NORM:            "blk.{bid}.layer_output_norm",
+     MODEL_TENSOR.LAYER_OUT_SCALE:           "blk.{bid}.layer_output_scale",
++    MODEL_TENSOR.ENC_LAYER_OUT_SCALE:       "blk.{bid}.enc_layer_output_scale", # diffusion-gemma
++    MODEL_TENSOR.SC_PRE_NORM:               "self_cond_pre_norm",               # diffusion-gemma
++    MODEL_TENSOR.SC_GATE:                   "self_cond_gate",                   # diffusion-gemma
++    MODEL_TENSOR.SC_UP:                     "self_cond_up",                     # diffusion-gemma
++    MODEL_TENSOR.SC_DOWN:                   "self_cond_down",                   # diffusion-gemma
+     MODEL_TENSOR.PER_LAYER_TOKEN_EMBD:      "per_layer_token_embd",           # gemma3n
+     MODEL_TENSOR.PER_LAYER_MODEL_PROJ:      "per_layer_model_proj",           # gemma3n
+     MODEL_TENSOR.PER_LAYER_PROJ_NORM:       "per_layer_proj_norm",            # gemma3n
+@@ -2587,6 +2606,39 @@ class MODEL_TENSOR(IntEnum):
+         MODEL_TENSOR.PER_LAYER_PROJ_NORM,
+         MODEL_TENSOR.PER_LAYER_POST_NORM,
+     ],
++    MODEL_ARCH.DIFFUSION_GEMMA: [
++        MODEL_TENSOR.ROPE_FREQS,
++        MODEL_TENSOR.TOKEN_EMBD,
++        MODEL_TENSOR.OUTPUT,
++        MODEL_TENSOR.OUTPUT_NORM,
++        MODEL_TENSOR.ATTN_Q,
++        MODEL_TENSOR.ATTN_Q_NORM,
++        MODEL_TENSOR.ATTN_K,
++        MODEL_TENSOR.ATTN_K_NORM,
++        MODEL_TENSOR.ATTN_V,
++        MODEL_TENSOR.ATTN_OUT,
++        MODEL_TENSOR.FFN_GATE,
++        MODEL_TENSOR.FFN_DOWN,
++        MODEL_TENSOR.FFN_UP,
++        MODEL_TENSOR.FFN_GATE_UP_EXP,
++        MODEL_TENSOR.FFN_GATE_EXP,
++        MODEL_TENSOR.FFN_UP_EXP,
++        MODEL_TENSOR.FFN_DOWN_EXP,
++        MODEL_TENSOR.ATTN_NORM,

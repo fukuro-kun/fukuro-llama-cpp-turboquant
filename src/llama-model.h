@@ -82,6 +82,7 @@ enum llm_type {
     LLM_TYPE_16B,
     LLM_TYPE_20B,
     LLM_TYPE_26B,
+    LLM_TYPE_26B_A4B, // DiffusionGemma
     LLM_TYPE_27B,
     LLM_TYPE_30B,
     LLM_TYPE_32B,
@@ -490,6 +491,9 @@ struct llama_layer {
     // gemma4 layer output scale
     struct ggml_tensor * out_scale = nullptr;
 
+    // diffusion-gemma encoder-mode per-layer output scale (prompt positions)
+    struct ggml_tensor * enc_out_scale = nullptr;
+
     struct llama_layer_posnet posnet;
 
     struct llama_layer_convnext convnext;
@@ -535,6 +539,38 @@ struct llama_model {
     struct ggml_tensor * output          = nullptr;
     struct ggml_tensor * output_b        = nullptr;
     struct ggml_tensor * output_norm_enc = nullptr;
+
+    // diffusion-gemma self-conditioning gated MLP (model-level, decoder-only)
+    struct ggml_tensor * sc_pre_norm = nullptr;
+    struct ggml_tensor * sc_gate     = nullptr;
+    struct ggml_tensor * sc_up       = nullptr;
+    struct ggml_tensor * sc_down     = nullptr;
+
+    // diffusion-gemma runtime state (monolithic port shim)
+    uint32_t canvas_length = 0;
+    bool    sc_enabled    = false;
+    bool    sc_device_resident = false;
+    const float * sc_logits_ptr = nullptr;
+    float   sc_use      = 0.0f;
+    float   sc_temp_inv = 0.0f;
+    struct ggml_tensor * sc_dev = nullptr;
+
+    // diffusion-gemma prompt-KV cache for decode phase
+    enum pkv_phase_t { PKV_PREFILL, PKV_DECODE, PKV_UNIFIED } pkv_phase = PKV_UNIFIED;
+    int64_t pkv_P = 0;
+    int64_t pkv_cap = 0;
+    std::vector<struct ggml_tensor *> pkv_k;
+    std::vector<struct ggml_tensor *> pkv_v;
+    struct ggml_context * pkv_ctx = nullptr;
+    ggml_backend_buffer_t pkv_buf = nullptr;
+
+    // diffusion-gemma SC (self-conditioning) device buffers
+    struct ggml_tensor * sc_embT = nullptr;
+    struct ggml_context * sc_embT_ctx = nullptr;
+    ggml_backend_buffer_t sc_embT_buf = nullptr;
+    struct ggml_context * sc_dev_ctx = nullptr;
+    ggml_backend_buffer_t sc_dev_buf = nullptr;
+    int64_t sc_dev_C = 0;
 
     // classifier
     struct ggml_tensor * cls       = nullptr;

@@ -1,0 +1,500 @@
++    base.entropy_bound        = meta_f(model, "diffusion.eb_entropy_bound", 0.1f);
++    base.stability_threshold  = meta_i(model, "diffusion.eb_stability_threshold", 1);
++    base.confidence_threshold = meta_f(model, "diffusion.eb_confidence_threshold", 0.005f);
++
++    // Stage 1 + Stage 2 are single-device features (sc_dev / prompt-KV store are single-GPU). Auto-enable
++    // them for one CUDA device, exactly like the CLI's --diffusion-* auto resolution.
++    base.kv_cache          = one_gpu;
++    base.gpu_sampling      = one_gpu;
++    base.gpu_sample_reduce = one_gpu;
++
++    std::vector<llama_token> output_tokens(MAXTOK);
++
++    fprintf(stderr, "diffusion-gemma-visual-server ready (n_vocab=%d, canvas=%d, MAXTOK=%d, NGL=%d, "
++            "gpu_sampling=%s sample_reduce=%s kv_cache=%s)\n",
++            n_vocab, (int) canvas_length, MAXTOK, mparams.n_gpu_layers,
++            base.gpu_sampling ? "on" : "off", base.gpu_sample_reduce ? "on" : "off",
++            base.kv_cache ? "on" : "off");
++    printf("READY %d %d\n", n_vocab, MAXTOK); fflush(stdout);
++
++    char line[4096];
++    while (fgets(line, sizeof(line), stdin)) {
++        size_t L = strlen(line);
++        while (L && (line[L-1] == '\n' || line[L-1] == '\r')) line[--L] = 0;
++        if (L == 0) continue;
++        if (strcmp(line, "QUIT") == 0) break;
++
++        const int64_t t_req0 = ggml_time_us();
++
++        // parse the request file: {"seed", "n_blocks", "messages":[...]} -> chat template -> token prefix
++        int seed = 0, n_blocks = 1;
++        std::vector<llama_token> prefix;
++        try {
++            const std::string raw = read_text_file(line);
++            if (raw.empty()) { printf("ERR badreq\n"); fflush(stdout); continue; }
++            const nlohmann::ordered_json req = nlohmann::ordered_json::parse(raw);
++            seed     = req.value("seed", 0);
++            n_blocks = req.value("n_blocks", 1);
++            std::vector<common_chat_msg> messages = common_chat_msgs_parse_oaicompat(req.at("messages"));
++            common_chat_templates_inputs inputs;
++            inputs.messages              = messages;
++            inputs.add_generation_prompt = true;
++            const std::string prompt = common_chat_templates_apply(chat_templates.get(), inputs).prompt;
++            prefix = common_tokenize(vocab, prompt, /*add special*/ true, /*parse special*/ true);
++        } catch (const std::exception & e) {
++            printf("ERR parse %s\n", e.what()); fflush(stdout); continue;
++        }
++        if (prefix.empty()) { printf("ERR emptyprompt\n"); fflush(stdout); continue; }
++
++        const int P = (int) prefix.size();          // original prompt length; the answer is what grows past it
++        std::vector<llama_token> answer;             // cumulative committed canvas tokens (across blocks)
++
++        const int64_t t_prompt = ggml_time_us();     // template + tokenize done
++        int blocks_run    = 0;
++        int total_steps   = 0;
++        int64_t total_viz_us = 0;                     // cumulative host visualization time (frames + commits)
++
++        for (int b = 0; b < std::max(1, n_blocks); b++) {
++            const int32_t prefix_len = (int32_t) prefix.size();
++            const int32_t max_length = prefix_len + (int32_t) canvas_length;
++            if (max_length > MAXTOK) {
++                // needed vs budget, so the client can render a readable "conversation too long" message.
++                printf("ERR toolong %d %d\n", (int) max_length, MAXTOK); fflush(stdout);
++                break;
++            }
++
++            diffusion_eb_params eb = base;
++            eb.max_length              = max_length;
++            eb.seed                    = seed + b;   // distinct per block, deterministic from the request seed
++            eb.visual_mode             = true;
++            vis_cb_data cb{ b, prefix_len, 0, 0, stdout, vocab };
++            eb.step_callback           = vis_step_callback;
++            eb.step_callback_user_data = &cb;
++
++            int32_t n_generated = 0;
++            diffusion_generate_entropy_bound(ctx, prefix.data(), output_tokens.data(), prefix_len, eb, n_generated);
++            if (n_generated <= prefix_len) { if (b == 0) printf("ERR gen\n"); break; }
++
++            blocks_run++;
++            total_steps   += cb.steps;
++            total_viz_us  += cb.viz_us;
++
++            const llama_token * canvas = output_tokens.data() + prefix_len;
++            const size_t cut = trim_canvas(vocab, canvas, (size_t) canvas_length);
++
++            const int64_t tc0 = ggml_time_us();   // the commit detok + emit is visualization overhead too
++            answer.insert(answer.end(), canvas, canvas + cut);
++            // special=true: keep the <|channel> markers so the client can split out the reasoning
++            const std::string answer_text = common_detokenize(vocab, answer, /*special*/ true);
++            printf("C %d %s\n", b, nlohmann::json(answer_text).dump().c_str()); fflush(stdout);
++            total_viz_us += ggml_time_us() - tc0;
++
++            if (cut < (size_t) canvas_length) break;                 // eog / repetition loop: answer complete
++            prefix.insert(prefix.end(), canvas, canvas + cut);       // commit the block, denoise the next
++        }
++
++        if (blocks_run > 0) {
++            const int64_t t_gen = ggml_time_us();
++            // prompt_prepare_ms = host template+tokenize (NOT a GPU prefill, so no prompt tok/s).
++            // wall_ms = the generation loop the user waited on (model compute + visualization emission).
++            // decode_ms = wall minus the host visualization overhead = a fair estimate of model compute.
++            const double prompt_prepare_ms = (double) (t_prompt - t_req0) / 1000.0;
++            const double wall_ms           = (double) (t_gen - t_prompt) / 1000.0;
++            const double decode_ms         = (double) ((t_gen - t_prompt) - total_viz_us) / 1000.0;
++            printf("STATS prompt_n=%d predicted_n=%d prompt_prepare_ms=%.3f wall_ms=%.3f decode_ms=%.3f "
++                   "blocks=%d steps=%d canvas=%d n_ctx=%d\n",
++                   P, (int) answer.size(), prompt_prepare_ms, wall_ms, decode_ms,
++                   blocks_run, total_steps, (int) canvas_length, MAXTOK);
++            fflush(stdout);
++        }
++        printf("DONE\n"); fflush(stdout);
++    }
++
++    llama_free(ctx);
++    llama_model_free(model);
++    llama_backend_free();
++    return 0;
++}
+diff --git a/examples/diffusion/diffusion-cli.cpp b/examples/diffusion/diffusion-cli.cpp
+index 86ebbf88c98d..3d206357b01d 100644
+--- a/examples/diffusion/diffusion-cli.cpp
++++ b/examples/diffusion/diffusion-cli.cpp
+@@ -2,13 +2,27 @@
+ #include "chat.h"
+ #include "common.h"
+ #include "diffusion.h"
++#include "ggml-backend.h"
+ #include "llama.h"
+ #include "log.h"
+ 
+ #include <limits.h>
+-
++#if defined(_WIN32)
++#    define WIN32_LEAN_AND_MEAN
++#    ifndef NOMINMAX
++#        define NOMINMAX
++#    endif
++#    include <windows.h>
++#else
++#    include <sys/ioctl.h>
++#    include <unistd.h>
++#endif
++
++#include <algorithm>
+ #include <clocale>
++#include <cstdio>
+ #include <cstring>
++#include <iostream>
+ #include <string>
+ #include <vector>
+ 
+@@ -16,17 +30,48 @@ struct callback_data {
+     diffusion_params *  diff_params;
+     const llama_vocab * vocab;
+     int32_t             n_input;
++    bool                show_progress;     // visual mode: draw the step progress bar
++    int32_t             visual_interval;   // visual mode: redraw every Nth step
++    int32_t             steps_seen;        // per-turn step count (callback invocations)
++    int32_t             blocks_seen;       // per-turn block count (callbacks with step == 0)
++    int32_t             term_rows;         // visual mode: terminal size (the canvas viewport is clamped to it)
++    int32_t             term_cols;
++    int32_t             vis_prev_rows;     // visual mode: rows the previous frame advanced (for cursor-up)
+ };
+ 
++// Query the terminal size for the visual viewport; fall back to 24x80 when it can't be read (piped output).
++static void get_terminal_size(int32_t & rows, int32_t & cols) {
++    rows = 24;
++    cols = 80;
++#if defined(_WIN32)
++    CONSOLE_SCREEN_BUFFER_INFO csbi;
++    if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi)) {
++        const int r = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
++        const int c = csbi.srWindow.Right  - csbi.srWindow.Left + 1;
++        if (r > 1) { rows = r; }
++        if (c > 0) { cols = c; }
++    }
++#else
++    struct winsize ws;
++    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 1) {
++        rows = ws.ws_row;
++        cols = ws.ws_col > 0 ? ws.ws_col : 80;
++    }
++#endif
++}
++
+ static bool diffusion_step_callback(int32_t             step,
+                                     int32_t             total_steps,
+                                     const llama_token * tokens,
+                                     int32_t             n_tokens,
+                                     void *              user_data) {
+-    (void) user_data;
+-
+     callback_data * data = static_cast<callback_data *>(user_data);
+ 
++    data->steps_seen++;
++    if (step == 0) {
++        data->blocks_seen++;  // each block's denoise restarts the step counter at 0
++    }
++
+     auto print_progress_bar = [](int32_t step, int32_t total_steps) {
+         int progress_percent = (step * 100) / total_steps;
+         int progress_bars    = (step * 50) / total_steps;
+@@ -39,32 +84,55 @@ static bool diffusion_step_callback(int32_t             step,
+     };
+ 
+     if (data->diff_params->visual_mode) {
+-        // Visual mode: clear
+-        LOG_INF("\033[2J\033[H");  // Clear screen and move cursor to top-left
+-
+-        print_progress_bar(step, total_steps);
+-
+-        LOG_INF("\n");
+-
+-        std::string current_text = " ";
++        // Throttle redraws to every Nth step (all steps are still computed); always draw the first.
++        if (data->visual_interval > 1 && (step % data->visual_interval) != 0) {
++            return true;
++        }
+ 
++        // Draw the canvas as a fixed-height region in the normal screen buffer (not the alternate buffer, so
++        // scrollback stays intact): step the cursor back up over the previous frame, then repaint exactly
++        // `rows` lines, each truncated to the terminal width and padded out, so the region never scrolls. The
++        // whole repaint is one synchronized update (DEC mode 2026) written directly, so it cannot tear.
++        const int rows = std::max(1, data->term_rows - 1);
++        const int cols = std::max(1, data->term_cols);
++
++        std::vector<std::string> lines;
++        if (data->show_progress) {
++            int progress_percent = (step * 100) / total_steps;
++            int progress_bars    = (step * 50) / total_steps;
++            lines.push_back("diffusion step: " + std::to_string(step) + "/" + std::to_string(total_steps) +
++                            " [" + std::string(progress_bars, '=') + std::string(50 - progress_bars, ' ') +
++                            "] " + std::to_string(progress_percent) + "%");
++        }
++        std::string cur = " ";
+         for (int32_t i = data->n_input; i < n_tokens; i++) {
+-            std::string token_str;
+             if (tokens[i] != llama_vocab_mask(data->vocab)) {
+                 char piece[256];
+                 int  n_chars = llama_token_to_piece(data->vocab, tokens[i], piece, sizeof(piece), 0, false);
+-                if (n_chars > 0) {
+-                    piece[n_chars] = '\0';
+-                    token_str      = piece;
++                for (int32_t k = 0; k < n_chars; k++) {
++                    if (piece[k] == '\n') { lines.push_back(cur); cur.clear(); } else { cur += piece[k]; }
+                 }
+             } else {
+-                token_str = " ";
++                cur += ' ';
+             }
+-
+-            current_text += token_str;
+         }
++        lines.push_back(cur);
+ 
+-        LOG_INF("%s\n", current_text.c_str());
++        std::string frame = "\033[?2026h";                     // begin synchronized frame
++        if (data->vis_prev_rows > 0) {
++            frame += "\033[" + std::to_string(data->vis_prev_rows) + "A";  // back to the top of the region
++        }
++        frame += "\r";
++        for (int r = 0; r < rows; r++) {
++            std::string ln = (r < (int) lines.size()) ? lines[r] : std::string();
++            if ((int) ln.size() > cols) { ln.resize(cols); }    // clamp width so the row never wraps
++            frame += ln + "\033[K";
++            if (r < rows - 1) { frame += "\n"; }
++        }
++        frame += "\033[?2026l";                                // end synchronized frame
++        data->vis_prev_rows = rows - 1;
++        fwrite(frame.data(), 1, frame.size(), stdout);
++        fflush(stdout);
+     } else {
+         print_progress_bar(step, total_steps);
+     }
+@@ -72,33 +140,6 @@ static bool diffusion_step_callback(int32_t             step,
+     return true;
+ }
+ 
+-static std::string format_input_text(const std::string & prompt, const std::string & system_prompt, bool use_chat_template, llama_model * model) {
+-    if (!use_chat_template) {
+-        return prompt;
+-    }
+-
+-    auto chat_templates = common_chat_templates_init(model, "");
+-    common_chat_templates_inputs inputs;
+-    common_chat_msg system_msg;
+-
+-    if (!system_prompt.empty()) {
+-        system_msg.role = "system";
+-        system_msg.content = system_prompt;
+-        inputs.messages.push_back(system_msg);
+-    }
+-
+-    common_chat_msg user_msg;
+-    user_msg.role = "user";
+-    user_msg.content = prompt;
+-
+-    inputs.messages.push_back(user_msg);
+-    inputs.add_generation_prompt = true;
+-
+-    auto result = common_chat_templates_apply(chat_templates.get(), inputs);
+-
+-    return result.prompt;
+-}
+-
+ int main(int argc, char ** argv) {
+     std::setlocale(LC_NUMERIC, "C");
+ 
+@@ -122,6 +163,15 @@ int main(int argc, char ** argv) {
+     model_params.use_mlock          = params.use_mlock;
+     model_params.check_tensors      = params.check_tensors;
+ 
++    // honor -ot / --n-cpu-moe (tensor buffer placement); without this the offload flags are silently
++    // dropped and the MoE experts stay on GPU, OOMing small-VRAM cards
++    if (params.tensor_buft_overrides.empty()) {
++        model_params.tensor_buft_overrides = nullptr;
++    } else {
++        GGML_ASSERT(params.tensor_buft_overrides.back().pattern == nullptr && "Tensor buffer overrides not terminated with empty pattern");
++        model_params.tensor_buft_overrides = params.tensor_buft_overrides.data();
++    }
++
+     llama_model * model = llama_model_load_from_file(params.model.path.c_str(), model_params);
+     if (!model) {
+         LOG_ERR("error: failed to load model '%s'\n", params.model.path.c_str());
+@@ -134,6 +184,43 @@ int main(int argc, char ** argv) {
+         return 1;
+     }
+ 
++    // DiffusionGemma block diffusion exposes diffusion.canvas_length: the prompt is followed by a fixed
++    // canvas of that many masked positions, which overrides the generic n_ubatch generation length.
++    char    canvas_str[32];
++    int64_t canvas_length = 0;
++    if (llama_model_meta_val_str(model, "diffusion.canvas_length", canvas_str, sizeof(canvas_str)) >= 0) {
++        canvas_length = strtol(canvas_str, nullptr, 10);
++    }
++
++    // Canvas models self-condition (a full-vocab soft-embedding in the graph). Enable it before context
++    // creation so the reserve sizes the compute buffer; the real logits buffer is supplied per step.
++    if (canvas_length > 0) {
++        llama_diffusion_set_sc(model, nullptr, /*use_sc*/ 0.0f, /*temp_inv*/ 1.0f, /*enabled*/ true);
++    }
++
++    // -n/--n-predict drives length for canvas models: derive the block count from the target token budget
++    // and grow ubatch/batch/ctx to hold the final block's whole [prompt | canvas] in one pass, so
++    // --diffusion-blocks / -ub / -b / -c need not be set by hand. Larger explicit values are kept, and the
++    // denoise still stops early on an end token.
++    if (canvas_length > 0 && params.n_predict > 0) {
++        const int32_t cl     = (int32_t) canvas_length;
++        const int32_t blocks = (params.n_predict + cl - 1) / cl;
++        const int32_t needed = blocks * cl + 2048;  // + headroom for the prompt / chat history
++        params.diffusion.blocks = blocks;
++        params.n_ubatch = std::max(params.n_ubatch, needed);
++        params.n_batch  = std::max(params.n_batch,  params.n_ubatch);
++        params.n_ctx    = std::max(params.n_ctx,    needed);
++        LOG_INF("diffusion: -n %d -> %d blocks, n_ubatch=%d n_batch=%d n_ctx=%d (canvas_length=%d)\n",
++                params.n_predict, blocks, params.n_ubatch, params.n_batch, params.n_ctx, cl);
++    }
++
++    // --fit (auto context/layer fitting) runs inside common_init_from_params, which this runner does not
++    // use: it sizes context from -n and the canvas above. Tell the user so --fit is not silently ignored.
++    if (params.fit_params) {
++        LOG_INF("diffusion: --fit has no effect here; context is sized from -n and the canvas. "
++                "Set -ngl / --n-cpu-moe to control device memory.\n");
++    }
++
+     llama_context_params ctx_params = llama_context_default_params();
+     ctx_params.n_ctx                = params.n_ctx;
+     ctx_params.n_batch              = params.n_batch;
+@@ -152,31 +239,16 @@ int main(int argc, char ** argv) {
+ 
+     llama_set_n_threads(ctx, params.cpuparams.n_threads, params.cpuparams_batch.n_threads);
+ 
+-    const llama_vocab * vocab            = llama_model_get_vocab(model);
+-
+-    std::string         formatted_prompt = format_input_text(params.prompt, params.system_prompt, params.enable_chat_template, model);
++    const llama_vocab * vocab = llama_model_get_vocab(model);
+ 
+-    std::vector<llama_token> input_tokens = common_tokenize(vocab,
+-                                                            formatted_prompt,
+-                                                            /*add special tokens*/ true,
+-                                                            /*parse special*/ true);
+-
+-    int n_input = input_tokens.size();
+-
+-    if (static_cast<uint32_t>(n_input) >= llama_n_ctx(ctx)) {
+-        LOG_ERR("error: input too long (%d tokens), max context is %d\n", n_input, llama_n_ctx(ctx));
+-        llama_free(ctx);
+-        llama_model_free(model);
+-        return 1;
+-    }
++    auto chat_templates = common_chat_templates_init(model, "");
+ 
+     llama_token mask_token_id = llama_vocab_mask(vocab);
+-
+     GGML_ASSERT(mask_token_id != LLAMA_TOKEN_NULL);
+ 
+-    bool visual_mode = params.diffusion.visual_mode;
++    const bool visual_mode = params.diffusion.visual_mode;
+ 
+-    int32_t                  n_generated = 0;
++    // reused across turns; canvas models fill only n_input + canvas_length of it
+     std::vector<llama_token> output_tokens(params.n_ubatch);
+ 
+     struct diffusion_params diff_params;
+@@ -185,18 +257,31 @@ int main(int argc, char ** argv) {
+     if (llama_model_meta_val_str(model, "diffusion.shift_logits", shift_logits_str, sizeof(shift_logits_str)) >= 0) {
+         diff_params.shift_logits = (strcmp(shift_logits_str, "true") == 0);
+     } else {
+-        diff_params.shift_logits = true;
++        // canvas block-diffusion is not autoregressive (logit i predicts token i); Dream defaults to shifted
++        diff_params.shift_logits = (canvas_length == 0);
+     }
+ 
+-    //Use either eps or block length, but not both
+-    GGML_ASSERT((params.diffusion.eps == 0) ^ (params.diffusion.block_length == 0));
+-
+-    if (params.diffusion.eps) {
++    if (canvas_length > 0) {
++        // Denoise the whole canvas with the timestep schedule; block scheduling asserts
++        // max_length % block_length == 0, which a prompt + canvas layout does not satisfy.
+         diff_params.schedule = DIFFUSION_TRANSFER_SCHEDULE_TIMESTEP_BASED;
+-        diff_params.eps      = params.diffusion.eps;
+-    } else if (params.diffusion.block_length) {
+-        diff_params.schedule     = DIFFUSION_TRANSFER_SCHEDULE_BLOCK_BASED;
+-        diff_params.block_length = params.diffusion.block_length;
++        diff_params.eps      = params.diffusion.eps > 0 ? params.diffusion.eps : 1e-3f;
++        // these models put probability mass on the mask token at still-masked positions, so a reveal must
++        // sample from the non-mask distribution (unlike Dream/LLaDA, which never emit their mask token).
++        diff_params.suppress_mask_token = true;
++        // bootstrap the denoise from all-mask: feed each step's canvas logits into the next step
++        diff_params.self_conditioning = true;
++    } else {
++        //Use either eps or block length, but not both
++        GGML_ASSERT((params.diffusion.eps == 0) ^ (params.diffusion.block_length == 0));
++
++        if (params.diffusion.eps) {
++            diff_params.schedule = DIFFUSION_TRANSFER_SCHEDULE_TIMESTEP_BASED;
++            diff_params.eps      = params.diffusion.eps;
++        } else if (params.diffusion.block_length) {
++            diff_params.schedule     = DIFFUSION_TRANSFER_SCHEDULE_BLOCK_BASED;
++            diff_params.block_length = params.diffusion.block_length;
++        }
+     }
+ 
+     diff_params.mask_token_id    = mask_token_id;
+@@ -204,60 +289,335 @@ int main(int argc, char ** argv) {
+     diff_params.temperature      = params.sampling.temp;
+     diff_params.steps            = params.diffusion.steps;
+     diff_params.algorithm        = static_cast<diffusion_algorithm>(params.diffusion.algorithm);
+-    diff_params.max_length       = params.n_ubatch;
+     diff_params.top_p            = params.sampling.top_p;
+     diff_params.top_k            = params.sampling.top_k;
+     diff_params.visual_mode      = params.diffusion.visual_mode;
+     diff_params.add_gumbel_noise = params.diffusion.add_gumbel_noise;
+ 
++    callback_data cb_data               = { &diff_params, vocab, 0, params.diffusion.visual_progress,
++                                            std::max(1, params.diffusion.visual_interval), 0, 0, 24, 80, 0 };
+     diff_params.step_callback           = diffusion_step_callback;
+-    callback_data cb_data               = { &diff_params, vocab, n_input };
+     diff_params.step_callback_user_data = &cb_data;
+ 
+-    const char * alg_names[]   = {
+-        "DIFFUSION_ALGORITHM_ORIGIN",
+-        "DIFFUSION_ALGORITHM_ENTROPY_BASED",
+-        "DIFFUSION_ALGORITHM_MARGIN_BASED",
+-        "DIFFUSION_ALGORITHM_RANDOM",
+-        "DIFFUSION_ALGORITHM_CONFIDENCE_BASED",
++    // max_length is per-turn (it includes the prompt length); the rest is fixed for the run
++    LOG_INF("diffusion_params: steps=%d schedule=%d algorithm=%d temperature=%.3f eps=%.6f mask_token=%d\n",
++            diff_params.steps, (int) diff_params.schedule, (int) diff_params.algorithm,
++            diff_params.temperature, diff_params.eps, mask_token_id);
++
++    // Entropy-bound decoder: the real DiffusionGemma sampler (random-init canvas, MI-bounded acceptance,
++    // renoise, temperature schedule, adaptive stop). Auto-enabled for canvas models; --diffusion-eb forces
++    // it on/off. Params come from GGUF metadata (diffusion.eb_*), then reference defaults, then CLI override.
++    const bool use_eb = canvas_length > 0 && params.diffusion.eb_mode != 2;
++
++    struct diffusion_eb_params eb_params;
++    if (use_eb) {
++        auto meta_f = [&](const char * key, float def) -> float {
++            char buf[32];
++            return llama_model_meta_val_str(model, key, buf, sizeof(buf)) >= 0 ? strtof(buf, nullptr) : def;
++        };
++        auto meta_i = [&](const char * key, int32_t def) -> int32_t {
++            char buf[32];
++            return llama_model_meta_val_str(model, key, buf, sizeof(buf)) >= 0 ? (int32_t) strtol(buf, nullptr, 10) : def;
++        };
++        eb_params.max_denoising_steps  = meta_i("diffusion.eb_max_steps", 48);
++        eb_params.t_min                = meta_f("diffusion.eb_t_min", 0.4f);
++        eb_params.t_max                = meta_f("diffusion.eb_t_max", 0.8f);
++        eb_params.entropy_bound        = meta_f("diffusion.eb_entropy_bound", 0.1f);
++        eb_params.stability_threshold  = meta_i("diffusion.eb_stability_threshold", 1);
++        eb_params.confidence_threshold = meta_f("diffusion.eb_confidence_threshold", 0.005f);
++        if (params.diffusion.eb_t_min         >= 0) { eb_params.t_min                = params.diffusion.eb_t_min; }
++        if (params.diffusion.eb_t_max         >= 0) { eb_params.t_max                = params.diffusion.eb_t_max; }
++        if (params.diffusion.eb_entropy_bound >= 0) { eb_params.entropy_bound        = params.diffusion.eb_entropy_bound; }
++        if (params.diffusion.eb_stability     >= 0) { eb_params.stability_threshold  = params.diffusion.eb_stability; }
++        if (params.diffusion.eb_confidence    >= 0) { eb_params.confidence_threshold = params.diffusion.eb_confidence; }
++        if (params.diffusion.eb_max_steps     >  0) { eb_params.max_denoising_steps  = params.diffusion.eb_max_steps; }
++        eb_params.seed                    = params.sampling.seed;
++        eb_params.visual_mode             = params.diffusion.visual_mode;

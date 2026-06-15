@@ -431,6 +431,7 @@ const char * llm_type_name(llm_type type) {
         case LLM_TYPE_16B:           return "16B";
         case LLM_TYPE_20B:           return "20B";
         case LLM_TYPE_26B:           return "26B";
+        case LLM_TYPE_26B_A4B:       return "26B-A4B";
         case LLM_TYPE_27B:           return "27B";
         case LLM_TYPE_30B:           return "30B";
         case LLM_TYPE_32B:           return "32B";
@@ -1692,6 +1693,38 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_GEMMA4_MTP_USE_ORDERED_EMBEDDINGS,         hparams.use_ordered_embeddings, false);
 
                 type = LLM_TYPE_UNKNOWN;
+            } break;
+        case LLM_ARCH_DIFFUSION_GEMMA:
+            {
+                hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
+                ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
+
+                uint32_t n_kv_shared_layers = 0;
+                ml.get_key(LLM_KV_ATTENTION_SHARED_KV_LAYERS, n_kv_shared_layers, false);
+
+                hparams.n_layer_kv_from_start = hparams.n_layer - (int32_t) n_kv_shared_layers;
+                hparams.f_attention_scale     = 1.0f;
+                hparams.causal_attn           = false; // bidirectional decoder
+
+                ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,          hparams.rope_freq_base_train_swa, false);
+                ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp, false);
+                ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,    hparams.n_swa);
+                ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+                ml.get_key(LLM_KV_EMBEDDING_LENGTH_PER_LAYER,  hparams.n_embd_per_layer);
+                ml.get_key(LLM_KV_ATTENTION_KEY_LENGTH_SWA,    hparams.n_embd_head_k_swa);
+                ml.get_key(LLM_KV_ATTENTION_VALUE_LENGTH_SWA,  hparams.n_embd_head_v_swa);
+                ml.get_key(LLM_KV_FINAL_LOGIT_SOFTCAPPING,     hparams.f_final_logit_softcapping, false);
+
+                // DiffusionGemma specific
+                ml.get_key(LLM_KV_DIFFUSION_CANVAS_LENGTH, canvas_length, true);
+                if (canvas_length <= 0) {
+                    throw std::runtime_error("DiffusionGemma requires a positive diffusion.canvas_length");
+                }
+
+                switch (hparams.n_layer) {
+                    case 30: type = LLM_TYPE_26B_A4B; break;
+                    default: type = LLM_TYPE_UNKNOWN;
+                }
             } break;
         case LLM_ARCH_GEMMA_EMBEDDING:
             {
@@ -4797,6 +4830,86 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                             layer.per_layer_inp_gate   = create_tensor(tn(LLM_TENSOR_PER_LAYER_INP_GATE,  "weight", i), {n_embd, n_embd_per_layer}, 0);
                             layer.per_layer_proj       = create_tensor(tn(LLM_TENSOR_PER_LAYER_PROJ,      "weight", i), {n_embd_per_layer, n_embd}, 0);
                             layer.per_layer_post_norm  = create_tensor(tn(LLM_TENSOR_PER_LAYER_POST_NORM, "weight", i), {n_embd}, 0);
+                        }
+                    }
+                } break;
+            case LLM_ARCH_DIFFUSION_GEMMA:
+                {
+                    const int64_t n_ff_exp = hparams.n_ff_exp;
+
+                    if (n_embd_head_k != n_embd_head_v) {
+                        throw std::runtime_error("DiffusionGemma requires n_embd_head_k == n_embd_head_v");
+                    }
+                    if (hparams.n_embd_head_k_swa != hparams.n_embd_head_v_swa) {
+                        throw std::runtime_error("DiffusionGemma requires n_embd_head_k_swa == n_embd_head_v_swa");
+                    }
+
+                    tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+
+                    output = create_tensor(tn(LLM_TENSOR_OUTPUT, "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
+                    if (output == NULL) {
+                        output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
+                    }
+
+                    output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
+
+                    sc_pre_norm = create_tensor(tn(LLM_TENSOR_SC_PRE_NORM, "weight"), {n_embd}, TENSOR_NOT_REQUIRED);
+                    sc_gate     = create_tensor(tn(LLM_TENSOR_SC_GATE,     "weight"), {n_embd, n_ff}, TENSOR_NOT_REQUIRED);
+                    sc_up       = create_tensor(tn(LLM_TENSOR_SC_UP,       "weight"), {n_embd, n_ff}, TENSOR_NOT_REQUIRED);
+                    sc_down     = create_tensor(tn(LLM_TENSOR_SC_DOWN,     "weight"), {n_ff, n_embd}, TENSOR_NOT_REQUIRED);
+
+                    int rope_freqs_flag = 0;
+
+                    for (int i = 0; i < n_layer; ++i) {
+                        auto & layer = layers[i];
+                        const int64_t n_head      = hparams.n_head(i);
+                        const int64_t n_embd_head = hparams.n_embd_head_k(i);
+                        const int64_t n_embd_k    = hparams.n_embd_k_gqa(i);
+                        const int64_t n_embd_v    = hparams.n_embd_v_gqa(i);
+
+                        layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
+
+                        layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd_head * n_head}, 0);
+                        layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_k}, 0);
+                        layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_v}, TENSOR_NOT_REQUIRED);
+                        layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head * n_head, n_embd}, 0);
+
+                        layer.attn_q_norm    = create_tensor(tn(LLM_TENSOR_ATTN_Q_NORM,    "weight", i), {n_embd_head}, 0);
+                        layer.attn_k_norm    = create_tensor(tn(LLM_TENSOR_ATTN_K_NORM,    "weight", i), {n_embd_head}, 0);
+                        layer.attn_post_norm = create_tensor(tn(LLM_TENSOR_ATTN_POST_NORM, "weight", i), {n_embd}, 0);
+
+                        layer.out_scale     = create_tensor(tn(LLM_TENSOR_LAYER_OUT_SCALE,     "weight", i), {1u}, 0);
+                        layer.enc_out_scale = create_tensor(tn(LLM_TENSOR_ENC_LAYER_OUT_SCALE, "weight", i), {1u}, 0);
+
+                        if (!hparams.is_swa(i)) {
+                            layer.rope_freqs = create_tensor(tn(LLM_TENSOR_ROPE_FREQS, "weight", i), {n_embd_head/2}, rope_freqs_flag);
+                            rope_freqs_flag = TENSOR_DUPLICATED;
+                        }
+
+                        int64_t n_ff_cur = hparams.n_ff(i);
+
+                        layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+                        layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff_cur}, 0);
+                        layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff_cur}, 0);
+                        layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {n_ff_cur, n_embd}, 0);
+                        layer.ffn_post_norm = create_tensor(tn(LLM_TENSOR_FFN_POST_NORM, "weight", i), {n_embd}, 0);
+
+                        layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+                        bool has_expert = layer.ffn_gate_inp != nullptr;
+
+                        if (has_expert) {
+                            layer.ffn_gate_inp_s = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "scale", i), {n_embd}, 0);
+
+                            layer.ffn_pre_norm_2  = create_tensor(tn(LLM_TENSOR_FFN_PRE_NORM_2,  "weight", i), {n_embd}, 0);
+                            layer.ffn_post_norm_1 = create_tensor(tn(LLM_TENSOR_FFN_POST_NORM_1, "weight", i), {n_embd}, 0);
+                            layer.ffn_post_norm_2 = create_tensor(tn(LLM_TENSOR_FFN_POST_NORM_2, "weight", i), {n_embd}, 0);
+
+                            layer.ffn_gate_up_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS, "weight", i), {n_embd, n_ff_exp * 2, n_expert}, TENSOR_NOT_REQUIRED);
+                            if (layer.ffn_gate_up_exps == nullptr) {
+                                layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp, n_expert}, 0);
+                                layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp, n_expert}, 0);
+                            }
+                            layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp, n_embd, n_expert}, 0);
                         }
                     }
                 } break;
@@ -8925,6 +9038,7 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
         case LLM_ARCH_LLADA:
         case LLM_ARCH_LLADA_MOE:
         case LLM_ARCH_RND1:
+        case LLM_ARCH_DIFFUSION_GEMMA:
             {
                 res = nullptr;
             } break;
@@ -9274,6 +9388,10 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
                 throw std::runtime_error(
                     "gemma4_assistant cannot be used as a primary model (-m). "
                     "Load the Gemma 4 target with -m, then call llama_model_load_mtp_from_file() with the assistant GGUF.");
+            } break;
+        case LLM_ARCH_DIFFUSION_GEMMA:
+            {
+                llm = std::make_unique<llm_build_diffusion_gemma>(*this, params);
             } break;
         case LLM_ARCH_GEMMA_EMBEDDING:
             {
@@ -9871,6 +9989,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_GEMMA4:
         case LLM_ARCH_GEMMA4_ASSISTANT:
         case LLM_ARCH_GEMMA4_MTP:
+        case LLM_ARCH_DIFFUSION_GEMMA:
         case LLM_ARCH_GEMMA_EMBEDDING:
         case LLM_ARCH_STARCODER2:
         case LLM_ARCH_OPENELM:
