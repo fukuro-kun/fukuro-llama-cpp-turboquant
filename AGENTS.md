@@ -99,7 +99,7 @@ Falls Treffer → Bereinigen!
 
 ### Lokale Gegebenheiten
 
-- Host-spezifische Pfade, GPU-Architekturen und Build-Besonderheiten stehen in `LOCAL.md` (in `.gitignore`, nicht committet).
+- Host-spezifische Pfade, GPU-Architekturen und Build-Besonderheiten stehen in `LOKAL.md` (in `.gitignore`, nicht committet).
 - Agenten muessen `LOCAL.md` lesen, bevor sie Host-spezifische Aktionen durchfuehren.
 - GPU-Architektur-Build-Matrix (generisch):
   - **Pascal (GTX 1070):** `-DLLAMA_CUDA=ON`, FP16 nur via emulation, kein FlashAttention
