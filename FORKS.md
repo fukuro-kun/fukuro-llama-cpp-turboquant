@@ -290,20 +290,21 @@ Die meisten dieser 849 Commits **haengen voneinander ab**:
 8. ✅ ~~CUDA: MMVQ AMD MFMA Threshold~~ (`bc81d47ab`) — Q4_K_S +68% pp512 auf MI250X. **BEREITS VORHANDEN** via AtomicBot-Upstream (`get_mmvq_mmid_max_batch_cdna` in `mmvq.cu`).
 
 **Offen — Gezielt evaluieren:**
-9. ⏳ **CUDA: PDL mul_mat_vec_q_moe** (`2154a0fdc`) — MTP +5-8% auf BW. Siehe [§5.17](FORKS.md#517-cuda-pdl-mul-mat-vec-q-moe).
-10. ⏳ **CPU: SVE FWHT Runtime Width** (`3571fa543`) — ARM SVE, 11 Zeilen.
-11. ⏳ **KV-Cache: avoid copies** (`379ac6673`) — Kleiner Fix, 11 Zeilen.
-12. ⏳ **KV-Cache: SWA checkpoints** (`236531595`) — 14 Zeilen.
-13. ⏳ **Vulkan: iq1 shared memory** (`d6d0ce821`) — 11 Zeilen.
-14. ⏳ **Vulkan: host memory lock contention** (`bef69f130`) — 8 Zeilen.
+9. ❌ ~~CUDA: PDL mul_mat_vec_q_moe~~ (`2154a0fdc`) — **BLOCKIERT** (erfordert PDL-Infrastruktur `ggml_cuda_pdl_sync()` / `GGML_CUDA_USE_PDL`, die in unserem Fork durch direkte Kernel-Starts ersetzt wurde).
+10. ✅ ~~CPU: SVE FWHT Runtime Width~~ (`3571fa543`) — **BEREITS VORHANDEN** (SVE-`svcntw()`-Logik bereits in `ggml/src/ggml-cpu/ops.cpp`).
+11. ❌ ~~KV-Cache: avoid copies~~ (`379ac6673`) — **BLOCKIERT** (erfordert KV-Cache-Refactor aus upstream, siehe Analyse).
+12. ❌ ~~KV-Cache: SWA checkpoints~~ (`236531595`) — **BLOCKIERT** (erfordert denselben Refactor).
+13. ✅ ~~Vulkan: iq1 shared memory~~ (`d6d0ce821`) — **IN MASTER GEMERGED** (reduziert shared memory für iq1 mul_mm).
+14. ✅ ~~Vulkan: host memory lock contention~~ (`bef69f130`) — **IN MASTER GEMERGED** (`unique_lock` → `lock_guard`/`shared_lock`).
 
 **Offen — Features / Modelle:**
-15. ⏳ **DeepSeek V3.2** (`1f0aa2a69`) — DSA (Sparse Attention), großer Commit. Siehe [§5.18](FORKS.md#518-deepseek-v32).
+15. ❌ ~~DeepSeek V3.2~~ (`1f0aa2a69`) — **BLOCKIERT** (erfordert KV-Cache-Refactor mit `llama_kv_cache_dsa`, siehe B3-Analyse).
 16. ⏳ **Llama 4** Scout / Maverick — Noch kein Commit gefunden (upstream wahrscheinlich noch nicht verfügbar).
-17. ⏳ **Gemma 4 Audio-Fixes** (`e8023568d`, `e3ba22d6c`) — passt zu unserem MTP-Fokus.
-18. ⏳ **Server: Reasoning Interruption** (`354ebac8c`) — 277 Zeilen, UX.
-19. ⏳ **Server: gzip compression** (`e8067a8b3`) — 63 Zeilen.
-20. ⏳ **Multimodal: Video-Input** (`8f83d6c27`) — 807 Zeilen, groß.
+17. ✅ ~~Gemma 4 Audio-Fixes (Unified Conversion)~~ (`e8023568d`) — **IN MASTER GEMERGET** (`audio_embed_dim`, `model_patch_size` defensive Fixes).
+17b. ⏳ **Gemma 4 Audio Embedding Size** (`e3ba22d6c`) — noch offen.
+18. ❌ ~~Server: Reasoning Interruption~~ (`354ebac8c`) — **NICHT RELEVANT** (WebUI nicht genutzt, 277 Zeilen).
+19. ❌ ~~Server: gzip compression~~ (`e8067a8b3`) — **BLOCKIERT** (andere WebUI-Architektur).
+20. ~~Multimodal: Video-Input~~ (`8f83d6c27`) — **ZURUECKGESTELLT** (nice-to-have, 807 Zeilen, nicht dringend).
 
 **Verworfen:**
 - ~~v_dot2_f32_f16~~ (`b4e3dc613`) — zu komplex, siehe [§5.9](FORKS.md#59-vdot2-cherry-pick-abgebrochen)
@@ -839,9 +840,9 @@ Details: [BRANCHES.md](BRANCHES.md)
 | # | Task | Aufwand | Erwarteter Nutzen |
 |---|------|---------|-------------------|
 | A1 | `feature/cuda-fast-wht` → `master` mergen | 15 Min | Sauberer Stand, +11% pp512 auf CUDA |
-| A2 | Cherry-Pick `2154a0fdc` (PDL MTP) | 30 Min | **MTP +5-8%** auf BW, nur 14 Zeilen |
+| ~~A2~~ | ~~Cherry-Pick `2154a0fdc` (PDL MTP)~~ | ~~30 Min~~ | ~~MTP +5-8% auf BW~~ → **BLOCKIERT** (PDL-Infrastruktur fehlt im Fork) |
 | A3 | Cherry-Pick `fdc3db9b6` (Vulkan Transfer) | 20 Min | Kleiner Performance-Gewinn, 16 Zeilen |
-| A4 | Cherry-Pick `3571fa543` (SVE FWHT) | 20 Min | ARM-Kompatibilitaet, 11 Zeilen |
+| ~~A4~~ | ~~Cherry-Pick `3571fa543` (SVE FWHT)~~ | ~~20 Min~~ | ~~ARM-Kompatibilitaet~~ → **BEREITS VORHANDEN** |
 
 ### Phase B — Kurzfristig (nächste 2 Wochen)
 
@@ -849,7 +850,7 @@ Details: [BRANCHES.md](BRANCHES.md)
 |---|------|---------|--------|-------------------|
 | B1 | Cherry-Pick `19620004f` (Vulkan Q3_K/Q6_K Block-Load) | 2h | Mittel (Shader-Änderungen) | **+57%/+78%** tg128 auf Intel BMG |
 | ~~B2~~ | ~~Cherry-Pick `f8f0a47a5` (CUDA KV-Cache Reserve)~~ | ~~3h~~ | ~~Mittel~~ | ~~FA-Stabilitaet~~ → **ERLEDIGT** |
-| B3 | Cherry-Pick `379ac6673` + `236531595` (KV-Cache Fixes) | 1h | Niedrig | Kleine Stabilitaetsverbesserungen |
+| ~~B3~~ | ~~Cherry-Pick `379ac6673` + `236531595` (KV-Cache Fixes)~~ | ~~1h~~ | ~~Niedrig~~ | ~~Stabilitaetsverbesserungen~~ → **BLOCKIERT** (erfordert KV-Cache-Refactor, siehe Analyse) |
 | B4 | DiffusionGemma: llama-server Integration | 4h | Mittel | Server-API fuer DiffusionGemma |
 
 ### Phase C — Mittelfristig (nächster Monat)
@@ -857,9 +858,9 @@ Details: [BRANCHES.md](BRANCHES.md)
 | # | Task | Aufwand | Risiko | Erwarteter Nutzen |
 |---|------|---------|--------|-------------------|
 | C1 | Cherry-Pick `354ebac8c` (Reasoning Interruption) | 3h | Mittel (277 Zeilen) | Bessere Chat-UX |
-| C2 | Cherry-Pick `e8067a8b3` (gzip compression) | 1h | Niedrig | Kleinere Assets |
-| C3 | DeepSeek V3.2 evaluieren | 4h | Hoch (15 Dateien) | Wichtiger OSS-Trend |
-| C4 | Self-Conditioning (SC) fuer DiffusionGemma | 8h | Hoch | Bessere Output-Qualitaet |
+| ~~C2~~ | ~~Cherry-Pick `e8067a8b3` (gzip compression)~~ | ~~1h~~ | ~~Niedrig~~ | ~~Kleinere Assets~~ → **BLOCKIERT** (andere WebUI-Architektur) |
+| ~~C3~~ | ~~DeepSeek V3.2 evaluieren~~ | ~~4h~~ | ~~Hoch (15 Dateien)~~ | ~~Wichtiger OSS-Trend~~ → **BLOCKIERT** (KV-Cache-Refactor, siehe B3) |
+| ~~C4~~ | ~~Self-Conditioning (SC) fuer DiffusionGemma~~ | ~~8h~~ | ~~Hoch~~ | ~~Bessere Output-Qualitaet~~ → **ZURUECKGESTELLT** (DiffusionGemma nicht stabil genug, keine Zeit) |
 
 ### Phase D — Langfristig (nachstehend)
 
@@ -867,7 +868,7 @@ Details: [BRANCHES.md](BRANCHES.md)
 |---|------|---------|--------|-------------------|
 | D1 | Llama 4 Scout/Maverick | TBD | TBD | Wichtige Meta-Modelle |
 | D2 | `c74759a24` (coopmat2 decode_vector) | TBD | BLOCKIERT (Mesa 25.0.7) | Vec4 B-Loads auf NVIDIA-Vulkan |
-| D3 | Video-Input (`8f83d6c27`) | 8h | Hoch (807 Zeilen) | Multimodal-Server |
+| ~~D3~~ | ~~Video-Input (`8f83d6c27`)~~ | ~~8h~~ | ~~Hoch (807 Zeilen)~~ | ~~Multimodal-Server~~ → **ZURUECKGESTELLT** (nice-to-have, nicht dringend) |
 
 ### Priorisierungslogik
 
