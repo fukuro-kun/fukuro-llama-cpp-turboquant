@@ -202,8 +202,10 @@ Ein Merge des Refactors wuerde **alle diese Features gleichzeitig** anfassen. Di
 | **AMD/Vulkan** | `v_dot2_f32_f16` in FA (`b4e3dc613`) | Schnelleres FlashAttention auf Vulkan |
 | **AMD/Vulkan** | Walsh-Hadamard-Transform (`48e7078ee`, `e82beaa60`) | **Direkt fuer TurboQuant** — WHT ist Kernoperation |
 | **AMD/Vulkan** | coopmat2 Feature-Check (`5a69c9743`) | Stabilere Vulkan auf Intel/AMD |
+| **AMD/Vulkan** | ~~Buffer-Transfer Fast Path (`fdc3db9b6`)~~ | ~~Schnelleres contiguous Transfer~~ → **IN MASTER GEMERGED** (siehe [§5.14](FORKS.md#514-vulkan-buffer-transfer-fast-path)) |
 | **AMD/Vulkan** | `GL_NV_cooperative_matrix_decode_vector` (`b36eefc1b`) | Schnelleres MatMul auf NVIDIA-Vulkan |
 | **CUDA** | ~~Fast Walsh-Hadamard-Transform (`c1f1e28d2`)~~ | ~~TurboQuant-Performance auf CUDA~~ → **IN MASTER GEMERGED** (siehe [§5.11](FORKS.md#511-cuda-fast-wht-plan)) |
+| **CUDA** | ~~SVE FWHT Runtime Width (`3571fa543`)~~ | ~~ARM SVE Kompatibilitaet~~ → **IN MASTER GEMERGED** |
 | **CUDA** | Quantize KV-Cache Reservierung (`f8f0a47a5`) | Speicherverwaltung |
 | **Neue Modelle** | **Llama 4** Scout / Maverick | Wichtige neue Meta-Modelle |
 | **Neue Modelle** | **DeepSeek 3.2** | Wichtiger OSS-Modell-Trend |
@@ -281,17 +283,18 @@ Die meisten dieser 849 Commits **haengen voneinander ab**:
 1. ✅ ~~Vulkan-WHT~~ (`48e7078ee`, `e82beaa60`) — CHERRY-PICKED in `feature/diffusion-gemma-v2`, in `master`
 2. ✅ ~~coopmat2 Feature-Check~~ (`5a69c9743`) — CHERRY-PICKED in `feature/diffusion-gemma-v2`, in `master`
 3. ✅ ~~CUDA Fast WHT~~ (`a817a22bc` + `c1f1e28d2` + `192d8ae8b`) — IN `MASTER` GEMERGED (siehe [§5.11](FORKS.md#511-cuda-fast-wht-plan))
+4. ✅ ~~Vulkan Buffer-Transfer Fast Path~~ (`fdc3db9b6`) — IN `MASTER` GEMERGED (adaptiert, siehe [§5.14](FORKS.md#514-vulkan-buffer-transfer-fast-path))
+5. ✅ ~~CPU SVE FWHT Runtime Width~~ (`3571fa543`) — IN `MASTER` GEMERGED (siehe [§5.14](FORKS.md#514-vulkan-buffer-transfer-fast-path))
 
 **Offen:**
-4. **Vulkan: coopmat2 decode_vector** (`c74759a24`) — BLOCKIERT durch Mesa 25.0.7
-5. **Vulkan: Q3_K/Q6_K Block-Load** (`19620004f`) — +57%/+78% tg128 auf Intel BMG
-6. **Vulkan: Buffer-Transfer Fast Path** (`fdc3db9b6`) — 16 Zeilen
-7. **CUDA: KV-Cache Reserve** (`f8f0a47a5`) — FlashAttention-Speicherverwaltung
-8. **CUDA: PDL mul_mat_vec_q_moe** (`2154a0fdc`) — MTP +5-8% auf BW
-9. **Gemma 4 Audio-Fixes** (`e8023568d`, `e3ba22d6c`) — passt zu unserem MTP-Fokus
-10. **Server: Reasoning Interruption + gzip + SSE ping** — UX-Verbesserungen
-11. **Multimodal: Video-Input + HEIC** — wenn mtmd-Kompatibilitaet gegeben
-12. **Llama 4 / DeepSeek 3.2** — als monolithische `case`-Erweiterung
+6. **Vulkan: coopmat2 decode_vector** (`c74759a24`) — BLOCKIERT durch Mesa 25.0.7
+7. **Vulkan: Q3_K/Q6_K Block-Load** (`19620004f`) — +57%/+78% tg128 auf Intel BMG
+8. **CUDA: KV-Cache Reserve** (`f8f0a47a5`) — FlashAttention-Speicherverwaltung
+9. **CUDA: PDL mul_mat_vec_q_moe** (`2154a0fdc`) — MTP +5-8% auf BW — **NUR Hopper/BW, NICHT unsere Hardware**
+10. **Gemma 4 Audio-Fixes** (`e8023568d`, `e3ba22d6c`) — passt zu unserem MTP-Fokus
+11. **Server: Reasoning Interruption + gzip + SSE ping** — UX-Verbesserungen
+12. **Multimodal: Video-Input + HEIC** — wenn mtmd-Kompatibilitaet gegeben
+13. **Llama 4 / DeepSeek 3.2** — als monolithische `case`-Erweiterung
 
 ---
 
