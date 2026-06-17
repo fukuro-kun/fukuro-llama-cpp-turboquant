@@ -93,7 +93,7 @@ git log --oneline upstream/feature/turboquant-kv-cache..feature/turboquant-kv-ca
 
 | Aspekt | Hinzugefuegt / Veraendert |
 |--------|--------------------------|
-| **DiffusionGemma** | Monolithischer Port von PR #24423 (block text-diffusion MoE auf Gemma-4-Backbone). Forward-Pass funktioniert, Diffusion-Decoding-Loop in Arbeit. |
+| **DiffusionGemma** | Monolithischer Port von PR #24423 (block text-diffusion MoE auf Gemma-4-Backbone). Forward-Pass funktioniert, **Diffusion-Decoding-Loop funktioniert** (Entropy-Bound Decoder vollstaendig implementiert). Verbleibende Limitierung: Self-Conditioning (SC-Tensoren fehlen in GGUFs). |
 | **Vulkan-Turbo3** | ~532 zusaetzliche Commits fuer Vulkan-Turbo3-Optimierungen (in `master`). |
 | **Gemma 4 12B** | Assistant-Unterstuetzung fuer Gemma-4-12B-Modell. |
 | **Primaries Remote** | Codeberg (Code-Hosting). GitHub als Mirror. |
@@ -203,7 +203,7 @@ Ein Merge des Refactors wuerde **alle diese Features gleichzeitig** anfassen. Di
 | **AMD/Vulkan** | Walsh-Hadamard-Transform (`48e7078ee`, `e82beaa60`) | **Direkt fuer TurboQuant** — WHT ist Kernoperation |
 | **AMD/Vulkan** | coopmat2 Feature-Check (`5a69c9743`) | Stabilere Vulkan auf Intel/AMD |
 | **AMD/Vulkan** | `GL_NV_cooperative_matrix_decode_vector` (`b36eefc1b`) | Schnelleres MatMul auf NVIDIA-Vulkan |
-| **CUDA** | Fast Walsh-Hadamard-Transform (`c1f1e28d2`) | TurboQuant-Performance auf CUDA |
+| **CUDA** | ~~Fast Walsh-Hadamard-Transform (`c1f1e28d2`)~~ | ~~TurboQuant-Performance auf CUDA~~ → **IN MASTER GEMERGED** (siehe [§5.11](FORKS.md#511-cuda-fast-wht-plan)) |
 | **CUDA** | Quantize KV-Cache Reservierung (`f8f0a47a5`) | Speicherverwaltung |
 | **Neue Modelle** | **Llama 4** Scout / Maverick | Wichtige neue Meta-Modelle |
 | **Neue Modelle** | **DeepSeek 3.2** | Wichtiger OSS-Modell-Trend |
@@ -277,12 +277,21 @@ Die meisten dieser 849 Commits **haengen voneinander ab**:
 
 ### 5.6 Empfohlene Cherry-Pick-Reihenfolge
 
-1. **Vulkan: Walsh-Hadamard + v_dot2 + BFloat16 FA** — direkter TurboQuant-Nutzen
-2. **CUDA: Fast WHT + KV-Reserve** — Performance auf unserer Hauptplattform
-3. **Gemma 4 Audio-Fixes** — passt zu unserem MTP-Fokus
-4. **Server: Reasoning Interruption + gzip + SSE ping** — UX-Verbesserungen
-5. **Multimodal: Video-Input + HEIC** — wenn mtmd-Kompatibilitaet gegeben
-6. **Llama 4 / DeepSeek 3.2** — als monolithische `case`-Erweiterung (nicht als Klasse)
+**Erledigt:**
+1. ✅ ~~Vulkan-WHT~~ (`48e7078ee`, `e82beaa60`) — CHERRY-PICKED in `feature/diffusion-gemma-v2`, in `master`
+2. ✅ ~~coopmat2 Feature-Check~~ (`5a69c9743`) — CHERRY-PICKED in `feature/diffusion-gemma-v2`, in `master`
+3. ✅ ~~CUDA Fast WHT~~ (`a817a22bc` + `c1f1e28d2` + `192d8ae8b`) — IN `MASTER` GEMERGED (siehe [§5.11](FORKS.md#511-cuda-fast-wht-plan))
+
+**Offen:**
+4. **Vulkan: coopmat2 decode_vector** (`c74759a24`) — BLOCKIERT durch Mesa 25.0.7
+5. **Vulkan: Q3_K/Q6_K Block-Load** (`19620004f`) — +57%/+78% tg128 auf Intel BMG
+6. **Vulkan: Buffer-Transfer Fast Path** (`fdc3db9b6`) — 16 Zeilen
+7. **CUDA: KV-Cache Reserve** (`f8f0a47a5`) — FlashAttention-Speicherverwaltung
+8. **CUDA: PDL mul_mat_vec_q_moe** (`2154a0fdc`) — MTP +5-8% auf BW
+9. **Gemma 4 Audio-Fixes** (`e8023568d`, `e3ba22d6c`) — passt zu unserem MTP-Fokus
+10. **Server: Reasoning Interruption + gzip + SSE ping** — UX-Verbesserungen
+11. **Multimodal: Video-Input + HEIC** — wenn mtmd-Kompatibilitaet gegeben
+12. **Llama 4 / DeepSeek 3.2** — als monolithische `case`-Erweiterung
 
 ---
 
@@ -293,7 +302,7 @@ Die meisten dieser 849 Commits **haengen voneinander ab**:
 | TurboQuant KV/Weights | ❌ | ✅ | ✅ | ✅ |
 | Gemma 4 MTP | ❌ | ❌ | ✅ | ✅ |
 | Qwen 3.x NextN | ❌ | ❌ | ✅ | ✅ |
-| UDT-Quant-Masks | ❌ | ❌ | ✅ | ✅ |
+| UDT-Quant-Masks | ❌ | ❌ | ✅ | ❌ |
 | DiffusionGemma | ❌ | ❌ | ❌ | ✅ |
 | Vulkan-Turbo3 | ❌ | ❌ | ❌ | ✅ |
 | Multimodal + Spec | ❌ | ❌ | ✅ | ✅ |
@@ -310,6 +319,8 @@ Die meisten dieser 849 Commits **haengen voneinander ab**:
 | `master` | Codeberg (primary) | Hauptentwicklung. Alle Features (TurboQuant, MTP, NextN, DiffusionGemma, Vulkan-Turbo3). |
 | `feature/turboquant-kv-cache-sync` | GitHub | Sauberer Sync mit AtomicBot-ai. Genau 2 Commits ahead (unsere Cherry-Picks). PR-Quelle. |
 | `feature/turboquant-kv-cache` | GitHub | Obsolet. Alte Upstream-Merges. |
+| `feature/cuda-fast-wht` | Codeberg | CUDA Fast Walsh-Hadamard Transform. **IN MASTER GEMERGED** (+11% pp512). |
+| `feature/diffusion-gemma-v2` | Codeberg | DiffusionGemma V2 (Entropy-Bound Decoder, PREFILL/DECODE-Fix, PKV pro Layer). |
 
 **Divergenz zu AtomicBot:**
 - `master` ist **~532 Commits ahead** (Vulkan-Turbo3) plus DiffusionGemma plus unsere Fixes.

@@ -87,6 +87,23 @@ Dieses Repository enthaelt mehrere Branches mit unterschiedlichen Zwecken.
 
 ---
 
+## `feature/cuda-fast-wht` — CUDA Fast Walsh-Hadamard Transform
+
+**Zweck:** CUDA-Optimierung fuer die Walsh-Hadamard-Transform (WHT), Kernoperation des TurboQuant KV-Cache-Systems.
+
+**Enthaelt:**
+- `a817a22bc` — Enum `GGML_HINT_SRC0_IS_HADAMARD` + CPU-WHT (bereits in `master`)
+- `e43967559` — CUDA-WHT Kernel (`fwht.cu`, `fwht.cuh`)
+- `b9bcca3e3` — PDL-Sync und besserer Fallback
+
+**Abgeleitet von:** `master` (nach `a817a22bc`)
+
+**Status:** **IN MASTER GEMERGED** (2026-06-16)
+
+**Performance:** +11% pp512 (TinyLlama 1B, TurboQuant KV-Cache)
+
+---
+
 ## Build mit CUDA (Wichtig!)
 
 **Problem:** glibc >= 2.43 (z.B. Ubuntu 26.04) fuegt `noexcept` zu `rsqrt` hinzu. CUDA 13.1 kann das nicht verarbeiten.
