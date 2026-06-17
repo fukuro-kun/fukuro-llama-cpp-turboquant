@@ -204,7 +204,7 @@ Ein Merge des Refactors wuerde **alle diese Features gleichzeitig** anfassen. Di
 | **AMD/Vulkan** | ~~coopmat2 Feature-Check (`5a69c9743`)~~ | ~~Stabilere Vulkan auf Intel/AMD~~ → **CHERRY-PICKED** (siehe [§5.10](FORKS.md#510-coopmat2-feature-check-ergebnis)) |
 | **AMD/Vulkan** | `GL_NV_cooperative_matrix_decode_vector` (`b36eefc1b`) | Schnelleres MatMul auf NVIDIA-Vulkan |
 | **CUDA** | ~~Fast Walsh-Hadamard-Transform (`c1f1e28d2`)~~ | ~~TurboQuant-Performance auf CUDA~~ → **CHERRY-PICKED** in `feature/cuda-fast-wht`, siehe [§5.11](FORKS.md#511-cuda-fast-wht-plan) |
-| **CUDA** | Quantize KV-Cache Reservierung (`f8f0a47a5`) | FlashAttention-Speicherverwaltung |
+| **CUDA** | ~~Quantize KV-Cache Reservierung (`f8f0a47a5`)~~ | ~~FlashAttention-Speicherverwaltung~~ → **IN MASTER GEMERGED** (siehe [§5.15](FORKS.md#515-cuda-kv-cache-reserve)) |
 | **Neue Modelle** | **Llama 4** Scout / Maverick | Wichtige neue Meta-Modelle |
 | **Neue Modelle** | **DeepSeek 3.2** | Wichtiger OSS-Modell-Trend |
 | **Multimodal** | Video-Input-Support (`8f83d6c27`) | `llama-server` kann jetzt Videos verarbeiten |
@@ -286,7 +286,7 @@ Die meisten dieser 849 Commits **haengen voneinander ab**:
 4. ⏳ **Vulkan: coopmat2 decode_vector** (`c74759a24`) — Vec4 B-Matrix-Loads, +BK=64. Siehe [§5.12](FORKS.md#512-coopmat2-decode-vector). **BLOCKIERT** durch Mesa 25.0.7 (Header fehlt).
 5. ⏳ **Vulkan: Q3_K/Q6_K Block-Load** (`19620004f`) — +57% tg128 (Q3_K), +78% (Q6_K) auf Intel BMG. Siehe [§5.13](FORKS.md#513-vulkan-q3kq6k-block-load).
 6. ⏳ **Vulkan: Buffer-Transfer Fast Path** (`fdc3db9b6`) — 16 Zeilen, Performance.
-7. ⏳ **CUDA: KV-Cache Reserve** (`f8f0a47a5`) — FlashAttention-Speicherverwaltung. Siehe [§5.15](FORKS.md#515-cuda-kv-cache-reserve).
+7. ✅ ~~CUDA: KV-Cache Reserve~~ (`f8f0a47a5`) — **IN MASTER GEMERGED** (siehe [§5.15](FORKS.md#515-cuda-kv-cache-reserve)).
 8. ✅ ~~CUDA: MMVQ AMD MFMA Threshold~~ (`bc81d47ab`) — Q4_K_S +68% pp512 auf MI250X. **BEREITS VORHANDEN** via AtomicBot-Upstream (`get_mmvq_mmid_max_batch_cdna` in `mmvq.cu`).
 
 **Offen — Gezielt evaluieren:**
@@ -660,11 +660,17 @@ Siehe [docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md](docs/fork/2026-06-17
 - `ggml/src/ggml-cuda/fattn.cuh` — 2 Zeilen
 - `ggml/src/ggml-cuda/ggml-cuda.cu` — 8 Zeilen
 
+### Status
+
+- ✅ **IN MASTER GEMERGED** (Commit `c1b8a86dc`)
+- **Adaptierung:** HIP-Workaround (`hip_f16_alloc`) entfernt — ersetzt durch upstreams generischeren `f16_extra_data`-Ansatz
+- **Build:** Kompiliert erfolgreich auf Hydra (CUDA)
+
 ### Fazit
 
-- 🟡 **Attraktiv** — Stabilität + Performance fuer FlashAttention
+- ✅ **Erledigt** — Stabilität + Performance fuer FlashAttention
 - 🟡 **Komplexität:** Mittel (4 Dateien, 96 Zeilen)
-- **Empfohlen:** Cherry-picken nach CUDA-WHT-Merge
+- **Nutzen:** Weniger Speicherfragmentierung, stabilere FA bei langen Kontexten
 
 ---
 
@@ -842,7 +848,7 @@ Details: [BRANCHES.md](BRANCHES.md)
 | # | Task | Aufwand | Risiko | Erwarteter Nutzen |
 |---|------|---------|--------|-------------------|
 | B1 | Cherry-Pick `19620004f` (Vulkan Q3_K/Q6_K Block-Load) | 2h | Mittel (Shader-Änderungen) | **+57%/+78%** tg128 auf Intel BMG |
-| B2 | Cherry-Pick `f8f0a47a5` (CUDA KV-Cache Reserve) | 3h | Mittel (4 Dateien, 96 Zeilen) | FA-Stabilitaet, weniger Fragmentierung |
+| ~~B2~~ | ~~Cherry-Pick `f8f0a47a5` (CUDA KV-Cache Reserve)~~ | ~~3h~~ | ~~Mittel~~ | ~~FA-Stabilitaet~~ → **ERLEDIGT** |
 | B3 | Cherry-Pick `379ac6673` + `236531595` (KV-Cache Fixes) | 1h | Niedrig | Kleine Stabilitaetsverbesserungen |
 | B4 | DiffusionGemma: llama-server Integration | 4h | Mittel | Server-API fuer DiffusionGemma |
 
