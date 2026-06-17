@@ -221,7 +221,7 @@ Ein Merge des Refactors wuerde **alle diese Features gleichzeitig** anfassen. Di
 
 | Kategorie | Feature | Warum |
 |-----------|---------|-------|
-| Vulkan | Q3_K/Q6_K Block-Load (`19620004f`) | Quantisierungs-Performance |
+| Vulkan | ~~Q3_K/Q6_K Block-Load (`19620004f`)~~ | ~~Quantisierungs-Performance~~ → **IN MASTER GEMERGED** |
 | Vulkan | Fast path fuer Buffer-Transfers (`fdc3db9b6`) | Performance |
 | Vulkan | Pipeline-Barriers (`3e7bd4f39`) | Korrektheit |
 | Multimodal | HEIC/HEIF-Bilder (`5f04dc7ac`) | Format-Unterstuetzung |
@@ -288,7 +288,7 @@ Die meisten dieser 849 Commits **haengen voneinander ab**:
 
 **Offen:**
 6. **Vulkan: coopmat2 decode_vector** (`c74759a24`) — BLOCKIERT durch Mesa 25.0.7
-7. **Vulkan: Q3_K/Q6_K Block-Load** (`19620004f`) — +57%/+78% tg128 auf Intel BMG
+7. ✅ ~~Vulkan: Q3_K/Q6_K Block-Load~~ (`19620004f`) — +57%/+78% tg128 auf Intel BMG. **IN MASTER GEMERGED**
 8. **CUDA: KV-Cache Reserve** (`f8f0a47a5`) — FlashAttention-Speicherverwaltung
 9. **CUDA: PDL mul_mat_vec_q_moe** (`2154a0fdc`) — MTP +5-8% auf BW — **NUR Hopper/BW, NICHT unsere Hardware**
 10. **Gemma 4 Audio-Fixes** (`e8023568d`, `e3ba22d6c`) — passt zu unserem MTP-Fokus
