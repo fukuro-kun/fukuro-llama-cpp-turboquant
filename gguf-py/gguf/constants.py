@@ -1373,8 +1373,8 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.NEXTN_HNORM:               "blk.{bid}.nextn.hnorm",
     MODEL_TENSOR.NEXTN_SHARED_HEAD_HEAD:    "blk.{bid}.nextn.shared_head_head",
     MODEL_TENSOR.NEXTN_SHARED_HEAD_NORM:    "blk.{bid}.nextn.shared_head_norm",
-    MODEL_TENSOR.MTP_PRE_PROJECTION:        "mtp_pre_proj",
-    MODEL_TENSOR.MTP_POST_PROJECTION:       "mtp_post_proj",
+    MODEL_TENSOR.MTP_PRE_PROJECTION:        "mtp.pre_projection",
+    MODEL_TENSOR.MTP_POST_PROJECTION:       "mtp.post_projection",
     MODEL_TENSOR.MTP_CENTROIDS:             "mtp.centroids",
     MODEL_TENSOR.MTP_TOKEN_ORDERING:        "mtp.token_ordering",
 }
