@@ -49,6 +49,7 @@
 | Skript | Zweck |
 |--------|-------|
 | `bench-*.sh` / `bench-*.py` | Performance- und Qualitaetsbenchmarks fuer Matrix-Tests, parallele Anfragen, TurboQuant-Setups. |
+| `bench-b1-vulkan-q3k-q6k.sh` | Vulkan Q3_K/Q6_K Block-Load Benchmark (Cherry-Pick B1 Ergebnisse). Siehe [docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md](../docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md). |
 | `bench-qwen-udt-matrix-local.sh` | Lokale Matrix-Benchmarks fuer Qwen UDT. |
 | `bench-qwen-udt-quality.sh` | Qualitaetsbewertung fuer Qwen UDT. |
 
