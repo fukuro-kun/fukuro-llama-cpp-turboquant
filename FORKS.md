@@ -94,9 +94,10 @@ git log --oneline upstream/feature/turboquant-kv-cache..feature/turboquant-kv-ca
 | Aspekt | Hinzugefuegt / Veraendert |
 |--------|--------------------------|
 | **DiffusionGemma** | Monolithischer Port von PR #24423 (block text-diffusion MoE auf Gemma-4-Backbone). Forward-Pass funktioniert, **Diffusion-Decoding-Loop funktioniert** (Entropy-Bound Decoder vollstaendig implementiert). Verbleibende Limitierung: Self-Conditioning (SC-Tensoren fehlen in GGUFs). |
-| **Vulkan-Turbo3** | ~532 zusaetzliche Commits fuer Vulkan-Turbo3-Optimierungen (in `master`). |
+| **Vulkan-Optimierungen** | Q3_K/Q6_K Block-Load (+57%/+78% tg128 auf Intel BMG), iq1 shared-memory-Reduktion, host-memory Lock-Kontention optimiert. |
 | **Gemma 4 12B** | Assistant-Unterstuetzung fuer Gemma-4-12B-Modell. |
 | **Primaries Remote** | Codeberg (Code-Hosting). GitHub als Mirror. |
+| **CUDA KV-Cache Reserve** | Pre-Reservierung von KV-Cache-Speicher fuer FlashAttention reduziert OOM-Risiko. |
 | **DOX-Framework** | AGENTS.md-Vertraege in allen Verzeichnisbäumen fuer nachvollziehbare KI-Agenten-Arbeit. |
 
 ---
@@ -284,8 +285,8 @@ Die meisten dieser 849 Commits **haengen voneinander ab**:
 
 **Offen — Priorisiert (Vulkan / Performance):**
 4. ⏳ **Vulkan: coopmat2 decode_vector** (`c74759a24`) — Vec4 B-Matrix-Loads, +BK=64. Siehe [§5.12](FORKS.md#512-coopmat2-decode-vector). **BLOCKIERT** durch Mesa 25.0.7 (Header fehlt).
-5. ⏳ **Vulkan: Q3_K/Q6_K Block-Load** (`19620004f`) — +57% tg128 (Q3_K), +78% (Q6_K) auf Intel BMG. Siehe [§5.13](FORKS.md#513-vulkan-q3kq6k-block-load).
-6. ⏳ **Vulkan: Buffer-Transfer Fast Path** (`fdc3db9b6`) — 16 Zeilen, Performance.
+5. ✅ ~~Vulkan: Q3_K/Q6_K Block-Load~~ (`19620004f`) — **IN MASTER GEMERGED** (+57% tg128 Q3_K, +78% Q6_K auf Intel BMG). Siehe [§5.13](FORKS.md#513-vulkan-q3kq6k-block-load).
+6. ✅ ~~Vulkan: Buffer-Transfer Fast Path~~ (`fdc3db9b6`) — **IN MASTER GEMERGED** (16 Zeilen, Performance).
 7. ✅ ~~CUDA: KV-Cache Reserve~~ (`f8f0a47a5`) — **IN MASTER GEMERGED** (siehe [§5.15](FORKS.md#515-cuda-kv-cache-reserve)).
 8. ✅ ~~CUDA: MMVQ AMD MFMA Threshold~~ (`bc81d47ab`) — Q4_K_S +68% pp512 auf MI250X. **BEREITS VORHANDEN** via AtomicBot-Upstream (`get_mmvq_mmid_max_batch_cdna` in `mmvq.cu`).
 
@@ -301,7 +302,7 @@ Die meisten dieser 849 Commits **haengen voneinander ab**:
 15. ❌ ~~DeepSeek V3.2~~ (`1f0aa2a69`) — **BLOCKIERT** (erfordert KV-Cache-Refactor mit `llama_kv_cache_dsa`, siehe B3-Analyse).
 16. ⏳ **Llama 4** Scout / Maverick — Noch kein Commit gefunden (upstream wahrscheinlich noch nicht verfügbar).
 17. ✅ ~~Gemma 4 Audio-Fixes (Unified Conversion)~~ (`e8023568d`) — **IN MASTER GEMERGET** (`audio_embed_dim`, `model_patch_size` defensive Fixes).
-17b. ⏳ **Gemma 4 Audio Embedding Size** (`e3ba22d6c`) — noch offen.
+17b. ❌ ~~Gemma 4 Audio Embedding Size~~ (`e3ba22d6c`) — **NICHT RELEVANT** (Granite Speech, nicht Gemma 4).
 18. ❌ ~~Server: Reasoning Interruption~~ (`354ebac8c`) — **NICHT RELEVANT** (WebUI nicht genutzt, 277 Zeilen).
 19. ❌ ~~Server: gzip compression~~ (`e8067a8b3`) — **BLOCKIERT** (andere WebUI-Architektur).
 20. ~~Multimodal: Video-Input~~ (`8f83d6c27`) — **ZURUECKGESTELLT** (nice-to-have, 807 Zeilen, nicht dringend).
@@ -839,16 +840,16 @@ Details: [BRANCHES.md](BRANCHES.md)
 
 | # | Task | Aufwand | Erwarteter Nutzen |
 |---|------|---------|-------------------|
-| A1 | `feature/cuda-fast-wht` → `master` mergen | 15 Min | Sauberer Stand, +11% pp512 auf CUDA |
+| ~~A1~~ | ~~`feature/cuda-fast-wht` → `master` mergen~~ | ~~15 Min~~ | ~~Sauberer Stand~~ → **ERLEDIGT** |
 | ~~A2~~ | ~~Cherry-Pick `2154a0fdc` (PDL MTP)~~ | ~~30 Min~~ | ~~MTP +5-8% auf BW~~ → **BLOCKIERT** (PDL-Infrastruktur fehlt im Fork) |
-| A3 | Cherry-Pick `fdc3db9b6` (Vulkan Transfer) | 20 Min | Kleiner Performance-Gewinn, 16 Zeilen |
+| ~~A3~~ | ~~Cherry-Pick `fdc3db9b6` (Vulkan Transfer)~~ | ~~20 Min~~ | ~~Performance~~ → **ERLEDIGT** |
 | ~~A4~~ | ~~Cherry-Pick `3571fa543` (SVE FWHT)~~ | ~~20 Min~~ | ~~ARM-Kompatibilitaet~~ → **BEREITS VORHANDEN** |
 
 ### Phase B — Kurzfristig (nächste 2 Wochen)
 
 | # | Task | Aufwand | Risiko | Erwarteter Nutzen |
 |---|------|---------|--------|-------------------|
-| B1 | Cherry-Pick `19620004f` (Vulkan Q3_K/Q6_K Block-Load) | 2h | Mittel (Shader-Änderungen) | **+57%/+78%** tg128 auf Intel BMG |
+| ~~B1~~ | ~~Cherry-Pick `19620004f` (Vulkan Q3_K/Q6_K Block-Load)~~ | ~~2h~~ | ~~Mittel~~ | ~~+57%/+78% tg128~~ → **ERLEDIGT** |
 | ~~B2~~ | ~~Cherry-Pick `f8f0a47a5` (CUDA KV-Cache Reserve)~~ | ~~3h~~ | ~~Mittel~~ | ~~FA-Stabilitaet~~ → **ERLEDIGT** |
 | ~~B3~~ | ~~Cherry-Pick `379ac6673` + `236531595` (KV-Cache Fixes)~~ | ~~1h~~ | ~~Niedrig~~ | ~~Stabilitaetsverbesserungen~~ → **BLOCKIERT** (erfordert KV-Cache-Refactor, siehe Analyse) |
 | B4 | DiffusionGemma: llama-server Integration | 4h | Mittel | Server-API fuer DiffusionGemma |
@@ -857,7 +858,7 @@ Details: [BRANCHES.md](BRANCHES.md)
 
 | # | Task | Aufwand | Risiko | Erwarteter Nutzen |
 |---|------|---------|--------|-------------------|
-| C1 | Cherry-Pick `354ebac8c` (Reasoning Interruption) | 3h | Mittel (277 Zeilen) | Bessere Chat-UX |
+| ~~C1~~ | ~~Cherry-Pick `354ebac8c` (Reasoning Interruption)~~ | ~~3h~~ | ~~Mittel~~ | ~~Bessere Chat-UX~~ → **NICHT RELEVANT** (WebUI nicht genutzt) |
 | ~~C2~~ | ~~Cherry-Pick `e8067a8b3` (gzip compression)~~ | ~~1h~~ | ~~Niedrig~~ | ~~Kleinere Assets~~ → **BLOCKIERT** (andere WebUI-Architektur) |
 | ~~C3~~ | ~~DeepSeek V3.2 evaluieren~~ | ~~4h~~ | ~~Hoch (15 Dateien)~~ | ~~Wichtiger OSS-Trend~~ → **BLOCKIERT** (KV-Cache-Refactor, siehe B3) |
 | ~~C4~~ | ~~Self-Conditioning (SC) fuer DiffusionGemma~~ | ~~8h~~ | ~~Hoch~~ | ~~Bessere Output-Qualitaet~~ → **ZURUECKGESTELLT** (DiffusionGemma nicht stabil genug, keine Zeit) |
@@ -870,13 +871,12 @@ Details: [BRANCHES.md](BRANCHES.md)
 | D2 | `c74759a24` (coopmat2 decode_vector) | TBD | BLOCKIERT (Mesa 25.0.7) | Vec4 B-Loads auf NVIDIA-Vulkan |
 | ~~D3~~ | ~~Video-Input (`8f83d6c27`)~~ | ~~8h~~ | ~~Hoch (807 Zeilen)~~ | ~~Multimodal-Server~~ → **ZURUECKGESTELLT** (nice-to-have, nicht dringend) |
 
-### Priorisierungslogik
+### Priorisierungslogik (aktueller Stand)
 
-1. **Merge zuerst** — `feature/cuda-fast-wht` ist fertig, bringt sofortigen Nutzen
-2. **Kleine schnelle Gewinne** — PDL MTP (+5-8%), Vulkan Transfer, SVE FWHT
-3. **Testen auf AMD** — Q3_K/Q6_K Block-Load auf Mars (RDNA3)
-4. **Stabilitaet vor Features** — KV-Cache Reserve vor DeepSeek/Video
-5. **Mesa-Abhaengigkeiten** — decode_vector wartet auf Mesa 25.2+
+1. **Cherry-Pick-Phase abgeschlossen** — Alle verfuegbaren kleinen Commits sind gemerged; verbleibende sind blockiert (KV-Cache-Refactor, PDL, WebUI-Architektur).
+2. **Naechster Schritt** — DiffusionGemma: llama-server Integration (B4) oder auf upstream-Sync durch AtomicBot warten.
+3. **Mesa-Abhaengigkeiten** — decode_vector (D2) wartet auf Mesa 25.2+.
+4. **Langfristig** — Llama 4 Scout/Maverick (D1) sobald Commits verfuegbar.
 
 ---
 
