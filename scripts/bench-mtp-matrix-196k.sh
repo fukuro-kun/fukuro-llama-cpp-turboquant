@@ -2,6 +2,13 @@
 # ============================================================================
 # bench-mtp-matrix-196k.sh — Vollstaendige MTP-Matrix @ ctx=196608
 # ============================================================================
+# Verbessert nach InferenzQuelle-Best Practices:
+# - GPU-Bereinigung vor jedem Test (pkill + sleep)
+# - Datei-Pruefung vor dem Test
+# - Output in Variable (sauberes Parsing)
+# - sync nach jedem CSV-Eintrag
+# - Exit 124 (Timeout) als OK behandeln
+#
 # Vergleichbar mit der 2048-Matrix in Trilium (sJFq491sG3GS):
 # - 9 Targets: IQ4_XS, IQ4_NL, Q3_K_M, Q3_K_L, Q4_K_S, Q4_K_M, Q5_K_S, Q5_K_M, Q6_K
 # - 12 Drafts: IQ3_S, IQ3_M, IQ4_XS, IQ4_NL, Q3_K_S, Q3_K_M, Q3_K_L,
@@ -16,7 +23,6 @@
 #   /tmp/mtp_matrix_196608_<TIMESTAMP>.csv
 #
 # Geschätzte Dauer: 9 Targets × 12 Drafts × ~5 Min = ~9 Stunden
-# Empfohlen: nohup oder screen
 # ============================================================================
 
 set -euo pipefail
@@ -92,10 +98,29 @@ for TARGET in "${TARGETS[@]}"; do
         CURRENT=$((CURRENT + 1))
         echo -n "[$CURRENT/$TOTAL] $TQ × $DQ ... " | tee -a "$LOG"
 
+        # --- Datei-Pruefung ---
+        if [ ! -f "$TARGET" ]; then
+            echo "MISSING_TARGET" | tee -a "$LOG"
+            echo "$TQ,$DQ,MISSING_TARGET,0,,,,,,$(date -Iseconds)" >> "$CSV"
+            sync
+            continue
+        fi
+        if [ ! -f "$DRAFT" ]; then
+            echo "MISSING_DRAFT" | tee -a "$LOG"
+            echo "$TQ,$DQ,MISSING_DRAFT,0,,,,,,$(date -Iseconds)" >> "$CSV"
+            sync
+            continue
+        fi
+
+        # --- GPU-Bereinigung vor jedem Test ---
+        killall -9 llama-cli 2>/dev/null || true
+        sleep 3
+
         VRAM_BEFORE=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1)
 
+        # --- Benchmark mit Output in Variable (sauberes Parsing) ---
         set +e
-        timeout "$TIMEOUT" "$LLAMA_CLI" \
+        output=$(timeout "$TIMEOUT" "$LLAMA_CLI" \
             -m "$TARGET" \
             --model-draft "$DRAFT" \
             --spec-type mtp \
@@ -106,7 +131,7 @@ for TARGET in "${TARGETS[@]}"; do
             --cache-type-v turbo3 \
             -ngl 99 \
             --no-display-prompt \
-            --prompt "Hello world" >> "$LOG" 2>&1
+            --prompt "Hello world" 2>&1)
         EXIT=$?
         set -e
 
@@ -117,24 +142,36 @@ for TARGET in "${TARGETS[@]}"; do
         ACCEPT=""
         STATUS=""
 
-        if [ $EXIT -eq 0 ]; then
-            GEN=$(grep -oP 'generate:.*' "$LOG" | tail -1)
-            GEN_T_S=$(echo "$GEN" | grep -oP 't/s = \K[0-9.]+' || echo "")
-            PROMPT=$(grep -oP 'prompt:.*' "$LOG" | tail -1)
-            PROMPT_T_S=$(echo "$PROMPT" | grep -oP 't/s = \K[0-9.]+' || echo "")
-            DRAFT_LINE=$(grep -oP 'draft:.*' "$LOG" | tail -1)
-            ACCEPT=$(echo "$DRAFT_LINE" | grep -oP 'accept_rate = \K[0-9.]+' || echo "")
-            STATUS="OK"
-            echo "OK | gen=${GEN_T_S} t/s" | tee -a "$LOG"
-        elif [ $EXIT -eq 124 ]; then
-            STATUS="TIMEOUT"
-            echo "TIMEOUT" | tee -a "$LOG"
+        if [ $EXIT -eq 0 ] || [ $EXIT -eq 124 ]; then
+            # Extrahiere t/s: "[ Prompt: X t/s | Generation: Y t/s ]"
+            timing=$(echo "$output" | grep -oP '\[ Prompt: [0-9,\.]+ t/s \| Generation: [0-9,\.]+ t/s \]' | tail -1 || echo "")
+
+            if [ -n "$timing" ]; then
+                PROMPT_T_S=$(echo "$timing" | grep -oP 'Prompt: \K[0-9,\.]+' | sed 's/,/./')
+                GEN_T_S=$(echo "$timing" | grep -oP 'Generation: \K[0-9,\.]+' | sed 's/,/./')
+
+                # draft: n_draft = 19, n_accept = 14, n_reject = 5, accept_rate = 73.68%
+                draft_line=$(echo "$output" | grep -oP 'draft:.*' | tail -1 || echo "")
+                ACCEPT=$(echo "$draft_line" | grep -oP 'accept_rate = \K[0-9,\.]+' | sed 's/,/./' || echo "")
+
+                if [ $EXIT -eq 0 ]; then
+                    STATUS="OK"
+                    echo "OK | prompt=${PROMPT_T_S} t/s | gen=${GEN_T_S} t/s | accept=${ACCEPT}%" | tee -a "$LOG"
+                else
+                    STATUS="TIMEOUT"
+                    echo "TIMEOUT | prompt=${PROMPT_T_S} t/s | gen=${GEN_T_S} t/s" | tee -a "$LOG"
+                fi
+            else
+                STATUS="NO_TIMING"
+                echo "NO_TIMING (keine Performance-Daten im Output)" | tee -a "$LOG"
+            fi
         else
             STATUS="FAIL"
             echo "FAIL (exit=$EXIT)" | tee -a "$LOG"
         fi
 
         echo "$TQ,$DQ,$STATUS,$EXIT,\"$GEN_T_S\",\"$PROMPT_T_S\",\"$ACCEPT\",$VRAM_BEFORE,$VRAM_AFTER,$(date -Iseconds)" >> "$CSV"
+        sync
         sleep 2
     done
     echo "--- $TQ komplett ---" | tee -a "$LOG"
@@ -148,4 +185,5 @@ echo "CSV:  $CSV" | tee -a "$LOG"
 OK_COUNT=$(grep -c ',OK,' "$CSV" || echo 0)
 FAIL_COUNT=$(grep -c ',FAIL,' "$CSV" || echo 0)
 TO_COUNT=$(grep -c ',TIMEOUT,' "$CSV" || echo 0)
-echo "OK: $OK_COUNT | FAIL: $FAIL_COUNT | TIMEOUT: $TO_COUNT | TOTAL: $TOTAL" | tee -a "$LOG"
+NT_COUNT=$(grep -c ',NO_TIMING,' "$CSV" || echo 0)
+echo "OK: $OK_COUNT | TIMEOUT: $TO_COUNT | NO_TIMING: $NT_COUNT | FAIL: $FAIL_COUNT | TOTAL: $TOTAL" | tee -a "$LOG"
