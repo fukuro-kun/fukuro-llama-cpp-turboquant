@@ -95,7 +95,7 @@ git log --oneline upstream/feature/turboquant-kv-cache..feature/turboquant-kv-ca
 |--------|--------------------------|
 | **DiffusionGemma** | Monolithischer Port von PR #24423 (block text-diffusion MoE auf Gemma-4-Backbone). Forward-Pass funktioniert, **Diffusion-Decoding-Loop funktioniert** (Entropy-Bound Decoder vollstaendig implementiert). Verbleibende Limitierung: Self-Conditioning (SC-Tensoren fehlen in GGUFs). |
 | **Vulkan-Optimierungen** | Q3_K/Q6_K Block-Load (+57%/+78% tg128 auf Intel BMG), iq1 shared-memory-Reduktion, host-memory Lock-Kontention optimiert. |
-| **Vulkan Einschraenkung** | ⚠️ **TurboQuant KV-Cache NICHT auf Vulkan:** `--cache-type-k q8_0 --cache-type-v q8_0` verwenden. TurboQuant Shader fuer Vulkan sind nicht implementiert (upstream Issue #22842, WONTFIX). Absturz bei `turbo4`/`turbo3` mit `cache_k_l0 (view) cannot run SET_ROWS`. |
+| **Vulkan Einschraenkung** | ✅ **turbo3 funktioniert** auf Vulkan (~2.7x KV-Kompression). ⚠️ **turbo4 fehlt** — SET_ROWS Shader fuer TURBO4_0 nicht implementiert (upstream Issue #22842). Absturz bei `turbo4`: `cache_k_l0 (view) cannot run SET_ROWS`. |
 | **Gemma 4 12B** | Assistant-Unterstuetzung fuer Gemma-4-12B-Modell. |
 | **Primaries Remote** | Codeberg (Code-Hosting). GitHub als Mirror. |
 | **CUDA KV-Cache Reserve** | Pre-Reservierung von KV-Cache-Speicher fuer FlashAttention reduziert OOM-Risiko. |
