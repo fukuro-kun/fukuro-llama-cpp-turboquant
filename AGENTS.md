@@ -97,6 +97,32 @@ grep -ri "hydra\|uranus\|mars\|venus\|styx\|helene\|telesto\|/home/fukuro\|/medi
 ```
 Falls Treffer → Bereinigen!
 
+### Python-Umgebungen: Ausschliesslich uv
+
+**Verbindliche Regel:** Python-Pakete werden **nur** via `uv` verwaltet. Nie `pip install --break-system-packages`, nie systemweite Python-Installationen ohne Isolation.
+
+**Richtig:**
+```bash
+~/.local/bin/uv venv ~/.venv/llama-cpp
+~/.local/bin/uv pip install --python ~/.venv/llama-cpp/bin/python transformers torch gguf
+~/.local/bin/uv run --python ~/.venv/llama-cpp/bin/python convert_hf_to_gguf.py ...
+```
+
+**Falsch:**
+```bash
+# ❌ System-Python beschmutzen
+pip install --user --break-system-packages transformers torch gguf
+# ❌ Ohne Isolation
+sudo pip install transformers
+```
+
+**Warum:**
+- `--break-system-packages` kann das System-Python irreparabel beschaedigen
+- `uv` bietet Lockfiles, Reproduzierbarkeit, Isolation
+- Einheitlicher Workflow auf allen Hosts
+
+Details: `LOKAL.md` → "uv und Python-Umgebungen"
+
 ### Lokale Gegebenheiten
 
 - Host-spezifische Pfade, GPU-Architekturen und Build-Besonderheiten stehen in `LOKAL.md` (in `.gitignore`, nicht committet).
@@ -181,10 +207,12 @@ Das Hauptprojekt **InferenzQuelle** (`~/projects/inferenzquelle/`) besitzt eine 
 | **Langkontext** | `tests/performance/langkontext/test_context_scaling.sh` | Kontext-Scaling-Benchmark |
 
 **Hinweise:**
-- Modell-Pfade sind host-adaptiv (`config/hydra.json`, `config/uranus.json`)
+- Modell-Pfade sind host-adaptiv — zentrale Uebersicht in Trilium `yWi63z5N6vXc`
 - GPU-Speicher vorher leeren: `pkill -f llama-cli`
 - Ergebnisse werden automatisch in Trilium exportiert und als HTML-Report gespeichert (`ergebnisse/report_auto_*.html`)
 - **Nie** manuelle `curl`-Tests gegen `llama-server` machen, wenn das pytest-Framework verfuegbar ist
+
+**Manuelle Benchmarks:** Ergebnisse **NIE** in Modell-Info-Notes — Wegweiser `8cIsjKEhz7Fd` beachten.
 
 ---
 
