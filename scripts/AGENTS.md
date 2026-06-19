@@ -67,6 +67,35 @@
 
 **Voraussetzung:** Kompilierte Binaries in `build/` und vorbereitete GGUF-Modelle.
 
+### Modell-Download (HuggingFace CLI)
+
+| Tool | Pfad | Zweck |
+|------|------|-------|
+| `hf` | `~/.local/bin/hf` (auf uranus) | Hugging Face CLI fuer Modell-Downloads. Niemals `wget`/`curl` fuer HF-Modelle nutzen! |
+
+**Wichtige Kommandos:**
+
+```bash
+# Repo finden
+hf models ls --search "gemma-4-12b" --author unsloth --limit 10
+
+# Dateien im Repo auflisten (KRITISCH — niemals Dateinamen erraten!)
+hf models ls -h --tree <user>/<repo>
+
+# Einzelne Datei downloaden
+hf download <user>/<repo> <datei.gguf>
+
+# Auth-Status pruefen
+hf auth whoami
+```
+
+**Regel:** Vor jedem Download drei Stufen:
+1. Repo finden (`hf models ls --search`)
+2. Repo verifizieren (`hf models info <repo>`)
+3. Dateien auflisten (`hf models ls --tree`) — Uploader haben unterschiedliche Namenskonventionen!
+
+**DOX-Erinnerung:** `huggingface-cli`-Skill ist verfuegbar (`skill invoke huggingface-cli`).
+
 ### Quantisierung
 
 | Skript | Zweck |
