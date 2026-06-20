@@ -3701,22 +3701,6 @@ llama_context * llama_init_from_model(
         params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
     }
 
-    // WORKAROUND (2026-06-20): TurboQuant KV cache produces garbage output on Vulkan.
-    // Fallback to f16 until the Vulkan TurboQuant shaders are fully debugged.
-    {
-        const bool has_turbo_kv = (params.type_k == GGML_TYPE_TURBO2_0 || params.type_k == GGML_TYPE_TURBO3_0 || params.type_k == GGML_TYPE_TURBO4_0 ||
-                                   params.type_v == GGML_TYPE_TURBO2_0 || params.type_v == GGML_TYPE_TURBO3_0 || params.type_v == GGML_TYPE_TURBO4_0);
-        if (has_turbo_kv) {
-            ggml_backend_dev_t dev = model->dev_output();
-            const char * dev_name = dev ? ggml_backend_dev_name(dev) : nullptr;
-            if (dev_name && strstr(dev_name, "Vulkan") != nullptr) {
-                LLAMA_LOG_WARN("%s: TurboQuant KV cache produces garbage on Vulkan — falling back to f16\n", __func__);
-                params.type_k = GGML_TYPE_F16;
-                params.type_v = GGML_TYPE_F16;
-            }
-        }
-    }
-
     if (ggml_is_quantized(params.type_v) && params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_DISABLED) {
         LLAMA_LOG_ERROR("%s: V cache quantization requires flash_attn\n", __func__);
         return nullptr;

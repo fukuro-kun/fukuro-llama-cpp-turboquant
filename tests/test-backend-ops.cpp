@@ -8868,6 +8868,16 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_set_rows_turbo3(GGML_TYPE_I32, 256, 2048, 512));
     test_cases.emplace_back(new test_set_rows_turbo3(GGML_TYPE_I32, 512, 1024, 256));
 
+    // turbo3 FlashAttention with head_dim 256 (Gemma 3/4 use head_dim 256).
+    // The generic FA loop only covers turbo3 at hsk=128, so these exercise the
+    // multi-block-per-row codepath that real Gemma inference hits.
+    for (int nb : { 1, 32 }) {
+        for (int nr2 : { 1, 4 }) {
+            test_cases.emplace_back(new test_flash_attn_ext(
+                256, 256, 4, {nr2, 1}, 512, nb, true, false, 0.0f, 0.0f, GGML_PREC_F32, GGML_TYPE_TURBO3_0));
+        }
+    }
+
     // SET_ROWS with TQ4_1S destination: quantize then dequant round-trip
     for (ggml_type idx_type : {GGML_TYPE_I32, GGML_TYPE_I64}) {
         for (int64_t ne0 : {32, 64, 128, 256}) {

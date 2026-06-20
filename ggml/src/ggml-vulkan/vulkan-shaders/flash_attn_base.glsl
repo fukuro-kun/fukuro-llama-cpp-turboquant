@@ -87,6 +87,9 @@ layout (binding = 2) readonly buffer V_PACKED {vec4 v_data_packed[];} v_packed;
 #elif defined(DATA_A_TURBO3_0)
 layout (binding = 1) readonly buffer K_T3 {block_turbo3_0 data_k_t3[];};
 layout (binding = 2) readonly buffer V_T3 {block_turbo3_0 data_v_t3[];};
+#elif defined(DATA_A_TURBO4_0)
+layout (binding = 1) readonly buffer K_T4 {block_turbo4_0 data_k_t4[];};
+layout (binding = 2) readonly buffer V_T4 {block_turbo4_0 data_v_t4[];};
 #elif defined(A_TYPE_PACKED16)
 layout (binding = 1) readonly buffer K_PACKED16 {A_TYPE_PACKED16 k_data_packed16[];} k_packed;
 layout (binding = 2) readonly buffer V_PACKED16 {A_TYPE_PACKED16 v_data_packed16[];} v_packed;
@@ -290,6 +293,33 @@ FLOAT_TYPEV4 dequantize4(uint ib, uint iqs, uint a_offset, uint binding_idx) {
         uint lo = (qb >> ((j % 4) * 2)) & 0x3;
         uint hi = (sb >> (j % 8)) & 0x1;
         r[k] = FLOAT_TYPE(T3C[lo | (hi << 2)] * nm);
+    }
+    return r;
+}
+#endif
+
+#if defined(DATA_A_TURBO4_0)
+const float T4C[16] = float[16](
+    -0.173926, -0.117195, -0.089527, -0.068756,
+    -0.051262, -0.035597, -0.020989, -0.006938,
+     0.006938,  0.020989,  0.035597,  0.051262,
+     0.068756,  0.089527,  0.117195,  0.173926
+);
+FLOAT_TYPEV4 dequantize4(uint ib, uint iqs, uint a_offset, uint binding_idx) {
+    FLOAT_TYPEV4 r;
+    for (int k = 0; k < 4; k++) {
+        uint  j  = iqs + uint(k);
+        float nm;
+        uint  qb;
+        if (binding_idx == BINDING_IDX_K) {
+            nm = float(data_k_t4[a_offset + ib].norm);
+            qb = uint(data_k_t4[a_offset + ib].qs[j / 2]);
+        } else {
+            nm = float(data_v_t4[a_offset + ib].norm);
+            qb = uint(data_v_t4[a_offset + ib].qs[j / 2]);
+        }
+        uint idx = (qb >> ((j % 2) * 4)) & 0xF;
+        r[k] = FLOAT_TYPE(T4C[idx] * nm);
     }
     return r;
 }
