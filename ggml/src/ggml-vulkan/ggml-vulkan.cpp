@@ -3615,7 +3615,6 @@ static void ggml_vk_load_shaders(vk_device& device) {
         }
         CREATE_FA(GGML_TYPE_TURBO3_0, turbo3_0, FA_SCALAR, )
         CREATE_FA(GGML_TYPE_TURBO4_0, turbo4_0, FA_SCALAR, )
-        CREATE_FA(GGML_TYPE_TURBO4_0, turbo4_0_turbo3_0, FA_SCALAR, )
     } else {
         CREATE_FA(GGML_TYPE_F32, f32, FA_SCALAR, _fp32)
         CREATE_FA(GGML_TYPE_F16, f16, FA_SCALAR, _fp32)
@@ -3640,7 +3639,6 @@ static void ggml_vk_load_shaders(vk_device& device) {
         }
         CREATE_FA(GGML_TYPE_TURBO3_0, turbo3_0, FA_SCALAR, _fp32)
         CREATE_FA(GGML_TYPE_TURBO4_0, turbo4_0, FA_SCALAR, _fp32)
-        CREATE_FA(GGML_TYPE_TURBO4_0, turbo4_0_turbo3_0, FA_SCALAR, _fp32)
     }
 #if defined(VK_KHR_cooperative_matrix) && defined(GGML_VULKAN_COOPMAT_GLSLC_SUPPORT)
     if (device->coopmat1_fa_support) {
@@ -3654,7 +3652,6 @@ static void ggml_vk_load_shaders(vk_device& device) {
         CREATE_FA(GGML_TYPE_IQ4_NL, iq4_nl, FA_COOPMAT1, _cm1)
         CREATE_FA(GGML_TYPE_TURBO3_0, turbo3_0, FA_COOPMAT1, _cm1)
         CREATE_FA(GGML_TYPE_TURBO4_0, turbo4_0, FA_COOPMAT1, _cm1)
-        CREATE_FA(GGML_TYPE_TURBO4_0, turbo4_0_turbo3_0, FA_COOPMAT1, _cm1)
     }
 #endif
 #if defined(VK_NV_cooperative_matrix2) && defined(GGML_VULKAN_COOPMAT2_GLSLC_SUPPORT)
@@ -9224,16 +9221,6 @@ static void ggml_vk_flash_attn(ggml_backend_vk_context * ctx, vk_context& subctx
 
     tuning_params = get_fa_tuning_params(ctx->device, HSK, HSV, N, KV, k->type, f32acc);
 
-    // Mixed K/V types (e.g. turbo4 K + turbo3 V) are not supported in coopmat2 path
-    if (k->type != v->type && tuning_params.path == FA_COOPMAT2) {
-        tuning_params.path = device->coopmat1_fa_support ? FA_COOPMAT1 : FA_SCALAR;
-        if (tuning_params.path == FA_COOPMAT1) {
-            tuning_params = get_fa_tuning_params_coopmat1(ctx->device, HSK, HSV, N, KV, k->type, f32acc);
-        } else {
-            tuning_params = get_fa_tuning_params_scalar(ctx->device, HSK, HSV, N, KV, k->type, f32acc);
-        }
-    }
-
     const uint32_t q_stride = (uint32_t)(nbq1 / ggml_type_size(q->type));
     uint32_t k_stride = (uint32_t)(nbk1 / ggml_type_size(k->type));
     uint32_t v_stride = (uint32_t)(nbv1 / ggml_type_size(v->type));
@@ -9272,10 +9259,6 @@ static void ggml_vk_flash_attn(ggml_backend_vk_context * ctx, vk_context& subctx
     bool use_mask_opt = mask && nem1 >= 32 && nem0 * nem1 > 32768 && nem0 >= tuning_params.block_cols * 16;
     vk_fa_pipeline_state fa_pipeline_state = get_fa_pipeline_state(ctx->device, tuning_params, HSK, HSV, aligned, f32acc,
                                                                    mask != nullptr, use_mask_opt, logit_softcap != 0);
-    // Mark mixed K/V types in flags (bit 4) to select different pipeline
-    if (k->type != v->type) {
-        fa_pipeline_state.flags |= 16;
-    }
 
     vk_pipeline pipeline = nullptr;
 
@@ -15764,11 +15747,8 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
                 }
                 // It's straightforward to support different K/V dequant, but would
                 // significantly increase the number of pipelines
-                // Exception: K=turbo4_0 + V=turbo3_0 is supported (higher K quality + better V compression)
                 if (op->src[1]->type != op->src[2]->type) {
-                    if (!(op->src[1]->type == GGML_TYPE_TURBO4_0 && op->src[2]->type == GGML_TYPE_TURBO3_0)) {
-                        return false;
-                    }
+                    return false;
                 }
                 switch (op->src[1]->type) {
                 case GGML_TYPE_F16:

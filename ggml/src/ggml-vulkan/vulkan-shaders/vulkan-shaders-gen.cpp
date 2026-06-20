@@ -692,14 +692,6 @@ void process_shaders() {
                     }
 #endif
                 }
-
-                // Mixed types: K=turbo4_0, V=turbo3_0 (scalar and coopmat1 only)
-                {
-                    string_to_spv("flash_attn_f32_f16_turbo4_0_turbo3_0", "flash_attn_cm1.comp",
-                        merge_maps(fa_base_dict, {{"DATA_A_K_TURBO4_0", "1"}, {"DATA_A_V_TURBO3_0", "1"}, {"Q_TYPE", "float"}, {"D_TYPE", "float"}, {"D_TYPEV4", "vec4"}, {"BLOCK_SIZE", "QUANT_K_TURBO4_0"}, {"COOPMAT", "1"}}), fp16, true, false, f16acc);
-                    string_to_spv("flash_attn_f32_f16_turbo4_0_turbo3_0", "flash_attn.comp",
-                        merge_maps(fa_base_dict, {{"DATA_A_K_TURBO4_0", "1"}, {"DATA_A_V_TURBO3_0", "1"}, {"Q_TYPE", "float"}, {"D_TYPE", "float"}, {"D_TYPEV4", "vec4"}, {"BLOCK_SIZE", "QUANT_K_TURBO4_0"}}), fp16, false, false, f16acc);
-                }
             }
         }
     }
