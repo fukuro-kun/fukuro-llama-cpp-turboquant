@@ -688,6 +688,41 @@ vec2 get_dm(uint ib, uint a_offset) {
 }
 #endif
 
+#if defined(DATA_A_TURBO4_0)
+vec2 dequantize(uint ib, uint iqs, uint a_offset) {
+    // PolarQuant 4-bit centroids (Lloyd-Max for N(0, 1/sqrt(128)))
+    const float centroids[16] = float[16](
+        -0.173926, -0.117195, -0.089527, -0.068756,
+        -0.051262, -0.035597, -0.020989, -0.006938,
+         0.006938,  0.020989,  0.035597,  0.051262,
+         0.068756,  0.089527,  0.117195,  0.173926
+    );
+
+    // iqs is the element index within the block (0..63 pairs), decode 2 consecutive elements
+    const uint j0 = iqs;
+    const uint j1 = iqs + 1;
+
+    // Nibble unpack: 2 elements per byte
+    const uint byte_idx0 = j0 / 2;
+    const uint nibble_shift0 = (j0 % 2) * 4;
+    const uint idx0 = (uint(data_a[a_offset + ib].qs[byte_idx0]) >> nibble_shift0) & 0xF;
+
+    const uint byte_idx1 = j1 / 2;
+    const uint nibble_shift1 = (j1 % 2) * 4;
+    const uint idx1 = (uint(data_a[a_offset + ib].qs[byte_idx1]) >> nibble_shift1) & 0xF;
+
+    return vec2(centroids[idx0], centroids[idx1]);
+}
+vec4 dequantize4(uint ib, uint iqs, uint a_offset) {
+    vec2 v0 = dequantize(ib, iqs, a_offset);
+    vec2 v1 = dequantize(ib, iqs + 2, a_offset);
+    return vec4(v0.x, v0.y, v1.x, v1.y);
+}
+vec2 get_dm(uint ib, uint a_offset) {
+    return vec2(float(data_a[a_offset + ib].norm), 0);
+}
+#endif
+
 #if defined(DATA_A_TQ4_1S)
 vec2 dequantize(uint ib, uint iqs, uint a_offset) {
     // TQ4_1S: 16-level Lloyd-Max centroids for N(0,1)
