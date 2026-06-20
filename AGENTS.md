@@ -131,9 +131,9 @@ Details: `LOKAL.md` → "uv und Python-Umgebungen"
   - **Pascal (GTX 1070):** `-DLLAMA_CUDA=ON`, FP16 nur via emulation, kein FlashAttention
   - **Ampere/Ada (RTX 3070/4060):** Volle Feature-Unterstuetzung, FlashAttention, TurboQuant
   - **AMD iGPU/APU:** `-DLLAMA_VULKAN=ON`, ROCm experimentell
-    - ✅ **turbo3 KV-Cache funktioniert:** `--cache-type-k turbo3 --cache-type-v turbo3` (~2.7x Kompression)
-    - ⚠️ **turbo4 NICHT auf Vulkan:** SET_ROWS Shader fehlt fuer TURBO4_0 (upstream Issue #22842)
-    - Absturz bei `turbo4`: `cache_k_l0 (view) in buffer (Vulkan0) cannot run SET_ROWS`
+    - ✅ **turbo3 KV-Cache funktioniert:** `--cache-type-k turbo3 --cache-type-v turbo3` (~5.1x Kompression)
+    - ✅ **turbo4 KV-Cache funktioniert:** `--cache-type-k turbo4 --cache-type-v turbo4` (~3.8x Kompression)
+    - FlashAttention ist fuer beide TurboQuant-Formate auf Vulkan aktiv
 
 ### Build-System
 
