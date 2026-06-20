@@ -8868,13 +8868,15 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_set_rows_turbo3(GGML_TYPE_I32, 256, 2048, 512));
     test_cases.emplace_back(new test_set_rows_turbo3(GGML_TYPE_I32, 512, 1024, 256));
 
-    // turbo3 FlashAttention with head_dim 256 (Gemma 3/4 use head_dim 256).
-    // The generic FA loop only covers turbo3 at hsk=128, so these exercise the
+    // turbo3/turbo4 FlashAttention with head_dim 256 (Gemma 3/4 use head_dim 256).
+    // The generic FA loop only covers these at hsk=128, so these exercise the
     // multi-block-per-row codepath that real Gemma inference hits.
     for (int nb : { 1, 32 }) {
         for (int nr2 : { 1, 4 }) {
             test_cases.emplace_back(new test_flash_attn_ext(
                 256, 256, 4, {nr2, 1}, 512, nb, true, false, 0.0f, 0.0f, GGML_PREC_F32, GGML_TYPE_TURBO3_0));
+            test_cases.emplace_back(new test_flash_attn_ext(
+                256, 256, 4, {nr2, 1}, 512, nb, true, false, 0.0f, 0.0f, GGML_PREC_F32, GGML_TYPE_TURBO4_0));
         }
     }
 
@@ -8917,8 +8919,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                                             for (int nb : { 1, 3, 32, 75, }) {
                                                 for (ggml_prec prec : {GGML_PREC_F32, GGML_PREC_DEFAULT}) {
                                                     if (hsk != 128 && prec == GGML_PREC_DEFAULT) continue;
-                                                    for (ggml_type type_KV : {GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_BF16, GGML_TYPE_Q8_0, GGML_TYPE_Q5_1, GGML_TYPE_Q5_0, GGML_TYPE_Q4_1, GGML_TYPE_Q4_0, GGML_TYPE_IQ4_NL, GGML_TYPE_TURBO3_0}) {
-                                                        if (type_KV == GGML_TYPE_TURBO3_0 && hsk < 128) continue;
+                                                    for (ggml_type type_KV : {GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_BF16, GGML_TYPE_Q8_0, GGML_TYPE_Q5_1, GGML_TYPE_Q5_0, GGML_TYPE_Q4_1, GGML_TYPE_Q4_0, GGML_TYPE_IQ4_NL, GGML_TYPE_TURBO3_0, GGML_TYPE_TURBO4_0}) {
+                                                        if ((type_KV == GGML_TYPE_TURBO3_0 || type_KV == GGML_TYPE_TURBO4_0) && hsk < 128) continue;
                                                         if (type_KV != GGML_TYPE_F16 && hsk != 64 && hsk != 72 && hsk != 128) continue;
                                                         test_cases.emplace_back(new test_flash_attn_ext(
                                                                     hsk, hsv, nh, {nr2, nr3}, kv, nb, mask, sinks, max_bias, logit_softcap, prec, type_KV));
