@@ -134,6 +134,7 @@ Details: `LOKAL.md` → "uv und Python-Umgebungen"
     - ✅ **turbo3 KV-Cache funktioniert:** `--cache-type-k turbo3 --cache-type-v turbo3` (~5.1x Kompression)
     - ✅ **turbo4 KV-Cache funktioniert:** `--cache-type-k turbo4 --cache-type-v turbo4` (~3.8x Kompression)
     - FlashAttention ist fuer beide TurboQuant-Formate auf Vulkan aktiv
+    - ⚠️ **Performance-Klippe bei ~188k Kontext:** Auf AMD APU (shared memory) bricht die Inference-Performance bei ca. 188k Kontext scharf ein (24 t/s → 0.09 t/s, Faktor 243x). Dies ist KEIN VRAM-Bandbreiten-Problem (APU nutzt denselben DDR5), sondern vermutlich ein Code-Pfad-Wechsel im Vulkan-Backend. Workaround: Kontext auf maximal 180k begrenzen. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
 
 ### Build-System
 
