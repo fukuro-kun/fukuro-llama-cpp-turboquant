@@ -323,8 +323,8 @@ target two distinct memory-traffic problems:
 
 | Type | Bits | Compression vs F16 | Notes |
 |---|---:|---:|---|
-| `turbo2` | 2 | ~6.4× | maximum compression, intended for large-context budgets |
-| `turbo3` | 3 | ~4.3× | **recommended default**; Metal `TurboFlash` decode kernel |
+| `turbo2` | 2 | ~7.5× | maximum compression, intended for large-context budgets |
+| `turbo3` | 3 | ~5.1× | **recommended default**; Metal `TurboFlash` decode kernel |
 | `turbo4` | 4 | ~3.8× | highest accuracy of the family, safest fallback |
 
 Typical invocation with full GPU offload + Flash-Attention:
@@ -360,7 +360,7 @@ because of the lighter memory traffic.
 |---|---|---|
 | Metal (Apple Silicon) | yes; `TurboFlash` flash-attn decode kernel for `turbo3` (off-by-default on Apple10 — see PR #91) | yes (V2.1 fused kernels) |
 | CUDA (NVIDIA) | `turbo3` / `turbo4` (full); `turbo2` via reference path | `TQ4_1S` MUL_MAT_VEC |
-| Vulkan | `turbo3` KV (FA + coopmat), `SET_ROWS` for `turbo2/4` | `TQ4_1S` (specialised MUL_MAT_VEC, SET_ROWS, CPY) |
+| Vulkan | `turbo3` + `turbo4` KV (FA + SET_ROWS); `turbo2` not yet | `TQ4_1S` (specialised MUL_MAT_VEC, SET_ROWS, CPY) |
 | HIP / ROCm | `turbo3` KV; F16-K + TURBO-V mixed dispatch | reference |
 | CPU | reference (correctness, not throughput) | reference |
 
@@ -855,8 +855,8 @@ To learn more about model quantization, [read this documentation](tools/quantize
     Pick a stronger compression preset by stepping the bit-width:
 
     ```bash
-    -ctk turbo2 -ctv turbo2   # 2-bit KV, ~6.4x vs F16 (highest compression)
-    -ctk turbo3 -ctv turbo3   # 3-bit KV, ~4.3x  (default sweet spot)
+    -ctk turbo2 -ctv turbo2   # 2-bit KV, ~7.5x vs F16 (highest compression)
+    -ctk turbo3 -ctv turbo3   # 3-bit KV, ~5.1x  (default sweet spot)
     -ctk turbo4 -ctv turbo4   # 4-bit KV, ~3.8x  (highest accuracy / fallback)
     ```
 
