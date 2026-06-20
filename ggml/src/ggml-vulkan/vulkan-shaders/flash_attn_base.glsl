@@ -90,6 +90,9 @@ layout (binding = 2) readonly buffer V_T3 {block_turbo3_0 data_v_t3[];};
 #elif defined(DATA_A_TURBO4_0)
 layout (binding = 1) readonly buffer K_T4 {block_turbo4_0 data_k_t4[];};
 layout (binding = 2) readonly buffer V_T4 {block_turbo4_0 data_v_t4[];};
+#elif defined(DATA_A_K_TURBO4_0) && defined(DATA_A_V_TURBO3_0)
+layout (binding = 1) readonly buffer K_T4 {block_turbo4_0 data_k_t4[];};
+layout (binding = 2) readonly buffer V_T3 {block_turbo3_0 data_v_t3[];};
 #elif defined(A_TYPE_PACKED16)
 layout (binding = 1) readonly buffer K_PACKED16 {A_TYPE_PACKED16 k_data_packed16[];} k_packed;
 layout (binding = 2) readonly buffer V_PACKED16 {A_TYPE_PACKED16 v_data_packed16[];} v_packed;
@@ -113,6 +116,19 @@ layout (binding = 2) readonly buffer V_PACKED32 {A_TYPE_PACKED32 v_data_packed32
 #undef BLOCK_SIZE
 #define BLOCK_SIZE 128  // turbo4 processes 128-element blocks
 #define BLOCK_BYTE_SIZE 68 // block_turbo4_0: 2 (norm) + 2 (rnorm) + 64 (qs) = 68 bytes
+#elif defined(DATA_A_K_TURBO4_0) && defined(DATA_A_V_TURBO3_0)
+#undef BLOCK_SIZE
+#define BLOCK_SIZE 128  // both turbo4 and turbo3 use 128-element blocks
+#define BLOCK_BYTE_SIZE_K 68 // block_turbo4_0: 68 bytes
+#define BLOCK_BYTE_SIZE_V 50 // block_turbo3_0: 50 bytes
+#endif
+
+// Fallback for non-mixed types: define BLOCK_BYTE_SIZE_K/V from BLOCK_BYTE_SIZE
+#ifndef BLOCK_BYTE_SIZE_K
+#define BLOCK_BYTE_SIZE_K BLOCK_BYTE_SIZE
+#endif
+#ifndef BLOCK_BYTE_SIZE_V
+#define BLOCK_BYTE_SIZE_V BLOCK_BYTE_SIZE
 #endif
 
 #if defined(DATA_A_F32)
@@ -269,7 +285,7 @@ FLOAT_TYPEV4 dequantize4(uint ib, uint iqs, uint a_offset, uint binding_idx) {
 }
 #endif
 
-#if defined(DATA_A_TURBO3_0)
+#if defined(DATA_A_TURBO3_0) || (defined(DATA_A_K_TURBO4_0) && defined(DATA_A_V_TURBO3_0))
 const float T3C[8] = float[8](
     -0.190685, -0.117832, -0.065717, -0.021460,
      0.021460,  0.065717,  0.117832,  0.190685
@@ -298,7 +314,7 @@ FLOAT_TYPEV4 dequantize4(uint ib, uint iqs, uint a_offset, uint binding_idx) {
 }
 #endif
 
-#if defined(DATA_A_TURBO4_0)
+#if defined(DATA_A_TURBO4_0) || (defined(DATA_A_K_TURBO4_0) && defined(DATA_A_V_TURBO3_0))
 const float T4C[16] = float[16](
     -0.173926, -0.117195, -0.089527, -0.068756,
     -0.051262, -0.035597, -0.020989, -0.006938,
@@ -320,6 +336,29 @@ FLOAT_TYPEV4 dequantize4(uint ib, uint iqs, uint a_offset, uint binding_idx) {
         }
         uint idx = (qb >> ((j % 2) * 4)) & 0xF;
         r[k] = FLOAT_TYPE(T4C[idx] * nm);
+    }
+    return r;
+}
+#endif
+
+#if defined(DATA_A_K_TURBO4_0) && defined(DATA_A_V_TURBO3_0)
+FLOAT_TYPEV4 dequantize4(uint ib, uint iqs, uint a_offset, uint binding_idx) {
+    FLOAT_TYPEV4 r;
+    for (int k = 0; k < 4; k++) {
+        uint j = iqs + uint(k);
+        if (binding_idx == BINDING_IDX_K) {
+            float nm = float(data_k_t4[a_offset + ib].norm);
+            uint qb = uint(data_k_t4[a_offset + ib].qs[j / 2]);
+            uint idx = (qb >> ((j % 2) * 4)) & 0xF;
+            r[k] = FLOAT_TYPE(T4C[idx] * nm);
+        } else {
+            float nm = float(data_v_t3[a_offset + ib].norm);
+            uint qb = uint(data_v_t3[a_offset + ib].qs[j / 4]);
+            uint sb = uint(data_v_t3[a_offset + ib].signs[j / 8]);
+            uint lo = (qb >> ((j % 4) * 2)) & 0x3;
+            uint hi = (sb >> (j % 8)) & 0x1;
+            r[k] = FLOAT_TYPE(T3C[lo | (hi << 2)] * nm);
+        }
     }
     return r;
 }
