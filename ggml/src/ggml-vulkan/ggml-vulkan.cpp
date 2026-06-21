@@ -15861,8 +15861,11 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
     // Submit after enough work has accumulated, to overlap CPU cmdbuffer generation with GPU execution.
     // Estimate the amount of matmul work by looking at the weight matrix size, and submit every 100MB
     // (and scaled down based on model size, so smaller models submit earlier).
-    // Also submit at least every 100 nodes, in case there are workloads without as much matmul.
-    int nodes_per_submit = 100;
+    // Also submit at least every N nodes, in case there are workloads without as much matmul.
+    // On UMA/APU devices, use a smaller batch size to avoid exceeding amdgpu.lockup_timeout (default 2000ms).
+    // Large batches on slow iGPUs can take >2s, causing the kernel to reset the GPU ring (Issue #21724).
+    // Note: nodes_per_submit=1 prevents GPU hangs but has high submit overhead. 10 is a compromise.
+    int nodes_per_submit = ctx->device->uma ? 10 : 100;
     int submitted_nodes = 0;
     int submit_count = 0;
     uint64_t mul_mat_bytes = 0;
