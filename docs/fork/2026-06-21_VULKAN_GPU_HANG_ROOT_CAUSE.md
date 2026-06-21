@@ -89,17 +89,56 @@ Die Cherry-Picks sind **NICHT nötig** — `nodes_per_submit=10` allein löst al
 Die Cherry-Picks kosten ~5% Performance bei pp512 (171→160) ohne einen Nutzen zu bringen.
 Alle 6 Cherry-Picks wurden revertiert. Der Branch enthält jetzt nur noch den `nodes_per_submit` Fix.
 
-### Test 4: nodes_per_submit Tuning
+### Test 4: nodes_per_submit Tuning (vollständig)
+
+#### Grob-Tuning (erste Runde)
 
 | nps | pp512 | pp16384 | tg32@188k | Status |
 |-----|-------|---------|-----------|--------|
 | 1 | 189 t/s | >30min | — | ⚠️ Zu viel Overhead |
-| **10** | **171 t/s** | **122 t/s** | **22.09 t/s** | ✅ **Sweet Spot (konservativ)** |
-| 20 | 159 t/s | 120 t/s | 21.46 t/s | ✅ Funktioniert, kein Vorteil |
-| 50 | 158 t/s | 120 t/s | 21.50 t/s | ✅ Funktioniert auch! |
+| 10 | 171 t/s | 122 t/s | 22.09 t/s | ✅ |
+| 20 | 159 t/s | 120 t/s | 21.46 t/s | ✅ |
+| 50 | 158 t/s | 120 t/s | 21.50 t/s | ✅ |
 | 100 | 205 t/s | HANG | 0.099 t/s | ❌ Original (Hang) |
 
-**Fazit:** nps=10 ist der konservative Sweet Spot. nps=50 funktioniert überraschenderweise auch, bringt aber keinen Performance-Vorteil. Die GPU-Hang-Schwelle liegt zwischen 50 und 100. Die pp512-Regression (~205→~160) ist konsistent über alle nps-Werte und nicht durch nps selbst verursacht (vermutlich Pipeline-Cache-Effekt oder Messvarianz nach Reboot).
+#### Fein-Tuning (zweite Runde: 3, 5, 7, 12, 14, 16, 18)
+
+| nps | pp512 | pp16384 | tg32@188k | Bemerkung |
+|-----|-------|---------|-----------|-----------|
+| 3 | 161* | 121.62 | 20.77 | ✅ stabil |
+| 5 | 197* | 118.11 | 21.50 | ✅ pp512 gut |
+| 7 | 157* | 120.12 | 21.92 | ✅ stabil |
+| **10** | **171*** | **122** | **22.09** | ✅ **aktueller Fix** |
+| 12 | 160* | 112.72 | 18.92 | ✅ aber tg32 sinkt |
+| 14 | 160* | 109.20 | — | ✅ aber pp16384 sinkt |
+| 16 | 204** | 94.46 | 21.93 | ✅ pp512 top, pp16384 sinkt |
+| 18 | 203** | 115.83 | 19.45 | ✅ aber tg32 sinkt |
+
+*pp512 verfälscht durch parallelen llama-server (VRAM-Konkurrenz)
+**pp512 sauber gemessen (llama-server gekillt)
+
+#### Vollständige Tabelle (alle Werte, saubere pp512 nur für nps=16,18)
+
+| nps | pp512 (sauber) | pp16384 | tg32@188k | Status |
+|-----|----------------|---------|-----------|--------|
+| 1 | ~189 | >30min | — | ❌ Overhead |
+| 3 | — | 121.62 | 20.77 | ✅ |
+| 5 | — | 118.11 | 21.50 | ✅ |
+| 7 | — | 120.12 | 21.92 | ✅ |
+| **10** | — | **122** | **22.09** | ✅ **Sweet Spot** |
+| 12 | — | 112.72 | 18.92 | ✅ tg32 sinkt |
+| 14 | — | 109.20 | — | ✅ pp16384 sinkt |
+| 16 | **204** | 94.46 | 21.93 | ✅ pp512 top, pp16384 sinkt |
+| 18 | **203** | 115.83 | 19.45 | ✅ tg32 sinkt |
+| 20 | — | 120 | 21.46 | ✅ |
+| 50 | — | 120 | 21.50 | ✅ |
+| 100 | 205 | HANG | 0.099 | ❌ Hang |
+
+**Fazit:** nps=10 bleibt der Sweet Spot — bestes pp16384 (122 t/s) und bestes tg32@188k (22.09 t/s).
+Höhere Werte (12-18) zeigen sinkende pp16384- und tg32-Werte, vermutlich weil einzelne
+Batches länger dauern und den GPU-Takt/Thermal-Headroom beeinflussen.
+nps=50 funktioniert überraschenderweise auch noch, nps=100 hängt.
+GPU-Hang-Schwelle liegt zwischen 50 und 100.
 
 ### Root Cause für pp16384 Performance-Problem
 
