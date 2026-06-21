@@ -89,6 +89,18 @@ Die Cherry-Picks sind **NICHT nötig** — `nodes_per_submit=10` allein löst al
 Die Cherry-Picks kosten ~5% Performance bei pp512 (171→160) ohne einen Nutzen zu bringen.
 Alle 6 Cherry-Picks wurden revertiert. Der Branch enthält jetzt nur noch den `nodes_per_submit` Fix.
 
+### Test 4: nodes_per_submit Tuning
+
+| nps | pp512 | pp16384 | tg32@188k | Status |
+|-----|-------|---------|-----------|--------|
+| 1 | 189 t/s | >30min | — | ⚠️ Zu viel Overhead |
+| **10** | **171 t/s** | **122 t/s** | **22.09 t/s** | ✅ **Sweet Spot (konservativ)** |
+| 20 | 159 t/s | 120 t/s | 21.46 t/s | ✅ Funktioniert, kein Vorteil |
+| 50 | 158 t/s | 120 t/s | 21.50 t/s | ✅ Funktioniert auch! |
+| 100 | 205 t/s | HANG | 0.099 t/s | ❌ Original (Hang) |
+
+**Fazit:** nps=10 ist der konservative Sweet Spot. nps=50 funktioniert überraschenderweise auch, bringt aber keinen Performance-Vorteil. Die GPU-Hang-Schwelle liegt zwischen 50 und 100. Die pp512-Regression (~205→~160) ist konsistent über alle nps-Werte und nicht durch nps selbst verursacht (vermutlich Pipeline-Cache-Effekt oder Messvarianz nach Reboot).
+
 ### Root Cause für pp16384 Performance-Problem
 
 `nodes_per_submit=1` verhindert GPU-Hangs, aber pp16384 ist immer noch >30min. Das bedeutet:
