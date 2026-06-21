@@ -96,6 +96,7 @@ git log --oneline upstream/feature/turboquant-kv-cache..feature/turboquant-kv-ca
 | **DiffusionGemma** | Monolithischer Port von PR #24423 (block text-diffusion MoE auf Gemma-4-Backbone). Forward-Pass funktioniert, **Diffusion-Decoding-Loop funktioniert** (Entropy-Bound Decoder vollstaendig implementiert). Verbleibende Limitierung: Self-Conditioning (SC-Tensoren fehlen in GGUFs). |
 | **Vulkan-Optimierungen** | Q3_K/Q6_K Block-Load (+57%/+78% tg128 auf Intel BMG), iq1 shared-memory-Reduktion, host-memory Lock-Kontention optimiert. |
 | **Vulkan TurboQuant** | ✅ **turbo3** (~5.1x) und **turbo4** (~3.8x) KV-Cache mit FlashAttention vollstaendig auf Vulkan implementiert |
+| **Vulkan APU GPU-Hang Fix** | ✅ `nodes_per_submit=10` für UMA-Geräte (Issue #21724). Behebt GPU-Hangs auf AMD APUs bei großen Kontexten (>188k) und Prompts (>16k). Siehe [2026-06-21_VULKAN_GPU_HANG_ROOT_CAUSE.md](docs/fork/2026-06-21_VULKAN_GPU_HANG_ROOT_CAUSE.md). |
 | **Gemma 4 12B** | Assistant-Unterstuetzung fuer Gemma-4-12B-Modell. |
 | **Primaries Remote** | Codeberg (Code-Hosting). GitHub als Mirror. |
 | **CUDA KV-Cache Reserve** | Pre-Reservierung von KV-Cache-Speicher fuer FlashAttention reduziert OOM-Risiko. |
