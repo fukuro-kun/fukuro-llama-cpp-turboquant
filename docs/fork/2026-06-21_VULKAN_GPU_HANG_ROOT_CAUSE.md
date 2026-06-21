@@ -67,17 +67,27 @@ int nodes_per_submit = device->uma ? 1 : 100;
 
 ### Test 2: nodes_per_submit=10 (Kompromiss)
 
-| pp | Ohne Fix (master) | Mit Cherry-Picks | nps=1 | **nps=10** | Status |
-|----|-------------------|------------------|-------|-----------|--------|
-| 512 | 205 t/s | 171 t/s | 189 t/s | 160 t/s | ✅ |
-| 4096 | 168 t/s | 164 t/s | 146 t/s | **166 t/s** | ✅ |
-| 8192 | 150 t/s | HANG | 141 t/s | **147 t/s** | ✅ |
-| 16384 | HANG | HANG | >30min | **122 t/s** | ✅ **DURCHBRUCH** |
+| pp | Ohne Fix (master) | Mit Cherry-Picks | nps=1 | **nps=10** | **nps=10 ONLY** | Status |
+|----|-------------------|------------------|-------|-----------|-----------------|--------|
+| 512 | 205 t/s | 171 t/s | 189 t/s | 160 t/s | **171 t/s** | ✅ |
+| 4096 | 168 t/s | 164 t/s | 146 t/s | 166 t/s | **169 t/s** | ✅ |
+| 8192 | 150 t/s | HANG | 141 t/s | 147 t/s | **146 t/s** | ✅ |
+| 16384 | HANG | HANG | >30min | 122 t/s | **122 t/s** | ✅ |
 
-**Fazit:** `nodes_per_submit=10` ist der optimale Wert für UMA/APU:
-- pp512-8192: Minimaler Performance-Verlust (~10% bei pp512, ~2% bei pp8192)
-- **pp16384: Funktioniert!** 122 t/s — vorher immer HANG!
-- Kein GPU-Hang mehr bei großen Prompt-Größen
+### Test 3: TG-Scaling mit nodes_per_submit=10 ONLY (ohne Cherry-Picks)
+
+| ctx | tg32 vorher | tg32 nps=10+CP | **tg32 nps=10 ONLY** | Status |
+|-----|-------------|----------------|----------------------|--------|
+| 180000 | 24.1 t/s | 21.24 t/s | — | ✅ |
+| 186000 | HANG | 22.05 t/s | — | ✅ BEHOBEN |
+| 188000 | 0.099 t/s | 21.33 t/s | **22.09 t/s** | ✅ 223x schneller |
+| 192000 | 0.099 t/s | 21.35 t/s | — | ✅ BEHOBEN |
+
+### Entscheidung: Cherry-Picks revertiert
+
+Die Cherry-Picks sind **NICHT nötig** — `nodes_per_submit=10` allein löst alle drei Probleme.
+Die Cherry-Picks kosten ~5% Performance bei pp512 (171→160) ohne einen Nutzen zu bringen.
+Alle 6 Cherry-Picks wurden revertiert. Der Branch enthält jetzt nur noch den `nodes_per_submit` Fix.
 
 ### Root Cause für pp16384 Performance-Problem
 
