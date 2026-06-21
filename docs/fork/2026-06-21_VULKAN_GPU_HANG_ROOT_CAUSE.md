@@ -54,7 +54,30 @@ int nodes_per_submit = device->uma ? 1 : 100;
 
 ## Validierung
 
-1. `lockup_timeout=60000` setzen
-2. pp16384 testen (vorher HANG, sollte jetzt funktionieren)
-3. TG bei 188k testen (vorher 0.09 t/s, sollte jetzt funktionieren)
-4. KV-Cache-Allokation bei 186k testen (vorher HANG, sollte jetzt funktionieren)
+### Test 1: nodes_per_submit=1 (GPU-Hang Fix)
+
+| pp | Ohne Fix (master) | Mit Cherry-Picks | Mit Fix (nps=1) | Status |
+|----|-------------------|------------------|-----------------|--------|
+| 512 | 205 t/s | 171 t/s | 189 t/s | ✅ |
+| 4096 | 168 t/s | 164 t/s | 146 t/s | ✅ |
+| 8192 | 150 t/s | HANG | 141 t/s | ✅ |
+| 16384 | HANG | HANG | >30min (kein Hang, aber extrem langsam) | ⚠️ |
+
+**Fazit:** `nodes_per_submit=1` verhindert GPU-Hangs bis pp8192. pp16384 hängt nicht mehr, ist aber extrem langsam (>30min). Das ist ein **separates Performance-Problem** (vermutlich FA-Shader-Laufzeit bei großen Sequenzen).
+
+### Test 2: nodes_per_submit=10 (Kompromiss)
+
+Läuft derzeit. Erwartung:Ähnliche Performance wie nps=1 bei pp512-8192, aber weniger Submit-Overhead.
+
+### Root Cause für pp16384 Performance-Problem
+
+`nodes_per_submit=1` verhindert GPU-Hangs, aber pp16384 ist immer noch >30min. Das bedeutet:
+- Der GPU-Hang und die PP-Performance-Klippe sind **zwei separate Probleme**
+- Der GPU-Hang wird durch `nodes_per_submit` verursacht (Batch >2s → amdgpu reset)
+- Die PP-Performance-Klippe wird durch etwas anderes verursacht (vermutlich FA-Shader bei großen Sequenzen)
+
+**Mögliche Ursachen für pp16384 Performance-Problem:**
+1. FlashAttention-Shader ist bei großen Sequenzen (seq_len >8192) pathologisch langsam auf RDNA3
+2. `mul_mat_bytes_per_submit` löst trotzdem einzelne Submits aus, die zu groß sind
+3. Compute-Buffer-Größe überschreitet einen Schwellwert
+4. L2-Cache-Thrashing bei großen Sequenzen (Issue #24483)
