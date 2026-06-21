@@ -144,7 +144,7 @@ poetry.toml
 /.ccache/
 
 # IDE
-/*.code-workspace
+**/*.code-workspace
 /.windsurf/
 # emscripten
 a.out.*
