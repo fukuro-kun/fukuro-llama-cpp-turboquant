@@ -217,18 +217,51 @@ GGML_VK_PIPELINE_CACHE_DIR=/tmp/vk_cache_test1
 ## Erfolgskriterien
 
 ### Minimum (12h)
-- [ ] Baseline auf Mars etabliert und dokumentiert
-- [ ] PP-Klippe exakt lokalisiert (zwischen welchen pp-Werten)
-- [ ] TG-Klippe reproduziert
-- [ ] 3+ Vulkan-Commit-Gruppen getestet
+- [x] Baseline auf Mars etabliert und dokumentiert
+- [x] PP-Klippe exakt lokalisiert (8192-16384)
+- [x] TG-Klippe reproduziert — und behoben!
+- [x] 3+ Vulkan-Commit-Gruppen getestet (Gruppe A+B, 6 Commits)
 
-### Optimum
-- [ ] Root Cause identifiziert
-- [ ] Fix auf Branch angewendet und verifiziert
-- [ ] PP-Klippe behoben (pp16384 funktioniert)
-- [ ] TG-Klippe behoben oder zumindest verschoben (>188k)
+### Optimum — ✅ Alle erfüllt
+- [x] Root Cause identifiziert: `amdgpu.lockup_timeout` (2000ms) + `nodes_per_submit=100` (Issue #21724)
+- [x] Fix auf Branch angewendet: `nodes_per_submit=10` für UMA
+- [x] PP-Klippe behoben: pp16384=122 t/s (vorher HANG)
+- [x] TG-Klippe behoben: tg32=21.3 t/s bei 188k (vorher 0.099 t/s = 216x Verbesserung)
 
 ### Stretch
-- [ ] Mesa-Vergleich in LXC durchgeführt
-- [ ] Vollständige Upstream-Vulkan-Sync evaluiert
-- [ ] PR an AtomicBot vorbereitet
+- [ ] Mesa-Vergleich in LXC — nicht nötig, Fix gefunden
+- [ ] Vollständige Upstream-Vulkan-Sync — nicht nötig
+- [ ] PR an AtomicBot — vorbereitetbar
+
+---
+
+## Ergebnisse (2026-06-21)
+
+### Root Cause
+`amdgpu.lockup_timeout` (Default: 2000ms) wird überschritten, wenn
+`ggml_backend_vk_graph_compute` bis zu 100 Nodes pro `vkQueueSubmit` batcht.
+Auf langsamen APUs (AMD 760M) dauern große Batches >2s → Kernel denkt GPU
+ist abgestürzt → Ring Reset → `vk::DeviceLostError` → GPU-Hang.
+
+### Fix
+`nodes_per_submit = ctx->device->uma ? 10 : 100;` in `ggml-vulkan.cpp`
+
+### PP-Scaling (mit Fix + Cherry-Picks)
+| pp | Ohne Fix | Mit Fix (nps=10) | Status |
+|----|----------|-----------------|--------|
+| 512 | 205 t/s | 160 t/s | ✅ |
+| 4096 | 168 t/s | 166 t/s | ✅ |
+| 8192 | 150 t/s | 147 t/s | ✅ |
+| 16384 | HANG | 122 t/s | ✅ DURCHBRUCH |
+
+### TG-Scaling (mit Fix + Cherry-Picks)
+| ctx | tg32 vorher | tg32 mit Fix | Status |
+|-----|-------------|-------------|--------|
+| 180000 | 24.1 t/s | 21.24 t/s | ✅ |
+| 186000 | HANG | 22.05 t/s | ✅ BEHOBEN |
+| 188000 | 0.099 t/s | 21.33 t/s | ✅ 216x schneller |
+| 192000 | 0.099 t/s | 21.35 t/s | ✅ BEHOBEN |
+
+### Offene Frage
+Sind die 6 Cherry-Picks nötig, oder reicht `nodes_per_submit=10` allein?
+→ Test auf `test/nps-only` Branch läuft
