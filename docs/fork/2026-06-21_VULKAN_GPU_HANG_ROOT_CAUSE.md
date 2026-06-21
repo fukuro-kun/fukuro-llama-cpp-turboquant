@@ -91,3 +91,19 @@ int nodes_per_submit = device->uma ? 1 : 100;
 2. `mul_mat_bytes_per_submit` löst trotzdem einzelne Submits aus, die zu groß sind
 3. Compute-Buffer-Größe überschreitet einen Schwellwert
 4. L2-Cache-Thrashing bei großen Sequenzen (Issue #24483)
+
+### Test 3: TG-Scaling mit nodes_per_submit=10 (DURCHBRUCH)
+
+| ctx | tg32 (vorher) | tg32 (mit Fix) | Status |
+|-----|---------------|----------------|--------|
+| 180000 | 24.1 t/s | 21.24 t/s | ✅ |
+| 184000 | 23.8 t/s | 21.28 t/s | ✅ |
+| **186000** | **HANG** | **22.05 t/s** | ✅ **BEHOBEN!** |
+| **188000** | **0.099 t/s** | **21.33 t/s** | ✅ **BEHOBEN!** (216x schneller) |
+| **192000** | 0.099 t/s | 21.35 t/s | ✅ **BEHOBEN!** |
+
+**Die TG-Klippe bei 188k ist BEHOBEN!** Vorher: 0.099 t/s (243x langsamer). Jetzt: 21.33 t/s.
+
+ctx=186000, das vorher beim Laden hängte, funktioniert jetzt mit 22.05 t/s.
+
+**Beobachtung:** tg32 ist mit Fix ~21 t/s (vorher ~24 t/s bei 180k). Das ist ein ~12% Performance-Verlust, der durch die Cherry-Picks und nodes_per_submit=10 verursacht wird. Dieser Verlust ist akzeptabel im Vergleich zum gewonnenen Stability-Bereich (180k → 192k+).
