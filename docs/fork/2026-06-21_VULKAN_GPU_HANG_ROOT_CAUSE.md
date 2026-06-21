@@ -67,7 +67,17 @@ int nodes_per_submit = device->uma ? 1 : 100;
 
 ### Test 2: nodes_per_submit=10 (Kompromiss)
 
-Läuft derzeit. Erwartung:Ähnliche Performance wie nps=1 bei pp512-8192, aber weniger Submit-Overhead.
+| pp | Ohne Fix (master) | Mit Cherry-Picks | nps=1 | **nps=10** | Status |
+|----|-------------------|------------------|-------|-----------|--------|
+| 512 | 205 t/s | 171 t/s | 189 t/s | 160 t/s | ✅ |
+| 4096 | 168 t/s | 164 t/s | 146 t/s | **166 t/s** | ✅ |
+| 8192 | 150 t/s | HANG | 141 t/s | **147 t/s** | ✅ |
+| 16384 | HANG | HANG | >30min | **122 t/s** | ✅ **DURCHBRUCH** |
+
+**Fazit:** `nodes_per_submit=10` ist der optimale Wert für UMA/APU:
+- pp512-8192: Minimaler Performance-Verlust (~10% bei pp512, ~2% bei pp8192)
+- **pp16384: Funktioniert!** 122 t/s — vorher immer HANG!
+- Kein GPU-Hang mehr bei großen Prompt-Größen
 
 ### Root Cause für pp16384 Performance-Problem
 
