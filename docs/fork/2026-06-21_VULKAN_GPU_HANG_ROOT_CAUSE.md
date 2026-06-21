@@ -91,61 +91,34 @@ Alle 6 Cherry-Picks wurden revertiert. Der Branch enthält jetzt nur noch den `n
 
 ### Test 4: nodes_per_submit Tuning (vollständig)
 
-#### Grob-Tuning (erste Runde)
+Alle 16 getesteten Werte in einer Tabelle. Aufsteigend nach nps sortiert.
 
-| nps | pp512 | pp16384 | tg32@188k | Status |
-|-----|-------|---------|-----------|--------|
-| 1 | 189 t/s | >30min | — | ⚠️ Zu viel Overhead |
-| 10 | 171 t/s | 122 t/s | 22.09 t/s | ✅ |
-| 20 | 159 t/s | 120 t/s | 21.46 t/s | ✅ |
-| 50 | 158 t/s | 120 t/s | 21.50 t/s | ✅ |
-| 100 | 205 t/s | HANG | 0.099 t/s | ❌ Original (Hang) |
+| nps | pp512 (t/s) | pp16384 (t/s) | tg32@188k (t/s) | pp512 sauber? | Bemerkung |
+|-----|-------------|---------------|-----------------|---------------|-----------|
+| 1 | 189 | >30min | — | ⚠️ verfälscht | ❌ Zu viel Submit-Overhead |
+| 3 | 161 | 121.62 | 20.77 | ⚠️ verfälscht | ✅ stabil |
+| 5 | 197 | 118.11 | 21.50 | ⚠️ verfälscht | ✅ |
+| 7 | 157 | 120.12 | 21.92 | ⚠️ verfälscht | ✅ stabil |
+| 8 | 160 | 121.47 | 21.60 | ✅ sauber | ✅ stabil, nahe an nps=10 |
+| 9 | 158 | 110.73 ±14 | 17.31 | ✅ sauber | ⚠️ tg32 deutlich niedrig! |
+| **10** | **171** | **122** | **22.09** | ⚠️ verfälscht | ✅ **Sweet Spot — bestes pp16384 UND bestes tg32** |
+| 11 | 188 | 108.01 | 21.74 | ✅ sauber | ✅ pp16384 sinkt |
+| 12 | 160 | 112.72 | 18.92 | ⚠️ verfälscht | ⚠️ tg32 niedrig |
+| 13 | 204 | Timeout | 21.81 | ✅ sauber | ⚠️ pp16384 instabil |
+| 14 | 160 | 109.20 | — | ⚠️ verfälscht | ⚠️ pp16384 sinkt |
+| 16 | 204 | 94.46 | 21.93 | ✅ sauber | ⚠️ pp16384 stark gesunken |
+| 18 | 203 | 115.83 | 19.45 | ✅ sauber | ⚠️ tg32 sinkt |
+| 20 | 159 | 120 | 21.46 | ⚠️ verfälscht | ✅ |
+| 50 | 158 | 120 | 21.50 | ⚠️ verfälscht | ✅ |
+| 100 | 205 | HANG | 0.099 | — | ❌ Original (GPU-Hang) |
 
-#### Fein-Tuning (zweite Runde: 3, 5, 7, 12, 14, 16, 18)
+**pp512 sauber?** — "verfälscht" = paralleler llama-server lief während des Tests und belegte VRAM. "sauber" = kein llama-server, VRAM frei. Die verfälschten pp512-Werte sind systematisch niedriger (157-197) als die sauberen (158-205). Für die Bewertung des Sweet Spots sind pp16384 und tg32@188k aussagekräftiger, da diese von VRAM-Konkurrenz weniger betroffen sind.
 
-| nps | pp512 | pp16384 | tg32@188k | Bemerkung |
-|-----|-------|---------|-----------|-----------|
-| 3 | 161* | 121.62 | 20.77 | ✅ stabil |
-| 5 | 197* | 118.11 | 21.50 | ✅ pp512 gut |
-| 7 | 157* | 120.12 | 21.92 | ✅ stabil |
-| **10** | **171*** | **122** | **22.09** | ✅ **aktueller Fix** |
-| 12 | 160* | 112.72 | 18.92 | ✅ aber tg32 sinkt |
-| 14 | 160* | 109.20 | — | ✅ aber pp16384 sinkt |
-| 16 | 204** | 94.46 | 21.93 | ✅ pp512 top, pp16384 sinkt |
-| 18 | 203** | 115.83 | 19.45 | ✅ aber tg32 sinkt |
-
-*pp512 verfälscht durch parallelen llama-server (VRAM-Konkurrenz)
-**pp512 sauber gemessen (llama-server gekillt)
-
-#### Vollständige Tabelle (alle 15 Werte: 1,3,5,7,8,9,10,11,12,13,14,16,18,20,50,100)
-
-| nps | pp512 | pp16384 | tg32@188k | Bemerkung |
-|-----|-------|---------|-----------|-----------|
-| 1 | 189* | >30min | — | ❌ Overhead |
-| 3 | 161* | 121.62 | 20.77 | ✅ |
-| 5 | 197* | 118.11 | 21.50 | ✅ |
-| 7 | 157* | 120.12 | 21.92 | ✅ |
-| 8 | 160** | 121.47 | 21.60 | ✅ |
-| 9 | 158** | 110.73±14 | 17.31 | ⚠️ tg32 deutlich niedrig! |
-| **10** | 171* | **122** | **22.09** | ✅ **Sweet Spot** |
-| 11 | 188** | 108.01 | 21.74 | ✅ pp16384 sinkt |
-| 12 | 160* | 112.72 | 18.92 | ⚠️ tg32 niedrig |
-| 13 | 204** | Timeout | 21.81 | ⚠️ pp16384 Timeout |
-| 14 | 160* | 109.20 | — | ⚠️ pp16384 sinkt |
-| 16 | 204** | 94.46 | 21.93 | ⚠️ pp16384 stark gesunken |
-| 18 | 203** | 115.83 | 19.45 | ⚠️ tg32 sinkt |
-| 20 | 159* | 120 | 21.46 | ✅ |
-| 50 | 158* | 120 | 21.50 | ✅ |
-| 100 | 205 | HANG | 0.099 | ❌ Hang |
-
-*pp512 verfälscht durch parallelen llama-server (VRAM-Konkurrenz, Runde 1)
-**pp512 sauber gemessen (kein llama-server, Runde 2+3)
-
-**Fazit:** nps=10 bleibt der Sweet Spot — bestes pp16384 (122 t/s) und bestes tg32@188k (22.09 t/s).
-Auffällig: nps=9 hat ein deutliches tg32-Tief (17.31) und nps=13 hat pp16384-Timeout.
-Die Werte um 10 herum (8, 10) sind am stabilsten. Höhere Werte (12-18) zeigen
-sinkende pp16384- und tg32-Werte. nps=50 funktioniert noch, nps=100 hängt.
-GPU-Hang-Schwelle liegt zwischen 50 und 100.
+**Fazit:** nps=10 ist der Sweet Spot — bestes pp16384 (122 t/s) und bestes tg32@188k (22.09 t/s).
+nps=8 ist die beste Alternative (pp16384=121, tg32=21.60).
+nps=9 hat ein unerwartetes tg32-Tief (17.31), nps=13 hat pp16384-Timeout.
+Höhere Werte (12-18) zeigen sinkende pp16384- und tg32-Werte.
+nps=50 funktioniert noch, nps=100 hängt. GPU-Hang-Schwelle liegt zwischen 50 und 100.
 
 ### Root Cause für pp16384 Performance-Problem
 
