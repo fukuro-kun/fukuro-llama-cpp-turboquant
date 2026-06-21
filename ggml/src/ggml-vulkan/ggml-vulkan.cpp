@@ -7193,24 +7193,7 @@ static void ggml_vk_buffer_read(vk_buffer& src, size_t offset, void * dst, size_
     if(src->memory_property_flags & vk::MemoryPropertyFlagBits::eHostVisible && src->device->uma) {
         GGML_ASSERT(src->memory_property_flags & vk::MemoryPropertyFlagBits::eHostCoherent);
 
-        std::lock_guard<std::recursive_mutex> guard(src->device->mutex);
-        vk_context subctx = ggml_vk_create_temporary_context(src->device->compute_queue.cmd_pool);
-        ggml_vk_ctx_begin(src->device, subctx);
-        subctx->s->buffer->buf.pipelineBarrier(
-            vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eTransfer,
-            vk::PipelineStageFlagBits::eHost,
-            {},
-            { { vk::AccessFlagBits::eShaderWrite | vk::AccessFlagBits::eTransferWrite,
-                vk::AccessFlagBits::eHostRead } },
-            {}, {});
-        ggml_vk_ctx_end(subctx);
-        ggml_vk_submit(subctx, src->device->fence);
-        VK_CHECK(src->device->device.waitForFences({ src->device->fence }, true, UINT64_MAX),
-                 "vk_buffer_read uma waitForFences");
-        src->device->device.resetFences({ src->device->fence });
-        ggml_vk_queue_command_pools_cleanup(src->device);
-
-        memcpy(dst, (const uint8_t *) src->ptr + offset, size);
+        memcpy(dst, (uint8_t *) src->ptr + offset, size);
     } else {
         std::lock_guard<std::recursive_mutex> guard(src->device->mutex);
 
