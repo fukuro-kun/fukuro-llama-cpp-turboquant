@@ -113,11 +113,85 @@ Server auf **maximal 180k Kontext** begrenzen. Mit turbo3 K+V (~70 MiB KV-Cache 
 
 ## TODO: Root Cause Analysis
 
-- [ ] Vulkan-Buffer-Platzierung bei 184k vs 188k vergleichen (`VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT`)
-- [ ] FA-Tuning-Parameter-Wechsel identifizieren (`get_fa_tuning_params`)
-- [ ] Vulkan-Device-Limits prüfen (`maxBufferRange`, `maxMemoryAllocationCount`)
+- [x] Vulkan-Buffer-Platzierung bei 184k vs 188k vergleichen (`VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT`)
+- [x] FA-Tuning-Parameter-Wechsel identifizieren (`get_fa_tuning_params`) — keine Änderung
+- [x] Vulkan-Device-Limits prüfen (`maxBufferRange`, `maxMemoryAllocationCount`) — maxStorageBufferRange=4GiB
 - [ ] Mit `VK_LAYER_LUNARG_api_dump` oder `VK_LAYER_KHRONOS_validation` Buffer-Größen loggen
-- [ ] Binäre Suche zwischen 184k und 188k für exakte Grenze
+- [x] Binäre Suche zwischen 184k und 188k für exakte Grenze — Grenze bei ctx-size 186k
+
+---
+
+## RCA Fortsetzung (21.06.2026)
+
+### Websuche-Ergebnisse
+
+Relevante Upstream-Issues/PRs gefunden:
+
+| PR/Issue | Status in Fork | Relevanz |
+|----------|---------------|----------|
+| **#23762** "fix UMA performance by preferring cached host memory" | **FEHLT (open)** | WC-Memory-Fix für UMA |
+| **#24326** "record actual memory properties during buffer creation" | **FEHLT** | Korrektheits-Fix |
+| **#23770** "add pipeline barriers for memcpy read operations" | **FEHLT** | UMA-Korrektheit |
+| **#22930** "prefer host-visible memory buffers on UMA devices" | **FEHLT** | Zero-Copy auf UMA |
+| #24483 "TG Performance Degradation on RDNA4" | — | L2-Thrashing, split_k |
+| #16759 "Odd compute buffer behaviors at breakpoints" | — | `GGML_VK_SUBALLOCATION_BLOCK_SIZE` |
+| #20889 "DeviceLostError on gfx1102 (RADV PHOENIX)" | — | Exakt unsere GPU |
+
+### Mars Memory-Types (vulkaninfo)
+
+| Type | Heap | Flags | Beschreibung |
+|------|------|-------|-------------|
+| 0 | 1 | `DEVICE_LOCAL` | VRAM-Carveout (1 GiB) |
+| 3 | 1 | `DEVICE_LOCAL \| HOST_VISIBLE \| HOST_COHERENT` | GTT (Write-Combining!) |
+| **5** | **0** | `HOST_VISIBLE \| HOST_COHERENT \| HOST_CACHED` | **System-RAM (gecached)** |
+
+**Kein Type hat sowohl `DEVICE_LOCAL` als auch `HOST_CACHED`!**
+
+### Test: UMA HostCached-Preference (PR #23762 + #24326)
+
+**Hypothese:** GTT-Memory (Type 3) ist Write-Combining → langsam beim Lesen → Performance-Klippe.
+
+**Fix angewendet:**
+1. `memory_property_flags` wird auf tatsächliche Flags gesetzt (nicht angeforderte) — PR #24326
+2. UMA-Allokation bevorzugt `HOST_CACHED` vor bare `DEVICE_LOCAL` — PR #23762 adaptiert
+
+**Ergebnis:**
+
+| Prompt-Größe | Ohne Fix | Mit Fix |
+|-------------|----------|---------|
+| pp512 | 204 t/s | 197 t/s (-3%) |
+| pp4096 | 168 t/s | **HANG** (>180s) |
+| pp8192 | HANG (>300s) | HANG |
+
+**Fazit: Der Fix hat pp4096 GEBROCHEN!** System-RAM (HostCached, Type 5) ist für GPU-Compute auf Mars **langsamer** als GTT (DeviceLocal, Type 3). Der PP-Hang bei >4k ist **kein** WC-Memory-Problem.
+
+### Neue Erkenntnisse
+
+1. **Pipeline-Cache-Korruption** war die Ursache für pp4096-Hangs nach Code-Änderungen. Löschen des Caches (`~/.cache/llama.cpp/vulkan-pipeline-cache.bin`) behebt das Problem.
+2. **PP-Klippe bei ~16k Tokens** (nicht 4k wie zuvor angenommen): pp8192=150 t/s ✅, pp16384=HANG ❌
+3. **TG-Klippe bei ~188k** ist ein separates Problem (tritt bei Generation auf, nicht bei Prefill)
+4. **Fork ist 996 Commits hinter upstream** — viele Vulkan-Fixes fehlen
+5. **`suballocation_block_size` = 1 GiB** (default) — könnte bei großen KV-Caches zu Fragmentierung führen
+6. **UMA HostCached-Preference (PR #23762) ist NICHT die Lösung** — System-RAM ist auf Mars für GPU-Compute langsamer als GTT
+
+### PP-Scaling Matrix (clean pipeline cache)
+
+| Prompt-Größe | t/s | Status |
+|-------------|-----|--------|
+| pp512 | 205 | ✅ |
+| pp4096 | 168 | ✅ |
+| pp8192 | 150 | ✅ |
+| pp16384 | HANG (>600s) | ❌ |
+| pp32768 | HANG | ❌ |
+| pp65536 | HANG | ❌ |
+
+### Nächste Schritte
+
+- [ ] PP-Klippe zwischen 8192 und 16384 einkreisen (Binary Search)
+- [ ] `GGML_VK_SUBALLOCATION_BLOCK_SIZE` auf 2 GiB oder 4 GiB setzen und testen
+- [ ] FlashAttention-Dispatch-Größe bei pp8192 vs pp16384 vergleichen (workgroup count, barrier count)
+- [ ] `VK_LAYER_KHRONOS_validation` laufen lassen um GPU-Hang zu diagnostizieren
+- [ ] Upstream-Sync der fehlenden Vulkan-PRs evaluieren (996 Commits)
 
 ---
 
