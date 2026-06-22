@@ -126,7 +126,7 @@ Details: `LOKAL.md` → "uv und Python-Umgebungen"
 ### Lokale Gegebenheiten
 
 - Host-spezifische Pfade, GPU-Architekturen und Build-Besonderheiten stehen in `LOKAL.md` (in `.gitignore`, nicht committet).
-- Agenten muessen `LOCAL.md` lesen, bevor sie Host-spezifische Aktionen durchfuehren.
+- Agenten muessen `LOKAL.md` lesen, bevor sie Host-spezifische Aktionen durchfuehren.
 - GPU-Architektur-Build-Matrix (generisch):
   - **Pascal (GTX 1070):** `-DLLAMA_CUDA=ON`, FP16 nur via emulation, kein FlashAttention
   - **Ampere/Ada (RTX 3070/4060):** Volle Feature-Unterstuetzung, FlashAttention, TurboQuant
@@ -155,7 +155,7 @@ Details: `LOKAL.md` → "uv und Python-Umgebungen"
 |---------|-----------------|
 | TurboQuant KV/Weights | `ggml/src/ggml-turbo-quant.c`, `src/llama-quant.cpp` |
 | Gemma 4 MTP | `src/models/gemma4-assistant.cpp`, `src/llama-context.cpp`, `common/speculative.cpp` |
-| Qwen 3.6 NextN | `src/models/qwen35-nextn.cpp`, `src/models/qwen35moe-nextn.cpp` |
+| Qwen 3.x NextN | `src/models/qwen3next.cpp`, `src/models/qwen35.cpp`, `src/models/qwen35moe.cpp` |
 | Multimodal + Spec | `tools/server/server-context.cpp`, `docs/speculative.md` |
 | DiffusionGemma | `src/models/diffusion-gemma.cpp`, `src/llama-model.cpp`, `tools/diffusion-cli/` |
 | GGUF-Konvertierung | `convert_hf_to_gguf.py` |
