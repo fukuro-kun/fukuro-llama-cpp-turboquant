@@ -1126,7 +1126,17 @@ static common_chat_params common_chat_params_init_gemma4(const common_chat_templ
             p.rule("thought", p.content(p.literal("<|channel>thought") + p.space() + p.until("<channel|>") + p.literal("<channel|>")));
         }
 
-        auto consume_empty_channels = p.gbnf(p.zero_or_more(p.literal("<|channel>") + p.negate(p.literal("thought"))), "");
+        // Consume non-thought channels. Two cases:
+        // 1. Extra <|channel> tokens immediately followed by another <|channel> (e.g. "<|channel><|channel>thought")
+        //    — just consume the extra <|channel>, the next iteration will see <|channel>thought and stop.
+        // 2. Non-thought channels with content (e.g. "<|channel> sense\n...<channel|>")
+        //    — consume the entire channel block up to and including <channel|>.
+        // Without case 2, finetunes that emit unexpected channel names (like "sense") cause parse failures.
+        auto consume_empty_channels = p.gbnf(p.zero_or_more(
+            p.literal("<|channel>") + p.choice({
+                p.peek(p.literal("<|channel>")),  // Extra token, just consume <|channel>
+                p.negate(p.literal("thought")) + p.until("<channel|>") + p.literal("<channel|>")  // Non-thought channel
+            })), "");
         auto thought = (p.peek(p.literal("<|channel>")) + consume_empty_channels + p.ref("thought")) | p.negate(p.literal("<|channel>"));
 
         if (has_response_format) {
