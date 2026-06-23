@@ -162,6 +162,8 @@ Der Plan enthält 6 Phasen mit Zielvorgaben und Verifikations-Checkboxen:
 5. Aufräumen + TTT
 6. (Stretch) DiffusionGemma Live-Test mit 1000 Token Output zum Thema KI
 
+**Parallelisierungs-Strategie:** Max. 8 Subagents parallel für Recherche, Build, Doku. Webrecherche für API-Doku und PR-Details. Siehe Plandatei §"Parallelisierungs-Strategie".
+
 **Regel:** Checkboxen in der Plandatei nach Abschluss jeder Phase abhaken. Bei Abweichungen: Plan aktualisieren und begründen.
 
 ### Fork-Features und Schluesseldateien

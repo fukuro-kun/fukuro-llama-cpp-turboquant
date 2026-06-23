@@ -6,6 +6,36 @@
 
 ---
 
+## Parallelisierungs-Strategie (WICHTIG)
+
+**Regel:** Maximal beschleunigen durch Subagents und Webrecherche. Nicht sequentiell arbeiten, wenn Parallelität möglich ist.
+
+### Subagent-Einsatz (max. 8 parallel)
+
+| Profil | Einsatzgebiet | Typische Phasen |
+|--------|---------------|-----------------|
+| `subagent_explore` | Code-Analyse, Architektur-Recherche, gguf-py-Struktur | Phase 2 (gguf-py), Phase 5 (Branch-Analyse) |
+| `subagent_explore` | Webrecherche: DiffusionGemma PR #24423, gguf-py API, upstream-Commits | Phase 2, Phase 6 |
+| `subagent_general` | Build auf Remote-Hosts (mars), Datei-Änderungen, Commits | Phase 1 (Build), Phase 4 (Merge) |
+| `subagent_general` | Trilium-Doku schreiben, TTT-Einträge | Phase 3, Phase 5 |
+
+**Parallelisierbare Tasks pro Phase:**
+- **Phase 1:** Build auf hydra (direkt) + Build auf mars (subagent) parallel
+- **Phase 2:** gguf-py-Analyse (subagent_explore) + Webrecherche PR #24423 (subagent_explore) + constants.py-Edit (direkt) parallel
+- **Phase 3:** Mars-Log abholen (subagent) + Trilium-Doku (direkt) parallel
+- **Phase 5:** diffusion-gemma-v2 Squash (subagent_general) + TTT-Eintrag (direkt) + git gc (direkt) parallel
+- **Phase 6:** Modell-Suche auf mars (subagent) + Webrecherche DiffusionGemma GGUF (subagent_explore) parallel
+
+### Webrecherche
+
+- `web_search` primär für: gguf-py API-Doku, DiffusionGemma PR-Details, upstream-Commits
+- `arxiv-mcp` falls akademische Diffusion-Decoder-Paper nötig
+- Brave/Exa als Fallback
+
+**Prinzip:** Jede Phase startet mit 2-4 parallel laufenden Subagents für Recherche/Analyse, während die eigentliche Arbeit (Build, Edit, Commit) direkt erfolgt. Subagents liefern Kontext, der Agent entscheidet und implementiert.
+
+---
+
 ## Phase 1: Build-Verifikation des Feature-Branch (0-1.5h)
 
 **Ziel:** Beweisen, dass der Squash-Branch kompiliert und funktioniert.
