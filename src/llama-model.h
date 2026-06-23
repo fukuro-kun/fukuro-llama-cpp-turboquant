@@ -249,6 +249,11 @@ struct llama_layer {
     struct ggml_tensor * wk        = nullptr;
     struct ggml_tensor * wv        = nullptr;
     struct ggml_tensor * wo        = nullptr;
+    // attention bias tensors (used by ISWA graph builders)
+    struct ggml_tensor * bq        = nullptr;
+    struct ggml_tensor * bk        = nullptr;
+    struct ggml_tensor * bv        = nullptr;
+    struct ggml_tensor * bo        = nullptr;
     struct ggml_tensor * wqkv      = nullptr;
     struct ggml_tensor * wq_a      = nullptr;
     struct ggml_tensor * wq_b      = nullptr;

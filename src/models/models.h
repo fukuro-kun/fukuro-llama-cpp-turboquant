@@ -130,6 +130,54 @@ struct llm_build_rwkv7_base : public llm_graph_context {
                                        int                  il) const;
 };
 
+// ISWA (interleaved sliding window attention) graph builders
+struct llm_build_cohere2_iswa  : public llm_graph_context {
+    llm_build_cohere2_iswa(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_gemma2_iswa   : public llm_graph_context {
+    llm_build_gemma2_iswa(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_gemma3n_iswa  : public llm_graph_context {
+    llm_build_gemma3n_iswa(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_gemma4_iswa   : public llm_graph_context {
+    llm_build_gemma4_iswa(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_llama_iswa    : public llm_graph_context {
+    llm_build_llama_iswa(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_mimo2_iswa    : public llm_graph_context {
+    llm_build_mimo2_iswa(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_openai_moe_iswa : public llm_graph_context {
+    llm_build_openai_moe_iswa(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_step35_iswa   : public llm_graph_context {
+    llm_build_step35_iswa(const llama_model & model, const llm_graph_params & params);
+};
+
+// NextN/MTP graph builders
+struct llm_build_qwen35_nextn      : public llm_graph_context {
+    llm_build_qwen35_nextn(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_qwen35moe_nextn   : public llm_graph_context {
+    llm_build_qwen35moe_nextn(const llama_model & model, const llm_graph_params & params);
+};
+
+// Other graph builders
+struct llm_build_pangu_embedded : public llm_graph_context {
+    llm_build_pangu_embedded(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_qwen3vlmoe     : public llm_graph_context {
+    llm_build_qwen3vlmoe(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_t5_dec         : public llm_graph_context {
+    llm_build_t5_dec(const llama_model & model, const llm_graph_params & params);
+};
+struct llm_build_t5_enc         : public llm_graph_context {
+    llm_build_t5_enc(const llama_model & model, const llm_graph_params & params);
+};
+
 //
 // models
 //

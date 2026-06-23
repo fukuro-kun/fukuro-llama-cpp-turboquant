@@ -372,6 +372,13 @@ class Keys:
 
     class Diffusion:
         SHIFT_LOGITS        = "diffusion.shift_logits"
+        CANVAS_LENGTH       = "{arch}.diffusion.canvas_length"
+        EB_MAX_STEPS        = "{arch}.diffusion.eb_max_steps"
+        EB_T_MIN            = "{arch}.diffusion.eb_t_min"
+        EB_T_MAX            = "{arch}.diffusion.eb_t_max"
+        EB_ENTROPY_BOUND    = "{arch}.diffusion.eb_entropy_bound"
+        EB_STABILITY        = "{arch}.diffusion.eb_stability"
+        EB_CONFIDENCE       = "{arch}.diffusion.eb_confidence"
 
     class xIELU:
         ALPHA_P             = "xielu.alpha_p"
@@ -525,6 +532,7 @@ class MODEL_ARCH(IntEnum):
     KIMI_LINEAR      = auto()
     TALKIE           = auto()
     MELLUM           = auto()
+    DIFFUSION_GEMMA   = auto()
 
 
 class VISION_PROJECTOR_TYPE(IntEnum):
@@ -914,6 +922,11 @@ class MODEL_TENSOR(IntEnum):
     NEXTN_HNORM            = auto()
     NEXTN_SHARED_HEAD_HEAD = auto()
     NEXTN_SHARED_HEAD_NORM = auto()
+    # mtp (gemma4 assistant)
+    MTP_PRE_PROJECTION     = auto()
+    MTP_POST_PROJECTION    = auto()
+    MTP_CENTROIDS          = auto()
+    MTP_TOKEN_ORDERING     = auto()
     # eagle3
     FC                     = auto()  # feature fusion layer
     D2T                    = auto()  # draft to target vocabulary mapping
@@ -947,6 +960,12 @@ class MODEL_TENSOR(IntEnum):
     A_QF_FFN_UP            = auto()
     A_QF_FFN_DOWN          = auto()
     A_QF_FFN_NORM          = auto()
+    # diffusion-gemma
+    ENC_LAYER_OUT_SCALE    = auto()
+    SC_PRE_NORM            = auto()
+    SC_GATE                = auto()
+    SC_UP                  = auto()
+    SC_DOWN                = auto()
 
 
 MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
@@ -1082,6 +1101,7 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.KIMI_LINEAR:      "kimi-linear",
     MODEL_ARCH.TALKIE:           "talkie",
     MODEL_ARCH.MELLUM:           "mellum",
+    MODEL_ARCH.DIFFUSION_GEMMA:  "diffusion-gemma",
 }
 
 VISION_PROJECTOR_TYPE_NAMES: dict[VISION_PROJECTOR_TYPE, str] = {
@@ -1500,6 +1520,17 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.NEXTN_SHARED_HEAD_NORM:    "blk.{bid}.nextn.shared_head_norm",
     MODEL_TENSOR.FC:                        "fc",
     MODEL_TENSOR.D2T:                       "d2t",
+    # mtp (gemma4 assistant)
+    MODEL_TENSOR.MTP_PRE_PROJECTION:        "mtp.pre_projection",
+    MODEL_TENSOR.MTP_POST_PROJECTION:       "mtp.post_projection",
+    MODEL_TENSOR.MTP_CENTROIDS:             "mtp.centroids",
+    MODEL_TENSOR.MTP_TOKEN_ORDERING:        "mtp.token_ordering",
+    # diffusion-gemma
+    MODEL_TENSOR.ENC_LAYER_OUT_SCALE:       "blk.{bid}.enc_layer_out_scale",
+    MODEL_TENSOR.SC_PRE_NORM:               "sc_pre_norm",
+    MODEL_TENSOR.SC_GATE:                   "sc_gate",
+    MODEL_TENSOR.SC_UP:                     "sc_up",
+    MODEL_TENSOR.SC_DOWN:                   "sc_down",
 }
 
 MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
@@ -4280,6 +4311,25 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_GATE_EXP,
         MODEL_TENSOR.FFN_DOWN_EXP,
         MODEL_TENSOR.FFN_UP_EXP,
+    ],
+    MODEL_ARCH.DIFFUSION_GEMMA: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.OUTPUT_NORM,
+        MODEL_TENSOR.OUTPUT,
+        MODEL_TENSOR.ATTN_NORM,
+        MODEL_TENSOR.ATTN_Q,
+        MODEL_TENSOR.ATTN_K,
+        MODEL_TENSOR.ATTN_V,
+        MODEL_TENSOR.ATTN_OUT,
+        MODEL_TENSOR.FFN_NORM,
+        MODEL_TENSOR.FFN_GATE,
+        MODEL_TENSOR.FFN_DOWN,
+        MODEL_TENSOR.FFN_UP,
+        MODEL_TENSOR.ENC_LAYER_OUT_SCALE,
+        MODEL_TENSOR.SC_PRE_NORM,
+        MODEL_TENSOR.SC_GATE,
+        MODEL_TENSOR.SC_UP,
+        MODEL_TENSOR.SC_DOWN,
     ],
     # TODO
 }

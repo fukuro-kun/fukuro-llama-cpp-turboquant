@@ -7,6 +7,15 @@ llama_add_compile_flags()
 # llama
 
 file(GLOB LLAMA_MODELS_SOURCES "models/*.cpp")
+# Exclude orphaned model files from sync-merge that reference APIs not present
+# in this codebase version (build_attn signature, llm_graph_input_attn_kv_iswa,
+# nextn_predict_layers, t_h_pre_norm, etc.). These need porting before compilation.
+list(FILTER LLAMA_MODELS_SOURCES EXCLUDE REGEX ".*-iswa\\.cpp$")
+list(FILTER LLAMA_MODELS_SOURCES EXCLUDE REGEX "pangu-embedded\\.cpp$")
+list(FILTER LLAMA_MODELS_SOURCES EXCLUDE REGEX "qwen35.*-nextn\\.cpp$")
+list(FILTER LLAMA_MODELS_SOURCES EXCLUDE REGEX "qwen3vl-moe\\.cpp$")
+list(FILTER LLAMA_MODELS_SOURCES EXCLUDE REGEX "t5-dec\\.cpp$")
+list(FILTER LLAMA_MODELS_SOURCES EXCLUDE REGEX "t5-enc\\.cpp$")
 
 add_library(llama
             ../include/llama.h

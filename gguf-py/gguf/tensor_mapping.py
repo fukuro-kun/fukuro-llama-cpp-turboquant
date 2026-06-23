@@ -2419,6 +2419,27 @@ class TensorNameMap:
         MODEL_TENSOR.MTP_TOKEN_ORDERING: (
             "masked_embedding.token_ordering",
         ),
+
+        # diffusion-gemma tensors
+        MODEL_TENSOR.ENC_LAYER_OUT_SCALE: (
+            "model.encoder.layers.{bid}.layer_scalar",
+        ),
+
+        MODEL_TENSOR.SC_PRE_NORM: (
+            "model.decoder.self_conditioning.pre_norm.weight",
+        ),
+
+        MODEL_TENSOR.SC_GATE: (
+            "model.decoder.self_conditioning.gate_proj.weight",
+        ),
+
+        MODEL_TENSOR.SC_UP: (
+            "model.decoder.self_conditioning.up_proj.weight",
+        ),
+
+        MODEL_TENSOR.SC_DOWN: (
+            "model.decoder.self_conditioning.down_proj.weight",
+        ),
     }
 
     # architecture-specific block mappings
