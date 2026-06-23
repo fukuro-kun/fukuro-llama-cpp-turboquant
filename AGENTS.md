@@ -157,7 +157,7 @@ Details: `LOKAL.md` → "uv und Python-Umgebungen"
 Der Plan enthält 6 Phasen mit Zielvorgaben und Verifikations-Checkboxen:
 1. Build-Verifikation des Feature-Branch
 2. DiffusionGemma gguf-py Registrierung
-3. Mars Test-Ergebnisse + Trilium-Doku
+3. APU Test-Ergebnisse + Trilium-Doku
 4. Sync-Merge nach master + Push
 5. Aufräumen + TTT
 6. (Stretch) DiffusionGemma Live-Test mit 1000 Token Output zum Thema KI

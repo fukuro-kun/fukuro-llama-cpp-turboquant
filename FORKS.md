@@ -136,7 +136,7 @@ Unsere Fork-Features wurden erfolgreich portiert:
 **Aktuell:**
 - Sync-Merge Branch `feature/sync-atomicbot-2026-06-19` verifizieren und nach `master` mergen.
 - DiffusionGemma gguf-py Registrierung fehlt (siehe §3.4).
-- tg32-Tests auf Mars laufen (Pipeline-Cache wird aufgebaut).
+- tg32-Tests auf AMD-APU laufen (Pipeline-Cache wird aufgebaut).
 
 **Kurzfristig:**
 - Nach Merge: DiffusionGemma Server-Integration (B4).
