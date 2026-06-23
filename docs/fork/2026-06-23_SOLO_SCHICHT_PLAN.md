@@ -154,14 +154,15 @@ AMD-APU: tg32-Tests laufen im Hintergrund (llama-bench, 2h Timeout pro Test)
 5. Ergebnisse in Trilium dokumentieren (unter DiffusionGemma-Note)
 
 **Verifikation:**
-- [ ] `llama-cli` startet ohne Crash
-- [ ] Modell lädt korrekt (alle Layer)
-- [ ] Output: >100 Token generiert (Ziel: 1000)
-- [ ] Text ist kohärent (nicht random tokens)
-- [ ] t/s-Wert dokumentiert
-- [ ] Trilium-Eintrag unter DiffusionGemma vorhanden
+- [x] `llama-diffusion-cli --help` funktioniert
+- [x] DiffusionGemma GGUF verfügbar (26B Q4_K_M, 16GB) — lokal
+- [x] Tensor `enc_layer_output_scale` wird korrekt geladen (Build-Fix: alter Build hatte `enc_layer_out_scale`)
+- [x] Assert-Fehler behoben: `--diffusion-eps` Parameter muss gesetzt werden (Default 0 → Assert)
+- [ ] `llama-diffusion-cli` startet: **NICHT MÖGLICH auf hydra** (26B Q4_K_M = 16GB, OOM bei 17GB freiem RAM)
+- [ ] Auf APU: kein DiffusionGemma GGUF verfügbar (16GB Transfer zu groß)
+- [x] Fazit: DiffusionGemma 26B benötigt mindestens 32GB freien RAM oder eine kleinere Quantisierung
 
-**Risiko:** DiffusionGemma benötigt möglicherweise spezielle GGUF-Dateien, die noch nicht konvertiert wurden (hängt von Phase 2 ab). Falls keine GGUF verfügbar: Phase 6 entfällt, stattdessen mehr Zeit für Phase 5.
+**Erkenntnis:** Der `llama-diffusion-cli` benötigt zwingend `--diffusion-eps F` oder `--diffusion-block-length N` (Default beides 0 → Assert-Fehler). Das 26B-Modell ist für 8GB-VRAM-Systeme zu groß. Eine kleinere Quantisierung (IQ2/IQ3) oder ein kleineres Modell wäre nötig.
 
 ---
 
