@@ -149,6 +149,21 @@ Details: `LOKAL.md` → "uv und Python-Umgebungen"
 - **Commits:** Deutsch, kurz und sachlich (keine generischen Marketing-Floskeln)
 - **Keine automatischen Devin-Eintraege** in Commit-Nachrichten
 
+### Aktiver Solo-Schicht-Plan (2026-06-23)
+
+**VERPFLICHTUNG:** Bei JEDER Session in dieser Solo-Schicht ZUERST den Plan lesen:
+→ [`docs/fork/2026-06-23_SOLO_SCHICHT_PLAN.md`](docs/fork/2026-06-23_SOLO_SCHICHT_PLAN.md)
+
+Der Plan enthält 6 Phasen mit Zielvorgaben und Verifikations-Checkboxen:
+1. Build-Verifikation des Feature-Branch
+2. DiffusionGemma gguf-py Registrierung
+3. Mars Test-Ergebnisse + Trilium-Doku
+4. Sync-Merge nach master + Push
+5. Aufräumen + TTT
+6. (Stretch) DiffusionGemma Live-Test mit 1000 Token Output zum Thema KI
+
+**Regel:** Checkboxen in der Plandatei nach Abschluss jeder Phase abhaken. Bei Abweichungen: Plan aktualisieren und begründen.
+
 ### Fork-Features und Schluesseldateien
 
 | Feature | Primaere Dateien |
