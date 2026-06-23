@@ -208,7 +208,9 @@ endif()
 
 if (LLAMA_BUILD_COMMON AND LLAMA_BUILD_EXAMPLES)
     add_subdirectory(examples)
-    add_subdirectory(pocs)
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/pocs/CMakeLists.txt)
+        add_subdirectory(pocs)
+    endif()
 endif()
 
 if (LLAMA_BUILD_COMMON AND LLAMA_BUILD_TOOLS)

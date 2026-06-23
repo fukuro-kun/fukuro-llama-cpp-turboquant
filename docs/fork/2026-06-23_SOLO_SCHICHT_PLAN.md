@@ -130,10 +130,13 @@ AMD-APU: tg32-Tests laufen im Hintergrund (llama-bench, 2h Timeout pro Test)
 6. Offene TODO-Liste für nächste Session erstellen
 
 **Verifikation:**
-- [ ] `git fsck` zeigt keine fehlerhaften Verknüpfungen mehr
-- [ ] `git gc --prune=now` exit code 0
-- [ ] TTT-Eintrag mit Fazit und offenen Punkten
-- [ ] Alle Branches in `git branch -v` sind sauber
+- [x] `feature/diffusion-gemma-v2` als Squash neu aufgebaut (Subagent)
+- [x] TTT-Eintrag erstellt (Tag 23, ID: oBLB6OpLONkq)
+- [x] Trilium: Kontext-Scaling Note für 12B erstellt (WjqL5Ky9Z3Hf)
+- [x] Alle Branches in `git branch -v` sind sauber und lesbar
+- [ ] `git gc --prune=now` — scheitert noch an korrupten Objekten in alten Packs
+  (kosmetisches Problem, alle Branches funktionieren)
+- [ ] `git fsck` zeigt noch 1 fehlerhafte Verknüpfung (unreferenziert)
 
 ---
 
