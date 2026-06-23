@@ -1,6 +1,6 @@
 # fukuro-llama-cpp-turboquant — AGENTS.md (Root-DOX)
 
-**Zweck:** Fork von llama.cpp mit TurboQuant KV-Kompression, Gemma 4 MTP, Qwen NextN spekulativer Decodierung und DiffusionGemma-Integration. Inference Engine (Motor) fuer das Hauptprojekt InferenzQuelle. Siehe [FORKS.md](FORKS.md) fuer die vollstaendige Fork-Lineage und den Feature-Vergleich.
+**Zweck:** Fork von llama.cpp mit TurboQuant KV-Kompression, Gemma 4 MTP, Qwen NextN spekulativer Decodierung, DiffusionGemma-Integration und Vulkan-WHT-Optimierung. Inference Engine (Motor) fuer das Hauptprojekt InferenzQuelle. Siehe [FORKS.md](FORKS.md) fuer die vollstaendige Fork-Lineage und den Feature-Vergleich.
 
 **Eigentuemer:** fukuro + KI-Agent
 
@@ -97,44 +97,14 @@ grep -ri "hydra\|uranus\|mars\|venus\|styx\|helene\|telesto\|/home/fukuro\|/medi
 ```
 Falls Treffer → Bereinigen!
 
-### Python-Umgebungen: Ausschliesslich uv
-
-**Verbindliche Regel:** Python-Pakete werden **nur** via `uv` verwaltet. Nie `pip install --break-system-packages`, nie systemweite Python-Installationen ohne Isolation.
-
-**Richtig:**
-```bash
-~/.local/bin/uv venv ~/.venv/llama-cpp
-~/.local/bin/uv pip install --python ~/.venv/llama-cpp/bin/python transformers torch gguf
-~/.local/bin/uv run --python ~/.venv/llama-cpp/bin/python convert_hf_to_gguf.py ...
-```
-
-**Falsch:**
-```bash
-# ❌ System-Python beschmutzen
-pip install --user --break-system-packages transformers torch gguf
-# ❌ Ohne Isolation
-sudo pip install transformers
-```
-
-**Warum:**
-- `--break-system-packages` kann das System-Python irreparabel beschaedigen
-- `uv` bietet Lockfiles, Reproduzierbarkeit, Isolation
-- Einheitlicher Workflow auf allen Hosts
-
-Details: `LOKAL.md` → "uv und Python-Umgebungen"
-
 ### Lokale Gegebenheiten
 
 - Host-spezifische Pfade, GPU-Architekturen und Build-Besonderheiten stehen in `LOKAL.md` (in `.gitignore`, nicht committet).
-- Agenten muessen `LOKAL.md` lesen, bevor sie Host-spezifische Aktionen durchfuehren.
+- Agenten muessen `LOCAL.md` lesen, bevor sie Host-spezifische Aktionen durchfuehren.
 - GPU-Architektur-Build-Matrix (generisch):
   - **Pascal (GTX 1070):** `-DLLAMA_CUDA=ON`, FP16 nur via emulation, kein FlashAttention
   - **Ampere/Ada (RTX 3070/4060):** Volle Feature-Unterstuetzung, FlashAttention, TurboQuant
   - **AMD iGPU/APU:** `-DLLAMA_VULKAN=ON`, ROCm experimentell
-    - ✅ **turbo3 KV-Cache funktioniert:** `--cache-type-k turbo3 --cache-type-v turbo3` (~5.1x Kompression)
-    - ✅ **turbo4 KV-Cache funktioniert:** `--cache-type-k turbo4 --cache-type-v turbo4` (~3.8x Kompression)
-    - FlashAttention ist fuer beide TurboQuant-Formate auf Vulkan aktiv
-    - ⚠️ **Performance-Klippe bei ~188k Kontext:** Auf AMD APU (shared memory) bricht die Inference-Performance bei ca. 188k Kontext scharf ein (24 t/s → 0.09 t/s, Faktor 243x). Dies ist KEIN VRAM-Bandbreiten-Problem (APU nutzt denselben DDR5), sondern vermutlich ein Code-Pfad-Wechsel im Vulkan-Backend. Workaround: Kontext auf maximal 180k begrenzen. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
 
 ### Build-System
 
@@ -146,25 +116,11 @@ Details: `LOKAL.md` → "uv und Python-Umgebungen"
 
 - **Primary Remote:** `git@codeberg.org:fukuro/fukuro-llama-cpp-turboquant.git`
 - **Branch:** `master` (Hauptentwicklung)
+- **Feature-Branches:** `feature/<name>` — siehe [BRANCHES.md](BRANCHES.md)
+- **Aktiver Feature-Branch:** `feature/diffusion-gemma-v2` (DiffusionGemma Verbesserungen)
 - **Commits:** Deutsch, kurz und sachlich (keine generischen Marketing-Floskeln)
 - **Keine automatischen Devin-Eintraege** in Commit-Nachrichten
-
-### Aktiver Solo-Schicht-Plan (2026-06-23)
-
-**VERPFLICHTUNG:** Bei JEDER Session in dieser Solo-Schicht ZUERST den Plan lesen:
-→ [`docs/fork/2026-06-23_SOLO_SCHICHT_PLAN.md`](docs/fork/2026-06-23_SOLO_SCHICHT_PLAN.md)
-
-Der Plan enthält 6 Phasen mit Zielvorgaben und Verifikations-Checkboxen:
-1. Build-Verifikation des Feature-Branch
-2. DiffusionGemma gguf-py Registrierung
-3. APU Test-Ergebnisse + Trilium-Doku
-4. Sync-Merge nach master + Push
-5. Aufräumen + TTT
-6. (Stretch) DiffusionGemma Live-Test mit 1000 Token Output zum Thema KI
-
-**Parallelisierungs-Strategie:** Max. 8 Subagents parallel für Recherche, Build, Doku. Webrecherche für API-Doku und PR-Details. Siehe Plandatei §"Parallelisierungs-Strategie".
-
-**Regel:** Checkboxen in der Plandatei nach Abschluss jeder Phase abhaken. Bei Abweichungen: Plan aktualisieren und begründen.
+- **Branch-Regel:** Feature-Branches von `master` abzweigen, nie direkt auf `master` committen
 
 ### Fork-Features und Schluesseldateien
 
@@ -172,10 +128,33 @@ Der Plan enthält 6 Phasen mit Zielvorgaben und Verifikations-Checkboxen:
 |---------|-----------------|
 | TurboQuant KV/Weights | `ggml/src/ggml-turbo-quant.c`, `src/llama-quant.cpp` |
 | Gemma 4 MTP | `src/models/gemma4-assistant.cpp`, `src/llama-context.cpp`, `common/speculative.cpp` |
-| Qwen 3.x NextN | `src/models/qwen3next.cpp`, `src/models/qwen35.cpp`, `src/models/qwen35moe.cpp` |
+| Qwen 3.6 NextN | `src/models/qwen35-nextn.cpp`, `src/models/qwen35moe-nextn.cpp` |
 | Multimodal + Spec | `tools/server/server-context.cpp`, `docs/speculative.md` |
 | DiffusionGemma | `src/models/diffusion-gemma.cpp`, `src/llama-model.cpp`, `tools/diffusion-cli/` |
+| Vulkan-WHT | `ggml/src/ggml-vulkan/vulkan-shaders/fwht.comp`, `ggml/src/ggml-vulkan/ggml-vulkan.cpp` |
 | GGUF-Konvertierung | `convert_hf_to_gguf.py` |
+
+### DiffusionGmma — Status & Bekannte Probleme
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Entropy-Bound Decoder | ✅ Funktioniert | `diffusion-cli.cpp` implementiert |
+| Chat-Template Integration | ✅ Funktioniert | Automatisch via `common_chat_templates_apply()` |
+| Default-Parameter (steps=48) | ✅ Funktioniert | `t_min=0.4`, `t_max=0.8`, `eb=0.1` |
+| Self-Conditioning (SC) | ❌ Nicht verfuegbar | SC-Tensoren fehlen im GGUF |
+| Dummy-Memory fuer `llama_decode` | ✅ Funktioniert | `llama_memory_diffusion` in `llama-model.cpp` |
+| **KV-Cache Path (PREFILL→DECODE)** | ✅ **Gelöst** | Root Cause: `dg_ensure_pkv_store()` allokierte den gesamten PKV-Store auf `dev_layer(0)`. Bei partiellem GPU-Offload ist das CPU, aber `Kcur`/`Vcur` der GPU-Layer sind CUDA-resident → Cross-Backend `ggml_cpy` schlug fehl. Fix: PKV pro Layer auf dem Buffer-Type des jeweiligen Layer-Device (`m.dev_layer(il)`) allokieren → alle Operationen intra-Backend. Tests: `-ngl 8` (cut=14, "Paris") ✅, `-ngl 0` (cut=8) ✅. Siehe `docs/fork/archive/rca/2026-06-16_DEBUG_SESSION_PKV_FIX.md` fuer Root Cause und `docs/fork/2026-06-15_DIFFUSION_GEMMA_STATUS.md` fuer aktuellen Status. |
+
+### Vulkan-Optimierungen — Status
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| **WHT fast path** | ✅ Cherry-picked | Upstream `48e7078ee` + `e82beaa60` (Intel fix). `fwht.comp` Shader fuer schnelle Hadamard-Transformation. Build kompiliert auf System A. Prompt-Verarbeitung +17% bei Gemma 4 12B. |
+| **v_dot2_f32_f16** | ❌ Abgebrochen | Zu komplex — 6 Konflikte, FlashAttention-Refactor-Abhaengigkeiten. Siehe [FORKS.md §5.9](FORKS.md#59-vdot2-cherry-pick-abgebrochen). |
+| **BFloat16 FA** | ❌ Nicht nutzbar | `VK_KHR_shader_bfloat16` nur fuer GFX12+ (Mesa 25.2.x). Unsere GPUs (RDNA3/Vega) zu alt. Siehe [FORKS.md §5.7](FORKS.md#57-warum-bfloat16-fa-fuer-uns-nicht-nutzbar-ist). |
+| **Vulkan-Turbo3** | ✅ Funktioniert | Eigene Dequant-Shaders (`dequant_turbo3_0`, `mul_mat_vec_tq4_1s`). Langsame bei Kontext >4096 (Dequant-Overhead). Siehe `docs/fork/2026-06-15_STATUS_QUO_VULKAN.md`. |
+| **coopmat2 Feature-Check** | ✅ Cherry-picked | `5a69c9743` — Prueft 7 coopmat2-Features vor Aktivierung. Verhindert Crashes bei unvollstaendiger Extension. decode_vector-Teil entfernt (nicht in Mesa 25.0.7). Siehe [FORKS.md §5.10](FORKS.md#510-coopmat2-feature-check-ergebnis). |
+| **CUDA Fast WHT** | ✅ Cherry-picked | `a817a22bc` (Enum+CPU-WHT in `master`) + `c1f1e28d2` + `192d8ae8b` (CUDA-WHT in `feature/cuda-fast-wht`). `fwht.cu` auf direkte CUDA-Syntax umgeschrieben. Build kompiliert, +11% pp512. **Bereit fuer Merge** in `master`. Siehe [FORKS.md §5.11](FORKS.md#511-cuda-fast-wht-plan). |
 
 ---
 
@@ -228,12 +207,10 @@ Das Hauptprojekt **InferenzQuelle** (`~/projects/inferenzquelle/`) besitzt eine 
 | **Langkontext** | `tests/performance/langkontext/test_context_scaling.sh` | Kontext-Scaling-Benchmark |
 
 **Hinweise:**
-- Modell-Pfade sind host-adaptiv — zentrale Uebersicht in Trilium `yWi63z5N6vXc`
+- Modell-Pfade sind host-adaptiv (`config/hydra.json`, `config/uranus.json`)
 - GPU-Speicher vorher leeren: `pkill -f llama-cli`
 - Ergebnisse werden automatisch in Trilium exportiert und als HTML-Report gespeichert (`ergebnisse/report_auto_*.html`)
 - **Nie** manuelle `curl`-Tests gegen `llama-server` machen, wenn das pytest-Framework verfuegbar ist
-
-**Manuelle Benchmarks:** Ergebnisse **NIE** in Modell-Info-Notes — Wegweiser `8cIsjKEhz7Fd` beachten.
 
 ---
 
@@ -247,6 +224,7 @@ Das Hauptprojekt **InferenzQuelle** (`~/projects/inferenzquelle/`) besitzt eine 
 | `tools/` | Ausfuehrbare Werkzeuge: Server, CLI, Bench, Quantize | [x] Aktiv |
 | `tests/` | Unit-Tests, Test-Framework, Benchmarks | [x] Aktiv |
 | `scripts/` | Build-Skripte, Benchmark-Automation, Konvertierung | [x] Aktiv |
+| `docs/fork/` | Fork-spezifische Dokumentation: Status, Vergleiche, RCAs | [x] Aktiv |
 
 *Hinweis: Bei Aenderungen an Zweck, Grenzen oder Qualitaetsstandards eines Verzeichnisses: Child-AGENTS.md aktualisieren und diesen Index pruefen.*
 

@@ -1,26 +1,20 @@
 ARG UBUNTU_VERSION=24.04
 # This needs to generally match the container host's environment.
 ARG CUDA_VERSION=12.8.1
-ARG GCC_VERSION=14
 # Target the CUDA build image
 ARG BASE_CUDA_DEV_CONTAINER=nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION}
 
 ARG BASE_CUDA_RUN_CONTAINER=nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION}
 
-ARG BUILD_DATE=N/A
-ARG APP_VERSION=N/A
-ARG APP_REVISION=N/A
-
 FROM ${BASE_CUDA_DEV_CONTAINER} AS build
 
-ARG GCC_VERSION
 # CUDA architecture to build for (defaults to all supported archs)
 ARG CUDA_DOCKER_ARCH=default
 
 RUN apt-get update && \
-    apt-get install -y gcc-${GCC_VERSION} g++-${GCC_VERSION} build-essential cmake python3 python3-pip git libssl-dev libgomp1
+    apt-get install -y gcc-14 g++-14 build-essential cmake python3 python3-pip git libssl-dev libgomp1
 
-ENV CC=gcc-${GCC_VERSION} CXX=g++-${GCC_VERSION} CUDAHOSTCXX=g++-${GCC_VERSION}
+ENV CC=gcc-14 CXX=g++-14 CUDAHOSTCXX=g++-14
 
 WORKDIR /app
 
@@ -38,7 +32,6 @@ RUN mkdir -p /app/lib && \
 RUN mkdir -p /app/full \
     && cp build/bin/* /app/full \
     && cp *.py /app/full \
-    && cp -r conversion /app/full \
     && cp -r gguf-py /app/full \
     && cp -r requirements /app/full \
     && cp requirements.txt /app/full \
@@ -47,21 +40,8 @@ RUN mkdir -p /app/full \
 ## Base image
 FROM ${BASE_CUDA_RUN_CONTAINER} AS base
 
-ARG BUILD_DATE=N/A
-ARG APP_VERSION=N/A
-ARG APP_REVISION=N/A
-ARG IMAGE_URL=https://github.com/ggml-org/llama.cpp
-ARG IMAGE_SOURCE=https://github.com/ggml-org/llama.cpp
-LABEL org.opencontainers.image.created=$BUILD_DATE \
-      org.opencontainers.image.version=$APP_VERSION \
-      org.opencontainers.image.revision=$APP_REVISION \
-      org.opencontainers.image.title="llama.cpp" \
-      org.opencontainers.image.description="LLM inference in C/C++" \
-      org.opencontainers.image.url=$IMAGE_URL \
-      org.opencontainers.image.source=$IMAGE_SOURCE
-
 RUN apt-get update \
-    && apt-get install -y libgomp1 curl ffmpeg \
+    && apt-get install -y libgomp1 curl \
     && apt autoremove -y \
     && apt clean -y \
     && rm -rf /tmp/* /var/tmp/* \

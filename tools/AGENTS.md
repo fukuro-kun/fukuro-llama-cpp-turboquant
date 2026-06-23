@@ -38,8 +38,6 @@
 | `parser/` | Grammatik-Parser fuer constrained sampling |
 | `rpc/` | RPC-Backend-Server fuer verteilte Inferenz |
 | `tts/` | Text-to-Speech Werkzeug |
-| `diffusion-cli/` | DiffusionGemma CLI (Diffusion-Generierung) |
-| `ui/` | Web-UI fuer llama-server (eingebettet in Server-Binary) |
 
 ### Build
 
@@ -82,5 +80,4 @@
 
 | Pfad | Zweck | Status |
 |------|-------|--------|
-| `tools/server/` | OpenAI-kompatible HTTP-API, multimodal + spekulativ | [~] Kein eigenes DOX (in Hauptdokument abgedeckt) |
-| `tools/ui/` | Web-UI fuer llama-server | [~] Kein eigenes DOX |
+| `tools/server/` | OpenAI-kompatible HTTP-API, multimodal + spekulativ | [x] Aktiv |

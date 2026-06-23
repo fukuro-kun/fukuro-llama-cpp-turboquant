@@ -1,14 +1,16 @@
-# fukuro-llama-cpp-turboquant
+# Atomic llama.cpp
 
-[![Primary: Codeberg](https://img.shields.io/badge/primary-codeberg.org-blue)](https://codeberg.org/fukuro/fukuro-llama-cpp-turboquant)
-[![Mirror: GitHub](https://img.shields.io/badge/mirror-github.com-lightgrey)](https://github.com/fukuro-kun/fukuro-llama-cpp-turboquant)
+![atomic llama](https://github.com/AtomicBot-ai/.github/raw/main/assets/atomic%20llama.png)
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/ggml-org/llama.cpp)](https://github.com/ggml-org/llama.cpp/releases)
+[![Server](https://github.com/ggml-org/llama.cpp/actions/workflows/server.yml/badge.svg)](https://github.com/ggml-org/llama.cpp/actions/workflows/server.yml)
 
 [Manifesto](https://github.com/ggml-org/llama.cpp/discussions/205) / [ggml](https://github.com/ggml-org/ggml) / [ops](https://github.com/ggml-org/llama.cpp/blob/master/docs/ops.md)
 
 LLM inference in C/C++
 
-> **Fork-Lineage:** `ggml-org/llama.cpp` → `TheTom/llama-cpp-turboquant` (TurboQuant KV/Weight compression) → `AtomicBot-ai/atomic-llama-cpp-turboquant` (Gemma 4 MTP, Qwen NextN, UDT quantisation) → **fukuro** (`codeberg.org:fukuro/fukuro-llama-cpp-turboquant`, primary remote; GitHub mirror).  
+> **Fork-Lineage:** `ggml-org/llama.cpp` → `TheTom/llama-cpp-turboquant` → `AtomicBot-ai/atomic-llama-cpp-turboquant` → **dieser Fork** (`codeberg.org:fukuro/fukuro-llama-cpp-turboquant`).  
 > Details, Remotes und Feature-Vergleich: **[FORKS.md](FORKS.md)**
 
 ## Recent API changes
@@ -32,10 +34,6 @@ LLM inference in C/C++
 - Vim/Neovim plugin for FIM completions: https://github.com/ggml-org/llama.vim
 - Hugging Face Inference Endpoints now support GGUF out of the box! https://github.com/ggml-org/llama.cpp/discussions/9669
 - Hugging Face GGUF editor: [discussion](https://github.com/ggml-org/llama.cpp/discussions/9268) | [tool](https://huggingface.co/spaces/CISCai/gguf-editor)
-- **This fork — Vulkan & CUDA stability work:** `Q3_K`/`Q6_K` block-load shaders (+57 % tg128 / +78 % tg128 on Intel BMG), iq1 shared-memory reduction for `mul_mm`, host-memory `shared_mutex` optimisation for multi-stream, and CUDA KV-Cache pre-reservation for FlashAttention (reduces OOM risk). See [FORKS.md §5.13–5.15](FORKS.md) for benchmark numbers and cherry-pick walkthroughs.
-- **This fork — Vulkan APU GPU-Hang Fix:** `nodes_per_submit=10` for UMA devices prevents `amdgpu.lockup_timeout` (2000 ms) GPU ring resets on AMD APUs. Upstream Issue [#21724](https://github.com/ggml-org/llama.cpp/issues/21724) is still open — no other fork or upstream has this fix. Without it, AMD APUs (RADV PHOENIX, Renoir, etc.) hang at contexts ≥186k and prompt sizes ≥16384, making large-context inference impossible. With this fix, the full model context range is usable — up to 262k tokens on AMD 760M with stable ~22 t/s generation (was: GPU hang / unusable). The fix auto-detects UMA devices via `ctx->device->uma`, no user configuration needed. See [docs/fork/2026-06-21_VULKAN_GPU_HANG_ROOT_CAUSE.md](docs/fork/2026-06-21_VULKAN_GPU_HANG_ROOT_CAUSE.md).
-- **This fork — DiffusionGemma (experimental):** block text-diffusion MoE on Gemma-4-backbone with entropy-bound decoder. Forward pass and decoding loop functional; Self-Conditioning blocked (SC tensors missing in GGUFs). See [FORKS.md §5.10](FORKS.md).
-- **This fork — DOX framework:** `AGENTS.md` contracts in every directory tree for reproducible agent work. See [AGENTS.md](AGENTS.md).
 
 ----
 
@@ -78,14 +76,6 @@ range of hardware - locally and in the cloud.
 - CPU+GPU hybrid inference to partially accelerate models larger than the total VRAM capacity
 
 The `llama.cpp` project is the main playground for developing new features for the [ggml](https://github.com/ggml-org/ggml) library.
-
-## Credits & Lineage
-
-This fork stands on the shoulders of several projects and people:
-
-- **[@ggerganov](https://github.com/ggerganov) and the ggml team** — for the original [llama.cpp](https://github.com/ggml-org/llama.cpp) inference engine and the [ggml](https://github.com/ggml-org/ggml) tensor library that powers everything.
-- **[@TheTom](https://github.com/TheTom)** — for the original [TurboQuant](https://github.com/TheTom/llama-cpp-turboquant) design: WHT-rotated KV/weight quantization, the reference kernels, and the relentless backend ports (Metal TurboFlash, CUDA, Vulkan, HIP). None of the compression work in this fork would exist without that foundation.
-- **[@AtomicBot-ai](https://github.com/AtomicBot-ai)** — for Gemma 4 MTP speculative decoding, Qwen 3.x NextN shared-model drafting, the UDT quantisation masks, and the extensive documentation (MTP.md, NEXTN.md, speculative-decoding matrix benches).
 
 ## Gemma 4 MTP — speculative decoding
 
@@ -324,8 +314,8 @@ target two distinct memory-traffic problems:
 
 | Type | Bits | Compression vs F16 | Notes |
 |---|---:|---:|---|
-| `turbo2` | 2 | ~7.5× | maximum compression, intended for large-context budgets |
-| `turbo3` | 3 | ~5.1× | **recommended default**; Metal `TurboFlash` decode kernel |
+| `turbo2` | 2 | ~6.4× | maximum compression, intended for large-context budgets |
+| `turbo3` | 3 | ~4.3× | **recommended default**; Metal `TurboFlash` decode kernel |
 | `turbo4` | 4 | ~3.8× | highest accuracy of the family, safest fallback |
 
 Typical invocation with full GPU offload + Flash-Attention:
@@ -361,7 +351,7 @@ because of the lighter memory traffic.
 |---|---|---|
 | Metal (Apple Silicon) | yes; `TurboFlash` flash-attn decode kernel for `turbo3` (off-by-default on Apple10 — see PR #91) | yes (V2.1 fused kernels) |
 | CUDA (NVIDIA) | `turbo3` / `turbo4` (full); `turbo2` via reference path | `TQ4_1S` MUL_MAT_VEC |
-| Vulkan | `turbo3` + `turbo4` KV (FA + SET_ROWS); `turbo2` not yet | `TQ4_1S` (specialised MUL_MAT_VEC, SET_ROWS, CPY) |
+| Vulkan | `turbo3` KV (FA + coopmat), `SET_ROWS` for `turbo2/4` | `TQ4_1S` (specialised MUL_MAT_VEC, SET_ROWS, CPY) |
 | HIP / ROCm | `turbo3` KV; F16-K + TURBO-V mixed dispatch | reference |
 | CPU | reference (correctness, not throughput) | reference |
 
@@ -856,8 +846,8 @@ To learn more about model quantization, [read this documentation](tools/quantize
     Pick a stronger compression preset by stepping the bit-width:
 
     ```bash
-    -ctk turbo2 -ctv turbo2   # 2-bit KV, ~7.5x vs F16 (highest compression)
-    -ctk turbo3 -ctv turbo3   # 3-bit KV, ~5.1x  (default sweet spot)
+    -ctk turbo2 -ctv turbo2   # 2-bit KV, ~6.4x vs F16 (highest compression)
+    -ctk turbo3 -ctv turbo3   # 3-bit KV, ~4.3x  (default sweet spot)
     -ctk turbo4 -ctv turbo4   # 4-bit KV, ~3.8x  (highest accuracy / fallback)
     ```
 

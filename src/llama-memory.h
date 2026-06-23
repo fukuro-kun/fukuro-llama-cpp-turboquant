@@ -1,7 +1,6 @@
 #pragma once
 
 #include "llama.h"
-#include "llama-graph.h"
 
 #include <map>
 #include <memory>
@@ -21,10 +20,6 @@ struct llama_memory_params {
 
     // use full-size SWA cache
     bool swa_full;
-
-    llama_context_type ctx_type;
-
-    llama_memory_t mem_other;
 };
 
 enum llama_memory_status {
@@ -86,8 +81,6 @@ struct llama_memory_i {
     // this callback is used to specify which layers should reuse memory from other layers
     // return negative value to indicate that the layer il should not reuse memory
     using layer_reuse_cb = std::function<int32_t(int32_t il)>;
-
-    using layer_share_cb = std::function<int32_t(int32_t il)>;
 
     virtual ~llama_memory_i() = default;
 

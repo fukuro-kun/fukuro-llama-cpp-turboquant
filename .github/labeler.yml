@@ -12,7 +12,7 @@ SYCL:
             - ggml/src/ggml-sycl/**
             - docs/backend/SYCL.md
             - examples/sycl/**
-CUDA:
+Nvidia GPU:
     - changed-files:
         - any-glob-to-any-file:
             - ggml/include/ggml-cuda.h
@@ -73,10 +73,11 @@ android:
     - changed-files:
         - any-glob-to-any-file:
             - examples/llama.android/**
-server/ui:
+server/webui:
     - changed-files:
         - any-glob-to-any-file:
-            - tools/ui/**
+            - tools/server/webui/**
+            - tools/server/public/**
 server:
     - changed-files:
         - any-glob-to-any-file:

@@ -22,7 +22,6 @@ The following sections describe how to build with different backends and options
 * [HIP](#hip)
 * [Vulkan](#vulkan)
 * [CANN](#cann)
-* [ZenDNN](#zendnn)
 * [Arm® KleidiAI™](#arm-kleidiai)
 * [OpenCL](#opencl)
 * [Android](#android-1)
@@ -736,7 +735,7 @@ ninja
 
 To read documentation for how to build on Android, [click here](./android.md)
 
-## WebGPU
+## WebGPU [In Progress]
 
 The WebGPU backend relies on [Dawn](https://dawn.googlesource.com/dawn). Follow the instructions [here](https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/quickstart-cmake.md) to install Dawn locally so that llama.cpp can find it using CMake. The current implementation is up-to-date with Dawn commit `18eb229`.
 

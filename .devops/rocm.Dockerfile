@@ -7,10 +7,6 @@ ARG AMDGPU_VERSION=7.2.1
 # Target the ROCm build image
 ARG BASE_ROCM_DEV_CONTAINER=rocm/dev-ubuntu-${UBUNTU_VERSION}:${ROCM_VERSION}-complete
 
-ARG BUILD_DATE=N/A
-ARG APP_VERSION=N/A
-ARG APP_REVISION=N/A
-
 ### Build image
 FROM ${BASE_ROCM_DEV_CONTAINER} AS build
 
@@ -53,7 +49,6 @@ RUN mkdir -p /app/lib \
 RUN mkdir -p /app/full \
     && cp build/bin/* /app/full \
     && cp *.py /app/full \
-    && cp -r conversion /app/full \
     && cp -r gguf-py /app/full \
     && cp -r requirements /app/full \
     && cp requirements.txt /app/full \
@@ -62,21 +57,8 @@ RUN mkdir -p /app/full \
 ## Base image
 FROM ${BASE_ROCM_DEV_CONTAINER} AS base
 
-ARG BUILD_DATE=N/A
-ARG APP_VERSION=N/A
-ARG APP_REVISION=N/A
-ARG IMAGE_URL=https://github.com/ggml-org/llama.cpp
-ARG IMAGE_SOURCE=https://github.com/ggml-org/llama.cpp
-LABEL org.opencontainers.image.created=$BUILD_DATE \
-      org.opencontainers.image.version=$APP_VERSION \
-      org.opencontainers.image.revision=$APP_REVISION \
-      org.opencontainers.image.title="llama.cpp" \
-      org.opencontainers.image.description="LLM inference in C/C++" \
-      org.opencontainers.image.url=$IMAGE_URL \
-      org.opencontainers.image.source=$IMAGE_SOURCE
-
 RUN apt-get update \
-    && apt-get install -y libgomp1 curl ffmpeg \
+    && apt-get install -y libgomp1 curl \
     && apt autoremove -y \
     && apt clean -y \
     && rm -rf /tmp/* /var/tmp/* \

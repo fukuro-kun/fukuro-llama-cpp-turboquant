@@ -2,12 +2,6 @@ diagnostic(off, subgroup_uniformity);
 enable f16;
 enable subgroups;
 
-#ifdef DST_F16
-#define DST_TYPE f16
-#else
-#define DST_TYPE f32
-#endif
-
 // Default values
 #define HEAD_DIM_V 64
 #define WG_SIZE 128
@@ -23,7 +17,7 @@ struct Params {
 };
 
 @group(0) @binding(0) var<storage, read_write> tmp: array<f32>;
-@group(0) @binding(1) var<storage, read_write> dst: array<vec4<DST_TYPE>>;
+@group(0) @binding(1) var<storage, read_write> dst: array<vec4<f32>>;
 @group(0) @binding(2) var<uniform> params: Params;
 
 const FLOAT_MIN: f32 = -1.0e9;
@@ -78,7 +72,7 @@ fn main(@builtin(workgroup_id) wg_id: vec3<u32>,
 
         if (thread == 0u) {
             let dst_vec_index = (row_base + elem_base) >> 2u;
-            dst[dst_vec_index] = vec4<DST_TYPE>(vec4<f32>(sum_x, sum_y, sum_z, sum_w) * inv_s);
+            dst[dst_vec_index] = vec4<f32>(sum_x, sum_y, sum_z, sum_w) * inv_s;
         }
     }
 }

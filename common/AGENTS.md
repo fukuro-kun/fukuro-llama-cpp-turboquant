@@ -18,11 +18,7 @@
 | Hilfsfunktionen | `common.cpp`, `common.h` | String-Utils, File-IO, Konsolen-Interaktion, Batching |
 | Sampling | `sampling.cpp`, `sampling.h` | Top-K/Top-P/Min-P, Temperature, Repeat-Penalty, Mirostat |
 | Spekulative Decodierung | `speculative.cpp`, `speculative.h` | **Draft-Treiber** fuer MTP (Gemma 4) und NextN (Qwen) |
-| Chat-Formatierung | `chat.cpp`, `chat.h` | Template-Verarbeitung, Jinja-Engine-Anbindung, Gemma4-PEG-Parser |
-| PEG-Parser | `peg-parser.cpp`, `peg-parser.h` | Generische PEG-Parser-Infrastruktur fuer Chat-Format-Extraktion |
-| Chat-PEG-Parser | `chat-peg-parser.cpp`, `chat-peg-parser.h` | PEG-basierter Parser fuer Chat-Tool-Calls und Reasoning-Extraktion |
-| Chat-Auto-Parser | `chat-auto-parser.h`, `chat-auto-parser-generator.cpp`, `chat-auto-parser-helpers.cpp`, `chat-auto-parser-helpers.h` | Automatische Parser-Generierung aus Chat-Template-Analyse |
-| Chat-Diff-Analyzer | `chat-diff-analyzer.cpp` | Diff-Analyse fuer Chat-Template-Varianten (Reasoning, Tools, etc.) |
+| Chat-Formatierung | `chat.cpp`, `chat.h` | Template-Verarbeitung, Jinja-Engine-Anbindung |
 | N-Gramm-Caches | `ngram-cache.cpp`, `ngram-cache.h`, `ngram-map.cpp`, `ngram-map.h`, `ngram-mod.cpp`, `ngram-mod.h` | Kontextbasierte N-Gramm-Vorhersage fuer Drafting |
 | Grammatik-Steuerung | `llguidance.cpp` | Integration von llguidance fuer strukturierte Ausgaben |
 
@@ -56,7 +52,6 @@ Dies ist der zentrale Draft-Treiber des Forks. Bei Arbeit hier:
 ### Aenderungen an `chat.cpp`
 
 - Chat-Template-Aenderungen koennen alle Chat-Interfaces betreffen (CLI-Chat-Modus, Server-Chat-Completions).
-- Der Gemma4-PEG-Parser (`common_chat_params_init_gemma4`) behandelt `<|channel>thought`-Reasoning-Blocks. `consume_empty_channels` konsumiert Non-thought-Channels (z.B. `<|channel> sense`) komplett bis `<channel|>`, um Parser-Fehler bei Finetunes zu vermeiden.
 
 ---
 
@@ -74,6 +69,6 @@ Dies ist der zentrale Draft-Treiber des Forks. Bei Arbeit hier:
 
 | Pfad | Zweck | Status |
 |------|-------|--------|
-| `common/jinja/` | Jinja-Template-Engine fuer Chat-Formatierung | [~] Kein eigenes DOX (in Hauptdokument abgedeckt) |
+| `common/jinja/` | Jinja-Template-Engine fuer Chat-Formatierung | [x] Aktiv |
 
 *Keine weiteren Child-DOX erwartet. `common/` ist ein flaches Utility-Verzeichnis.*
