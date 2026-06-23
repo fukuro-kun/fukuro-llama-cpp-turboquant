@@ -24,8 +24,10 @@ Diese Dateien enthalten Fork-spezifische Logik und duerfen bei Upstream-Syncs be
 |-------|-------|
 | `llama-quant.cpp` | TurboQuant KV-/Weight-Quantisierungs-Pfade |
 | `models/gemma4-assistant.cpp` | Gemma 4 Multi-Token Prediction (MTP) |
-| `models/qwen35-nextn.cpp` | Qwen 3.5 NextN spekulative Decodierung |
-| `models/qwen35moe-nextn.cpp` | Qwen 3.5 MoE NextN spekulative Decodierung |
+| `models/qwen3next.cpp` | Qwen 3.x NextN spekulative Decodierung (Shared-Model-Draft) |
+| `models/qwen35.cpp` | Qwen 3.5 Dense-Modell |
+| `models/qwen35moe.cpp` | Qwen 3.5 MoE-Modell |
+| `models/diffusion-gemma.cpp` | DiffusionGemma-Integration |
 
 ### Modell-Implementierungen
 

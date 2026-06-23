@@ -5,20 +5,59 @@
 #include "types.glsl"
 
 #if defined(DATA_A_F32)
+FLOAT_TYPE dequantize1(uint ib, uint iqs, uint a_offset) {
+    return data_a[a_offset + ib];
+}
 vec2 dequantize(uint ib, uint iqs, uint a_offset) {
     return vec2(data_a[a_offset + ib], data_a[a_offset + ib + 1]);
 }
+vec4 dequantize4(uint ib, uint iqs, uint a_offset) {
+    return vec4(data_a[a_offset + ib    ], data_a[a_offset + ib + 1],
+                data_a[a_offset + ib + 2], data_a[a_offset + ib + 3]);
+}
+vec4 dequantize4_2aligned(uint ib, uint iqs, uint a_offset) {
+    return vec4(data_a[a_offset + ib    ], data_a[a_offset + ib + 1],
+                data_a[a_offset + ib + 2], data_a[a_offset + ib + 3]);
+}
+
 #endif
 
 #if defined(DATA_A_F16)
+FLOAT_TYPE dequantize1(uint ib, uint iqs, uint a_offset) {
+    return data_a[a_offset + ib];
+}
 vec2 dequantize(uint ib, uint iqs, uint a_offset) {
     return vec2(data_a[a_offset + ib], data_a[a_offset + ib + 1]);
+}
+vec4 dequantize4(uint ib, uint iqs, uint a_offset) {
+    return vec4(data_a[a_offset + ib    ], data_a[a_offset + ib + 1],
+                data_a[a_offset + ib + 2], data_a[a_offset + ib + 3]);
+}
+vec4 dequantize4_2aligned(uint ib, uint iqs, uint a_offset) {
+    const vec2 a = data_a_packed32[(a_offset + ib)/2];
+    const vec2 b = data_a_packed32[(a_offset + ib)/2 + 1];
+    return vec4(a, b);
 }
 #endif
 
 #if defined(DATA_A_BF16)
+FLOAT_TYPE dequantize1(uint ib, uint iqs, uint a_offset) {
+    return bf16_to_fp32(data_a[a_offset + ib]);
+}
 vec2 dequantize(uint ib, uint iqs, uint a_offset) {
     return vec2(bf16_to_fp32(data_a[a_offset + ib]), bf16_to_fp32(data_a[a_offset + ib + 1]));
+}
+vec4 dequantize4(uint ib, uint iqs, uint a_offset) {
+    return vec4(bf16_to_fp32(data_a[a_offset + ib    ]), bf16_to_fp32(data_a[a_offset + ib + 1]),
+                bf16_to_fp32(data_a[a_offset + ib + 2]), bf16_to_fp32(data_a[a_offset + ib + 3]));
+}
+vec4 dequantize4_2aligned(uint ib, uint iqs, uint a_offset) {
+    const uint a = data_a_packed32[(a_offset + ib)/2];
+    const uint b = data_a_packed32[(a_offset + ib)/2 + 1];
+    return vec4(uintBitsToFloat((a & 0x0000ffff) << 16),
+                uintBitsToFloat( a & 0xffff0000),
+                uintBitsToFloat((b & 0x0000ffff) << 16),
+                uintBitsToFloat( b & 0xffff0000));
 }
 #endif
 
@@ -675,6 +714,41 @@ vec2 dequantize(uint ib, uint iqs, uint a_offset) {
     // Combine to 3-bit index
     const uint idx0 = low2_0 | (hi1_0 << 2);
     const uint idx1 = low2_1 | (hi1_1 << 2);
+
+    return vec2(centroids[idx0], centroids[idx1]);
+}
+vec4 dequantize4(uint ib, uint iqs, uint a_offset) {
+    vec2 v0 = dequantize(ib, iqs, a_offset);
+    vec2 v1 = dequantize(ib, iqs + 2, a_offset);
+    return vec4(v0.x, v0.y, v1.x, v1.y);
+}
+vec2 get_dm(uint ib, uint a_offset) {
+    return vec2(float(data_a[a_offset + ib].norm), 0);
+}
+#endif
+
+#if defined(DATA_A_TURBO4_0)
+vec2 dequantize(uint ib, uint iqs, uint a_offset) {
+    // PolarQuant 4-bit centroids (Lloyd-Max for N(0, 1/sqrt(128)))
+    const float centroids[16] = float[16](
+        -0.173926, -0.117195, -0.089527, -0.068756,
+        -0.051262, -0.035597, -0.020989, -0.006938,
+         0.006938,  0.020989,  0.035597,  0.051262,
+         0.068756,  0.089527,  0.117195,  0.173926
+    );
+
+    // iqs is the element index within the block (0..63 pairs), decode 2 consecutive elements
+    const uint j0 = iqs;
+    const uint j1 = iqs + 1;
+
+    // Nibble unpack: 2 elements per byte
+    const uint byte_idx0 = j0 / 2;
+    const uint nibble_shift0 = (j0 % 2) * 4;
+    const uint idx0 = (uint(data_a[a_offset + ib].qs[byte_idx0]) >> nibble_shift0) & 0xF;
+
+    const uint byte_idx1 = j1 / 2;
+    const uint nibble_shift1 = (j1 % 2) * 4;
+    const uint idx1 = (uint(data_a[a_offset + ib].qs[byte_idx1]) >> nibble_shift1) & 0xF;
 
     return vec2(centroids[idx0], centroids[idx1]);
 }

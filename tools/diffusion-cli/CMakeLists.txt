@@ -5,7 +5,7 @@ add_executable(${TARGET} diffusion-cli.cpp)
 # Include paths for common headers
 include_directories(${CMAKE_SOURCE_DIR}/common)
 
-target_link_libraries(${TARGET} PRIVATE common llama ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(${TARGET} PRIVATE llama-common llama ${CMAKE_THREAD_LIBS_INIT})
 
 # Additional include directories for llama headers
 target_include_directories(${TARGET} PRIVATE

@@ -1,5 +1,4 @@
 #include "llama.h"
-#include "chat.h"
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -124,8 +123,8 @@ static void diffusion_generate_entropy_bound(llama_context * ctx,
             batch.seq_id[i][0] = 0;
             batch.logits[i]    = 1;
         }
-        if (llama_encode(ctx, batch) != 0) {
-            fprintf(stderr, "PREFILL encode failed\n");
+        if (llama_decode(ctx, batch) != 0) {
+            fprintf(stderr, "PREFILL decode failed\n");
             llama_diffusion_set_phase(model, /*PKV_UNIFIED=*/0, 0);
             llama_batch_free(batch);
             return;
@@ -171,8 +170,8 @@ static void diffusion_generate_entropy_bound(llama_context * ctx,
         // Wir setzen enabled=false, da sc_gate/sc_up/sc_down nullptr sind.
         llama_diffusion_set_sc(model, nullptr, 0.0f, 1.0f, false);
 
-        if (llama_encode(ctx, batch) != 0) {
-            fprintf(stderr, "Encode failed at step %d\n", step_idx);
+        if (llama_decode(ctx, batch) != 0) {
+            fprintf(stderr, "Decode failed at step %d\n", step_idx);
             break;
         }
 
@@ -367,29 +366,6 @@ int main(int argc, char ** argv) {
     }
     fprintf(stderr, "  Canvas length: %d\n", canvas_length);
 
-    // ================================================================================================
-    // Chat-Template: Prompt automatisch formatieren (falls im Modell vorhanden)
-    // ================================================================================================
-    std::string formatted_prompt = prompt_text;
-    {
-        common_chat_templates_ptr tmpls = common_chat_templates_init(model, "");
-        if (tmpls) {
-            common_chat_templates_inputs inputs;
-            inputs.messages.push_back({"user", prompt_text, {}, {}, "", ""});
-            inputs.add_generation_prompt = true;
-            inputs.use_jinja = true;
-            common_chat_params params = common_chat_templates_apply(tmpls.get(), inputs);
-            if (!params.prompt.empty()) {
-                formatted_prompt = params.prompt;
-                fprintf(stderr, "  Chat-Template angewendet.\n");
-            } else {
-                fprintf(stderr, "  Chat-Template leer, nutze Roh-Prompt.\n");
-            }
-        } else {
-            fprintf(stderr, "  Kein Chat-Template gefunden, nutze Roh-Prompt.\n");
-        }
-    }
-
     // ========================================================================
     // 2. Kontext erstellen
     // ========================================================================
@@ -410,7 +386,7 @@ int main(int argc, char ** argv) {
     // ========================================================================
     fprintf(stderr, "[3/4] Tokenizing...\n");
     std::vector<llama_token> prompt_tokens(4096);
-    int n_prompt = llama_tokenize(vocab, formatted_prompt.c_str(), formatted_prompt.length(),
+    int n_prompt = llama_tokenize(vocab, prompt_text, strlen(prompt_text),
                                   prompt_tokens.data(), prompt_tokens.size(), true, false);
     if (n_prompt < 0) {
         fprintf(stderr, "Error: Failed to tokenize\n");
@@ -437,7 +413,7 @@ int main(int argc, char ** argv) {
     eb.entropy_bound        = entropy_bound;
     eb.seed                 = seed;
     eb.max_length           = max_length;
-    eb.kv_cache             = false;  // UNIFIED mode (stabil)
+    eb.kv_cache             = false;  // UNIFIED mode (einfacher)
 
     auto t_start = std::chrono::high_resolution_clock::now();
     int32_t n_generated = 0;
