@@ -1,7 +1,7 @@
-# Masterplan: Vulkan Performance-Klippe auf Mars — Systematische RCA
+# Masterplan: Vulkan Performance-Klippe auf AMD-System — Systematische RCA
 
 **Datum:** 2026-06-21
-**Ziel:** Root Cause für PP-Klippe (~16k) und TG-Klippe (~188k) auf Mars (AMD 760M, RADV PHOENIX) finden und beheben.
+**Ziel:** Root Cause für PP-Klippe (~16k) und TG-Klippe (~188k) auf AMD-System (AMD 760M, RADV PHOENIX) finden und beheben.
 **Dauer:** 12h KI-Solo-Schicht
 **Branch:** `feature/vulkan-perf-rca` (neu, von `master`)
 
@@ -12,8 +12,8 @@
 ### Systeme
 | System | GPU | Rolle |
 |--------|-----|-------|
-| **Mars** | AMD 760M (RDNA3, RADV PHOENIX, UMA) | Test-System — hier tritt das Problem auf |
-| **Hydra** | NVIDIA RTX 3070 (CUDA) | Build-System, git-Operationen, CUDA-Baseline |
+| **AMD-System** | AMD 760M (RDNA3, RADV PHOENIX, UMA) | Test-System — hier tritt das Problem auf |
+| **CUDA-System** | NVIDIA RTX 3070 (CUDA) | Build-System, git-Operationen, CUDA-Baseline |
 
 ### Fork-Struktur
 - Fork von Fork von Fork: `ggml-org → TheTom → AtomicBot → fukuro`
@@ -28,7 +28,7 @@
 4. **Pipeline-Cache-Korruption:** Nach Code-Änderungen muss Cache gelöscht werden
 
 ### Bereits ausgeschlossene Hypothesen
-- ❌ `maxStorageBufferRange` (128 MiB) — ist 4 GiB auf Mars
+- ❌ `maxStorageBufferRange` (128 MiB) — ist 4 GiB auf AMD-System
 - ❌ `shader_64bit_indexing` fehlt — wird nicht benötigt
 - ❌ FA-Tuning-Parameter-Wechsel — Parameter bleiben konstant
 - ❌ uint32_t Overflow in Push Constants — Overflow bei ~21M Tokens
@@ -46,10 +46,10 @@ git checkout master
 git checkout -b feature/vulkan-perf-rca
 ```
 
-### 1.2 Mars: Post-Reboot Verification
-**Skript:** `/tmp/mars_post_reboot.sh` (liegt bereit auf Mars)
+### 1.2 AMD-System: Post-Reboot Verification
+**Skript:** `/tmp/amd_post_reboot.sh` (liegt bereit auf AMD-System)
 
-Reproduziert die Venus-Verification auf Mars:
+Reproduziert die AMD-System-2-Verification auf AMD-System:
 1. Pipeline-Cache löschen
 2. Backend-Op-Tests: `SET_ROWS_TURBO3`, `FLASH_ATTN_EXT turbo3`
 3. Smoke-Test: `llama-cli` mit turbo3+FA, ctx=32k
@@ -67,15 +67,15 @@ Alle Ergebnisse in `docs/fork/2026-06-21_VULKAN_PERF_RCA_BASELINE.md` dokumentie
 - PP-Scaling-Ergebnisse
 
 ### Erfolgskriterium Phase 1
-- turbo3+FA Korrektheit bestätigt (wie auf Venus)
-- Baseline pp/tg Zahlen für Mars dokumentiert
+- turbo3+FA Korrektheit bestätigt (wie auf AMD-System-2)
+- Baseline pp/tg Zahlen für AMD-System dokumentiert
 - PP-Klippe reproduziert (oder nicht — nach Reboot + clean Cache)
 
 ---
 
 ## Phase 2: Systematische Untersuchung (2-8h)
 
-### 2.1 PP-Scaling Matrix (Mars)
+### 2.1 PP-Scaling Matrix (AMD-System)
 Mit cleanem Pipeline-Cache nach jedem Lauf:
 
 | pp | ctx=n+1 | Erwartung |
@@ -90,7 +90,7 @@ Mit cleanem Pipeline-Cache nach jedem Lauf:
 
 Ziel: Exakte Klippe lokalisieren.
 
-### 2.2 TG-Scaling Matrix (Mars)
+### 2.2 TG-Scaling Matrix (AMD-System)
 Mit `llama-server` + API, kurzer Prompt (100 Tokens), ctx variiert:
 
 | ctx | tg8 | Erwartung |
@@ -102,11 +102,11 @@ Mit `llama-server` + API, kurzer Prompt (100 Tokens), ctx variiert:
 
 **Wichtig:** Server mit `--no-warmup` starten, kurzen Prompt senden, nur tg messen.
 
-### 2.3 Vulkan Commit-Bisect (Hydra + Mars)
+### 2.3 Vulkan Commit-Bisect (CUDA-System + AMD-System)
 
 **Strategie:** Nicht 1057 Commits bisecten, sondern gezielt die 61 Vulkan-Commits.
 
-#### Schritt 1: Vulkan-Commit-Liste erstellen (Hydra)
+#### Schritt 1: Vulkan-Commit-Liste erstellen (CUDA-System)
 ```bash
 git log --oneline HEAD..upstream/master -- ggml/src/ggml-vulkan/ | tac
 ```
@@ -125,18 +125,18 @@ Relevanten Commits in Gruppen cherry-picken:
 3. **Gruppe C: Performance** (#23973 fast path, #23376 lock contention, #23641 pipeline mutex)
 4. **Gruppe D: UMA-spezifisch** (#22455 transfer queue, #22930 host-visible)
 
-Nach jeder Gruppe: Auf Mars builden, Pipeline-Cache löschen, Benchmark.
+Nach jeder Gruppe: Auf AMD-System builden, Pipeline-Cache löschen, Benchmark.
 
 #### Schritt 4: Binary Search innerhalb Gruppen
 Wenn eine Gruppe das Problem löst/verschärft: Innerhalb der Gruppe bisecten.
 
-### 2.4 Mesa/RADV-Vergleich (Mars LXC)
+### 2.4 Mesa/RADV-Vergleich (AMD-System LXC)
 
-**Mars ist Proxmox-Host** → LXC mit anderer Mesa-Version erstellen.
+**AMD-System ist Proxmox-Host** → LXC mit anderer Mesa-Version erstellen.
 
 #### Option 1: Neuere Mesa (z.B. Mesa 25.2 oder 26.x)
 ```bash
-# Auf Mars: LXC erstellen mit neuerer Mesa
+# Auf AMD-System: LXC erstellen mit neuerer Mesa
 pct create ...
 # Mesa aus PPA oder build-from-source
 ```
@@ -146,7 +146,7 @@ Falls neuere Mesa das Problem löst → ältere als Referenz.
 
 **Vorsicht:** Nur in LXC/VM, niemals auf dem Host-System!
 
-### 2.5 GPU-Debug-Logging (Mars)
+### 2.5 GPU-Debug-Logging (AMD-System)
 
 Wenn PP/TG-Klippe reproduziert:
 - `VK_LAYER_KHRONOS_validation` aktivieren
@@ -165,7 +165,7 @@ Basierend auf Phase 2 Ergebnissen:
 
 ### 3.2 Fix auf Branch anwenden
 - Fix auf `feature/vulkan-perf-rca` committen
-- Build auf Mars
+- Build auf AMD-System
 - Vollständige Verification (wie Phase 1)
 
 ### 3.3 Dokumentation
@@ -186,13 +186,13 @@ Basierend auf Phase 2 Ergebnissen:
 
 | Task | System | Subagent? | Dauer |
 |------|--------|-----------|-------|
-| Git-Operationen, Cherry-Picks | Hydra | Direkt | ~30min |
-| Build auf Mars | Mars | Background | ~10min pro Build |
-| Benchmark pp-Scaling | Mars | Background | ~30min pro Serie |
-| Benchmark tg-Scaling | Mars | Background | ~60min pro Serie |
-| Web-Recherche Vulkan-Issues | Hydra | Subagent | ~15min |
-| Code-Analyse spezifischer Commits | Hydra | Subagent | ~10min pro Commit |
-| Mesa LXC erstellen | Mars | Background | ~30min |
+| Git-Operationen, Cherry-Picks | CUDA-System | Direkt | ~30min |
+| Build auf AMD-System | AMD-System | Background | ~10min pro Build |
+| Benchmark pp-Scaling | AMD-System | Background | ~30min pro Serie |
+| Benchmark tg-Scaling | AMD-System | Background | ~60min pro Serie |
+| Web-Recherche Vulkan-Issues | CUDA-System | Subagent | ~15min |
+| Code-Analyse spezifischer Commits | CUDA-System | Subagent | ~10min pro Commit |
+| Mesa LXC erstellen | AMD-System | Background | ~30min |
 
 ### Subagent-Profile
 - `subagent_explore`: Code-Analyse, Web-Recherche, Commit-Untersuchung
@@ -217,7 +217,7 @@ GGML_VK_PIPELINE_CACHE_DIR=/tmp/vk_cache_test1
 ## Erfolgskriterien
 
 ### Minimum (12h)
-- [x] Baseline auf Mars etabliert und dokumentiert
+- [x] Baseline auf AMD-System etabliert und dokumentiert
 - [x] PP-Klippe exakt lokalisiert (8192-16384)
 - [x] TG-Klippe reproduziert — und behoben!
 - [x] 3+ Vulkan-Commit-Gruppen getestet (Gruppe A+B, 6 Commits)

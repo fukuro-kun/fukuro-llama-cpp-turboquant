@@ -10,14 +10,14 @@
 
 | System | GPU | RAM | Backend | Status |
 |--------|-----|-----|---------|--------|
-| **Mars** | AMD Radeon 760M (RDNA3) | 32GB | Vulkan | � **3/6 Modelle erfolgreich** |
-| **Venus** | AMD Radeon (RDNA2/Vega) | 32GB | CPU-Fallback | 🟢 5/6 Modelle erfolgreich |
+| **AMD-System** | AMD Radeon 760M (RDNA3) | 32GB | Vulkan | � **3/6 Modelle erfolgreich** |
+| **AMD-System-2** | AMD Radeon (RDNA2/Vega) | 32GB | CPU-Fallback | 🟢 5/6 Modelle erfolgreich |
 
-**Hinweis:** Venus lief auf CPU-Fallback statt Vulkan (GPU nicht korrekt erkannt). Die Werte dienen als Referenz, nicht als Vulkan-Performance-Messung.
+**Hinweis:** AMD-System-2 lief auf CPU-Fallback statt Vulkan (GPU nicht korrekt erkannt). Die Werte dienen als Referenz, nicht als Vulkan-Performance-Messung.
 
 ---
 
-## Ergebnisse: Mars (Vulkan, RDNA3)
+## Ergebnisse: AMD-System (Vulkan, RDNA3)
 
 | Modell | Quant | pp128 [t/s] | tg32 [t/s] | Status |
 |--------|-------|-------------|------------|--------|
@@ -36,7 +36,7 @@
 
 ---
 
-## Ergebnisse: Venus (CPU-Fallback)
+## Ergebnisse: AMD-System-2 (CPU-Fallback)
 
 | Modell | Quant | pp128 [t/s] | tg32 [t/s] | Status |
 |--------|-------|-------------|------------|--------|
@@ -49,9 +49,9 @@
 
 ---
 
-## Vergleich: Mars Vulkan vs Venus CPU
+## Vergleich: AMD-System Vulkan vs AMD-System-2 CPU
 
-| Modell | Quant | Mars pp | Venus pp | Speedup | Mars tg | Venus tg | Speedup |
+| Modell | Quant | AMD-System pp | AMD-System-2 pp | Speedup | AMD-System tg | AMD-System-2 tg | Speedup |
 |--------|-------|---------|----------|---------|---------|----------|---------|
 | 12B | Q3_K_M | 103.99 | 13.62 | **7.6×** | 8.02 | 5.94 | **1.3×** |
 | 12B | Q6_K | 100.93 | 9.54 | **10.6×** | 7.03 | 3.60 | **2.0×** |
@@ -67,7 +67,7 @@
 
 ## Upstream-Vergleich
 
-| Modell | Quant | Upstream Speedup (Intel BMG) | Unser Speedup (Mars RDNA3) |
+| Modell | Quant | Upstream Speedup (Intel BMG) | Unser Speedup (AMD-System RDNA3) |
 |--------|-------|------------------------------|---------------------------|
 | Qwen 3.5 9B | Q3_K | +81% tg128 (MMVQ+Block-Load) | N/A (kein Qwen getestet) |
 | Qwen 3.5 9B | Q6_K | +126% tg128 (MMVQ+Block-Load) | N/A (kein Qwen getestet) |
@@ -80,19 +80,19 @@
 ## Benchmark-Skript
 
 ```bash
-# Auf Mars (Vulkan):
+# Auf AMD-System (Vulkan):
 LLAMA_BENCH=/pfad/zu/llama-bench MODEL_DIR=/jade/models/unsloth ./scripts/bench-b1-vulkan-q3k-q6k.sh
 
-# Auf Venus (CPU-Fallback):
-LLAMA_BENCH=/pfad/zu/llama-bench MODEL_DIR=/home/fukuro/models/unsloth ./scripts/bench-b1-vulkan-q3k-q6k.sh
+# Auf AMD-System-2 (CPU-Fallback):
+LLAMA_BENCH=/pfad/zu/llama-bench MODEL_DIR=/pfad/zu/modellen ./scripts/bench-b1-vulkan-q3k-q6k.sh
 ```
 
 ---
 
 ## TODO
 
-- [ ] **Mars: 31B und 26B Q6_K mit mehr RAM** testen (64GB+ oder Swap erweitern)
-- [ ] **Venus Vulkan-Backend korrigieren** (laueft aktuell auf CPU-Fallback)
+- [ ] **AMD-System: 31B und 26B Q6_K mit mehr RAM** testen (64GB+ oder Swap erweitern)
+- [ ] **AMD-System-2 Vulkan-Backend korrigieren** (laueft aktuell auf CPU-Fallback)
 - [ ] **Qwen 3.5 Benchmark** fuer direkten upstream-Vergleich
 - [ ] **Vorher/Nachher-Vergleich:** B1-Commit revertieren und erneut benchmarken
 

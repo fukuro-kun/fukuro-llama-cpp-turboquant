@@ -1027,6 +1027,7 @@ static __global__ void flash_attn_mask_to_KV_max(
     if (tid < WARP_SIZE) {
         buf_iw[tid] = 1;
     }
+    ggml_cuda_pdl_sync();
     __syncthreads();
 
     int KV_max_sj = (ne30 - 1) * FATTN_KQ_STRIDE;
@@ -1068,8 +1069,8 @@ static __global__ void flash_attn_mask_to_KV_max(
 template<int D, int ncols1, int ncols2> // D == head size
 __launch_bounds__(D, 1)
 static __global__ void flash_attn_stream_k_fixup_uniform(
-        float * __restrict__ dst,
-        const float2 * __restrict__ dst_fixup,
+        float * dst_ptr,
+        const float2 * dst_fixup_ptr,
         const int ne01, const int ne02,
         const int ne12, const int nblocks_stream_k,
         const int gqa_ratio,
@@ -1078,6 +1079,9 @@ static __global__ void flash_attn_stream_k_fixup_uniform(
         const uint3 fd_iter_j_z,
         const uint3 fd_iter_j) {
     constexpr int ncols = ncols1*ncols2;
+    ggml_cuda_pdl_lc();
+    float        * GGML_CUDA_RESTRICT dst       = dst_ptr;
+    const float2 * GGML_CUDA_RESTRICT dst_fixup = dst_fixup_ptr;
 
     const int tile_idx = blockIdx.x; // One block per output tile.
     const int j        = blockIdx.y;
@@ -1109,6 +1113,7 @@ static __global__ void flash_attn_stream_k_fixup_uniform(
 
     dst += sequence*ne02*ne01*D + jt*ne02*(ncols1*D) + zt_Q*D + (j*ne02 + c)*D + tid;
 
+    ggml_cuda_pdl_sync();
     // Load the partial result that needs a fixup
     float dst_val = *dst;
     float max_val;
@@ -1148,8 +1153,8 @@ static __global__ void flash_attn_stream_k_fixup_uniform(
 template <int D, int ncols1, int ncols2> // D == head size
 __launch_bounds__(D, 1)
 static __global__ void flash_attn_stream_k_fixup_general(
-        float * __restrict__ dst,
-        const float2 * __restrict__ dst_fixup,
+        float * dst_ptr,
+        const float2 * dst_fixup_ptr,
         const int ne01, const int ne02,
         const int gqa_ratio,
         const int total_work,
@@ -1157,6 +1162,8 @@ static __global__ void flash_attn_stream_k_fixup_general(
         const uint3 fd_iter_k_j_z,
         const uint3 fd_iter_k_j,
         const uint3 fd_iter_k) {
+    float        * GGML_CUDA_RESTRICT dst       = dst_ptr;
+    const float2 * GGML_CUDA_RESTRICT dst_fixup = dst_fixup_ptr;
     constexpr int ncols = ncols1*ncols2;
 
     const int bidx0 = blockIdx.x;
@@ -1200,6 +1207,7 @@ static __global__ void flash_attn_stream_k_fixup_general(
     float dst_val = 0.0f;
     float max_val = 0.0f;
     float rowsum  = 0.0f;
+    ggml_cuda_pdl_sync();
     {
         dst_val = *dst;
 
@@ -1254,10 +1262,14 @@ static __global__ void flash_attn_stream_k_fixup_general(
 template<int D> // D == head size
 __launch_bounds__(D, 1)
 static __global__ void flash_attn_combine_results(
-        const float  * __restrict__ VKQ_parts,
-        const float2 * __restrict__ VKQ_meta,
-        float * __restrict__ dst,
+        const float  * VKQ_parts_ptr,
+        const float2 * VKQ_meta_ptr,
+        float * dst_ptr,
         const int parallel_blocks) {
+    ggml_cuda_pdl_lc();
+    const float  * GGML_CUDA_RESTRICT VKQ_parts = VKQ_parts_ptr;
+    const float2 * GGML_CUDA_RESTRICT VKQ_meta  = VKQ_meta_ptr;
+    float        * GGML_CUDA_RESTRICT dst       = dst_ptr;
     // Dimension 0: threadIdx.x
     // Dimension 1: blockIdx.x
     // Dimension 2: blockIdx.y
@@ -1281,6 +1293,7 @@ static __global__ void flash_attn_combine_results(
     __builtin_assume(tid < D);
 
     extern __shared__ float2 meta[];
+    ggml_cuda_pdl_sync();
     for (int i = tid; i < 2*parallel_blocks; i += D) {
         ((float *) meta)[i] = ((const float *)VKQ_meta) [i];
     }
@@ -1339,6 +1352,7 @@ void launch_fattn(
 
     const ggml_cuda_flash_attn_ext_f16_extra_data f16_extra =
         ggml_cuda_flash_attn_ext_get_f16_extra_data(KQV, need_f16_K, need_f16_V);
+
     ggml_cuda_pool_alloc<int>    KV_max(pool);
     ggml_cuda_pool_alloc<float>  dst_tmp(pool);
     ggml_cuda_pool_alloc<float2> dst_tmp_meta(pool);
@@ -1539,7 +1553,9 @@ void launch_fattn(
     const uint3 ne01 = init_fastdiv_values(Q->ne[1]);
 
     GGML_ASSERT(block_dim.x % warp_size == 0);
-    fattn_kernel<<<blocks_num, block_dim, nbytes_shared, main_stream>>>(
+
+        ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(blocks_num, block_dim, nbytes_shared, main_stream);
+        ggml_cuda_kernel_launch(fattn_kernel, launch_params,
         (const char *) Q->data,
         K_data,
         V_data,
@@ -1569,9 +1585,9 @@ void launch_fattn(
             const dim3 block_dim_combine(DV, 1, 1);
             const dim3 blocks_num_combine = {(unsigned)ntiles_dst, ncols1, ncols2};
 
-            flash_attn_stream_k_fixup_uniform<DV, ncols1, ncols2>
-                <<<blocks_num_combine, block_dim_combine, 0, main_stream>>>
-                ((float *) KQV->data, dst_tmp_meta.ptr,
+            const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(blocks_num_combine, block_dim_combine, 0, main_stream);
+            ggml_cuda_kernel_launch(flash_attn_stream_k_fixup_uniform<DV, ncols1, ncols2>, launch_params,
+                (float *) KQV->data, dst_tmp_meta.ptr,
                  Q->ne[1], Q->ne[2], K->ne[2], nblocks_sk,
                  gqa_ratio, bpt, fd0, fd1, fd2);
         } else if (ntiles_dst % blocks_num.x != 0) {
@@ -1586,9 +1602,9 @@ void launch_fattn(
             const dim3 block_dim_combine(DV, 1, 1);
             const dim3 blocks_num_combine = {blocks_num.x, ncols1, ncols2};
 
-            flash_attn_stream_k_fixup_general<DV, ncols1, ncols2>
-                <<<blocks_num_combine, block_dim_combine, 0, main_stream>>>
-                ((float *) KQV->data, dst_tmp_meta.ptr,
+            const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(blocks_num_combine, block_dim_combine, 0, main_stream);
+            ggml_cuda_kernel_launch(flash_attn_stream_k_fixup_general<DV, ncols1, ncols2>, launch_params,
+                (float *) KQV->data, dst_tmp_meta.ptr,
                  Q->ne[1], Q->ne[2], gqa_ratio, total_work,
                  fd_k_j_z_ne12, fd_k_j_z, fd_k_j, fd_k);
         }
@@ -1597,9 +1613,9 @@ void launch_fattn(
         const dim3 blocks_num_combine(Q->ne[1], Q->ne[2], Q->ne[3]);
         const size_t nbytes_shared_combine = parallel_blocks*sizeof(float2);
 
-        flash_attn_combine_results<DV>
-            <<<blocks_num_combine, block_dim_combine, nbytes_shared_combine, main_stream>>>
-            (dst_tmp.ptr, dst_tmp_meta.ptr, (float *) KQV->data, parallel_blocks);
+        const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(blocks_num_combine, block_dim_combine, nbytes_shared_combine, main_stream);
+        ggml_cuda_kernel_launch(flash_attn_combine_results<DV>, launch_params,
+            dst_tmp.ptr, dst_tmp_meta.ptr, (float *) KQV->data, parallel_blocks);
     }
     CUDA_CHECK(cudaGetLastError());
 }

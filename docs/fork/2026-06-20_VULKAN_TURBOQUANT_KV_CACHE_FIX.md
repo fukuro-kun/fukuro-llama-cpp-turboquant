@@ -8,14 +8,14 @@
 
 ## 1. Ursprüngliches Problem
 
-TurboQuant KV-Cache (`--cache-type-k turbo3 --cache-type-v turbo3`) auf Vulkan (AMD iGPU / Mars) produzierte **vollständigen Müll** bei der Inferenz:
+TurboQuant KV-Cache (`--cache-type-k turbo3 --cache-type-v turbo3`) auf Vulkan (AMD iGPU / AMD-System) produzierte **vollständigen Müll** bei der Inferenz:
 
 ```
 > Hello! What are you?
 ulikéでul/丈夫1ه irgende- Uriu...
 ```
 
-**Wichtige Beobachtung:** Derselbe Code funktionierte auf CUDA (Styx, NVIDIA GTX 1070) einwandfrei.
+**Wichtige Beobachtung:** Derselbe Code funktionierte auf CUDA (Legacy-System, NVIDIA GTX 1070) einwandfrei.
 
 ---
 
@@ -202,7 +202,7 @@ d1d0f7aa7 vulkan: TURBO4_0 Support implementiert (KV-Cache, SET_ROWS, Dequant)
 
 ## 8. Nächste Schritte
 
-- [x] Turbo4 Regressionstests auf Mars laufen lassen — **ERLEDIGT (100% PASS)**
+- [x] Turbo4 Regressionstests auf AMD-System laufen lassen — **ERLEDIGT (100% PASS)**
 - [x] Turbo4 Inferenz-Test — **ERLEDIGT (kohärent)**
 - [ ] Turbo4 bei 160k/170k Kontext testen
 - [x] Workaround-Commit `9d0c44e43` (f16-Fallback) revertieren — **ERLEDIGT**

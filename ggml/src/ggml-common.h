@@ -330,8 +330,8 @@ static_assert(sizeof(block_turbo4_0) == 2*sizeof(ggml_half) + QK_TURBO4*3/8 + QK
 static_assert(QK_TURBO4 == 128, "turbo4 kernels assume QK_TURBO4 == 128");
 
 // TurboQuant 2-bit: 2-bit PolarQuant indices only (no QJL)
-// Per block: norm(fp16) + 2-bit indices (32 bytes) = 34 bytes per 128 values
-// = 2.125 bits/value → ~7.5× compression vs fp16
+// Per block: norm(fp16) + 2-bit indices (8 bytes) = 10 bytes per 32 values
+// = 2.5 bits/value → 6.4× compression vs fp16
 // 4 centroids (Lloyd-Max for N(0, 1/128)): {-0.133462, -0.039994, 0.039994, 0.133462}
 #define QK_TURBO2 128   // Block size 128: one block per rotation group
 #define QK_TURBO2_GROUP 128  // rotation group size = head_dim

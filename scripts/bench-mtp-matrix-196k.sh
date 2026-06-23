@@ -28,7 +28,7 @@
 set -euo pipefail
 
 LLAMA_CLI="${LLAMA_CLI:-$(dirname "$0")/../build/bin/llama-cli}"
-BASE_DIR="${BASE_DIR:-/media/fukuro/raid5/modelle/gemma-4-12b-it}"
+BASE_DIR="${BASE_DIR:-/pfad/zu/modellen/gemma-4-12b-it}"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 LOG="/tmp/mtp_matrix_196608_${TIMESTAMP}.log"
 CSV="/tmp/mtp_matrix_196608_${TIMESTAMP}.csv"

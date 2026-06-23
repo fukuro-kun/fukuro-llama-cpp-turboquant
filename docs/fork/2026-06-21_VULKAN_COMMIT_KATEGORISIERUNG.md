@@ -6,12 +6,12 @@
 
 ### 🔴 PERF — Performance-relevant (FA, MatMul, Buffer, Dispatch)
 
-| Hash | PR | Beschreibung | Mars-Relevanz |
+| Hash | PR | Beschreibung | AMD-System-Relevanz |
 |------|-----|-------------|---------------|
 | `75f3bc94e` | #20797 | FA DP4A shader for quantized KV cache | 🔴 Hoch — turbo3 FA Performance |
 | `f9f33654a` | #21751 | Coalesce Q4_K/Q5_K scale loads | 🟡 Mittel — Q4_K_M Modell |
-| `05e141a6b` | #21753 | Asymmetric FA in coopmat2 path | 🟡 Mittel — coopmat2 nicht auf Mars |
-| `dd9280a66` | #22589 | Asymmetric FA in scalar/mmq/coopmat1 paths | 🔴 Hoch — Mars nutzt coopmat1! |
+| `05e141a6b` | #21753 | Asymmetric FA in coopmat2 path | 🟡 Mittel — coopmat2 nicht auf AMD-System |
+| `dd9280a66` | #22589 | Asymmetric FA in scalar/mmq/coopmat1 paths | 🔴 Hoch — AMD-System nutzt coopmat1! |
 | `706fbd8ab` | #22693 | Check shared memory size for mmq shaders | 🟡 Mittel — Robustheit |
 | `dbe7901ca` | #23005 | Fix matmul integer pipeline selection | 🔴 Hoch — könnte PP-Klippe erklären! |
 | `c6e408837` | #22887 | MUL_MAT_VEC 4 K per iteration for F16/32 | 🟡 Mittel — TG-Performance |
@@ -26,12 +26,12 @@
 
 ### 🔴 CORRECT — Korrektheits-Fixes
 
-| Hash | PR | Beschreibung | Mars-Relevanz |
+| Hash | PR | Beschreibung | AMD-System-Relevanz |
 |------|-----|-------------|---------------|
 | `19821178b` | #21865 | Add barrier after writetimestamp | 🟢 Niedrig |
 | `7c48fb81c` | #23665 | Fix wrong index variable in inner loop | 🔴 Hoch — könnte Hang verursachen! |
 | `91eb8f4fa` | #23667 | Fix memory logger unsafe iterator access | 🟡 Mittel — Stabilität |
-| `6e093b80e` | #23420 | FA support for BFloat16 KV cache | 🟢 Niedrig — Mars hat kein BF16 |
+| `6e093b80e` | #23420 | FA support for BFloat16 KV cache | 🟢 Niedrig — AMD-System hat kein BF16 |
 | `3e7bd4f39` | #23770 | Pipeline barriers for memcpy read operations | 🔴 Hoch — UMA Korrektheit! |
 | `558e221b7` | #24326 | Record actual memory properties during buffer creation | 🔴 Hoch — Korrektheit (getestet, kein Effekt) |
 | `5a69c9743` | #24186 | Check coopmat2 features before reporting support | 🟡 Mittel — Stabilität |
@@ -39,15 +39,15 @@
 
 ### 🔴 UMA — UMA/APU-spezifisch
 
-| Hash | PR | Beschreibung | Mars-Relevanz |
+| Hash | PR | Beschreibung | AMD-System-Relevanz |
 |------|-----|-------------|---------------|
-| `4d8cc0c56` | #22455 | Avoid preferring transfer queue on AMD UMA | 🔴 Hoch — Mars ist AMD UMA! |
-| `32120c10e` | #22930 | Prefer host-visible memory on UMA devices | 🔴 Hoch — Mars ist UMA! |
+| `4d8cc0c56` | #22455 | Avoid preferring transfer queue on AMD UMA | 🔴 Hoch — AMD-System ist AMD UMA! |
+| `32120c10e` | #22930 | Prefer host-visible memory on UMA devices | 🔴 Hoch — AMD-System ist UMA! |
 | `e95dae18d` | #24086 | Remove padding and multiple D2D copies for MTP | 🟡 Mittel — MTP Performance |
 
 ### 🟡 NEWOP — Neue Operationen
 
-| Hash | PR | Beschreibung | Mars-Relevanz |
+| Hash | PR | Beschreibung | AMD-System-Relevanz |
 |------|-----|-------------|---------------|
 | `edd4d9bca` | #21029 | FA dequant for q4_1, q5_0, q5_1, iq4_nl | 🟡 Mittel — iq4_nl ist unser Modell! |
 | `7b6912533` | #21539 | Support Q1_0 | 🟢 Niedrig |
@@ -126,4 +126,4 @@
 16. `edd4d9bca` #21029 — FA dequant for iq4_nl
 17. `19620004f` #23056 — Block-load Q3_K/Q6_K
 
-**Strategie:** Gruppe A zuerst (UMA-spezifisch), dann Gruppe B (Bugfixes), dann Gruppe C (Performance). Nach jeder Gruppe: Build auf Mars, Cache löschen, Benchmark.
+**Strategie:** Gruppe A zuerst (UMA-spezifisch), dann Gruppe B (Bugfixes), dann Gruppe C (Performance). Nach jeder Gruppe: Build auf AMD-System, Cache löschen, Benchmark.

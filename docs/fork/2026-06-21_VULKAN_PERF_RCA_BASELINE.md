@@ -1,6 +1,6 @@
-# Vulkan Perf-RCA Baseline — Mars (2026-06-21)
+# Vulkan Perf-RCA Baseline — AMD-System (2026-06-21)
 
-**System:** Mars — AMD 760M (RADV PHOENIX, RDNA3, UMA)
+**System:** AMD-System — AMD 760M (RADV PHOENIX, RDNA3, UMA)
 **Modell:** Gemma 4 26B IQ4_NL (13.67 GiB)
 **Branch:** `feature/vulkan-perf-rca` (von master `39282c6a4`)
 **Mesa:** 25.0.7-2
@@ -16,7 +16,7 @@
 | FLASH_ATTN_EXT turbo3 (alle head_dims) | ✅ 2/2 backends passed |
 | FLASH_ATTN_EXT turbo3 hsk=256 (Gemma) | ✅ 2/2 backends passed |
 
-**Fazit:** turbo3+FA ist auf Mars (coopmat1-Pfad) korrekt — wie auf Venus (scalar-Pfad).
+**Fazit:** turbo3+FA ist auf AMD-System (coopmat1-Pfad) korrekt — wie auf AMD-System-2 (scalar-Pfad).
 
 ---
 
@@ -69,7 +69,7 @@ Host: 655 MB (577 modell + 0 kontext + 78 compute)
 
 ---
 
-## 5. Mars Memory-Types (vulkaninfo)
+## 5. AMD-System Memory-Types (vulkaninfo)
 
 | Type | Heap | Flags | Beschreibung |
 |------|------|-------|-------------|
@@ -86,9 +86,9 @@ Host: 655 MB (577 modell + 0 kontext + 78 compute)
 
 ---
 
-## 6. Vergleich: Mars vs Venus
+## 6. Vergleich: AMD-System vs AMD-System-2
 
-| Eigenschaft | Mars | Venus |
+| Eigenschaft | AMD-System | AMD-System-2 |
 |-------------|------|-------|
 | GPU | Radeon 760M (RDNA3) | Radeon Vega (GCN) |
 | RADV | PHOENIX | RENOIR |
@@ -96,10 +96,10 @@ Host: 655 MB (577 modell + 0 kontext + 78 compute)
 | FA-Pfad | coopmat1 | scalar |
 | Mesa | 25.0.7-2 | 25.2.8 |
 | VRAM | 27648 MB (UMA) | 32360 MB (UMA) |
-| pp256 (turbo3+FA) | 125.76 | ~166 (Venus) |
-| tg64 (turbo3+FA) | 21.52 | ~9.8 (Venus) |
+| pp256 (turbo3+FA) | 125.76 | ~166 (AMD-System-2) |
+| tg64 (turbo3+FA) | 21.52 | ~9.8 (AMD-System-2) |
 
-**Fazit:** Mars ist bei TG deutlich schneller (22 vs 10 t/s), bei PP etwas langsamer (126 vs 166 t/s). Die coopmat1-FA-Implementation auf Mars funktioniert korrekt.
+**Fazit:** AMD-System ist bei TG deutlich schneller (22 vs 10 t/s), bei PP etwas langsamer (126 vs 166 t/s). Die coopmat1-FA-Implementation auf AMD-System funktioniert korrekt.
 
 ---
 

@@ -71,7 +71,7 @@
 
 | Tool | Pfad | Zweck |
 |------|------|-------|
-| `hf` | `~/.local/bin/hf` (auf uranus) | Hugging Face CLI fuer Modell-Downloads. Niemals `wget`/`curl` fuer HF-Modelle nutzen! |
+| `hf` | `~/.local/bin/hf` (auf dem System) | Hugging Face CLI fuer Modell-Downloads. Niemals `wget`/`curl` fuer HF-Modelle nutzen! |
 
 **Wichtige Kommandos:**
 

@@ -608,10 +608,10 @@ Siehe [docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md](docs/fork/2026-06-17
 
 | System | GPU | Status |
 |--------|-----|--------|
-| **Mars** | AMD RDNA3 (Vulkan) | 🔴 Benchmark unterbrochen — System waehrend Durchlauf unerreichbar |
-| **Venus** | AMD RDNA2 (CPU-Fallback) | 🟢 5/6 Modelle erfolgreich |
+| **AMD-System-1** | AMD RDNA3 (Vulkan) | 🔴 Benchmark unterbrochen — System waehrend Durchlauf unerreichbar |
+| **AMD-System-2** | AMD RDNA2 (CPU-Fallback) | 🟢 5/6 Modelle erfolgreich |
 
-**Venus-Referenzwerte (CPU-Fallback, nicht Vulkan):**
+**AMD-System-2-Referenzwerte (CPU-Fallback, nicht Vulkan):**
 
 | Modell | Q3_K_M pp128 | Q3_K_M tg32 | Q6_K pp128 | Q6_K tg32 |
 |--------|-------------|-------------|-----------|-----------|
@@ -621,8 +621,8 @@ Siehe [docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md](docs/fork/2026-06-17
 ### Fazit
 
 - ✅ **IN MASTER GEMERGET** — Cherry-pick erfolgreich
-- 🟡 **AMD-Benchmark ausstehend** — Mars-Vulkan-Test noch nicht komplett
-- **Empfohlen:** Mars-Benchmark wiederholen sobald System stabil
+- 🟡 **AMD-Benchmark ausstehend** — AMD-Vulkan-Test noch nicht komplett
+- **Empfohlen:** AMD-Benchmark wiederholen sobald System stabil
 
 ---
 
@@ -668,7 +668,7 @@ Siehe [docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md](docs/fork/2026-06-17
 
 - ✅ **IN MASTER GEMERGED** (Commit `c1b8a86dc`)
 - **Adaptierung:** HIP-Workaround (`hip_f16_alloc`) entfernt — ersetzt durch upstreams generischeren `f16_extra_data`-Ansatz
-- **Build:** Kompiliert erfolgreich auf Hydra (CUDA)
+- **Build:** Kompiliert erfolgreich auf CUDA-System
 
 ### Fazit
 

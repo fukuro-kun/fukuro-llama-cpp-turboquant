@@ -137,7 +137,7 @@ Relevante Upstream-Issues/PRs gefunden:
 | #16759 "Odd compute buffer behaviors at breakpoints" | — | `GGML_VK_SUBALLOCATION_BLOCK_SIZE` |
 | #20889 "DeviceLostError on gfx1102 (RADV PHOENIX)" | — | Exakt unsere GPU |
 
-### Mars Memory-Types (vulkaninfo)
+### AMD-System Memory-Types (vulkaninfo)
 
 | Type | Heap | Flags | Beschreibung |
 |------|------|-------|-------------|
@@ -163,7 +163,7 @@ Relevante Upstream-Issues/PRs gefunden:
 | pp4096 | 168 t/s | **HANG** (>180s) |
 | pp8192 | HANG (>300s) | HANG |
 
-**Fazit: Der Fix hat pp4096 GEBROCHEN!** System-RAM (HostCached, Type 5) ist für GPU-Compute auf Mars **langsamer** als GTT (DeviceLocal, Type 3). Der PP-Hang bei >4k ist **kein** WC-Memory-Problem.
+**Fazit: Der Fix hat pp4096 GEBROCHEN!** System-RAM (HostCached, Type 5) ist für GPU-Compute auf AMD-System **langsamer** als GTT (DeviceLocal, Type 3). Der PP-Hang bei >4k ist **kein** WC-Memory-Problem.
 
 ### Neue Erkenntnisse
 
@@ -172,7 +172,7 @@ Relevante Upstream-Issues/PRs gefunden:
 3. **TG-Klippe bei ~188k** ist ein separates Problem (tritt bei Generation auf, nicht bei Prefill)
 4. **Fork ist 996 Commits hinter upstream** — viele Vulkan-Fixes fehlen
 5. **`suballocation_block_size` = 1 GiB** (default) — könnte bei großen KV-Caches zu Fragmentierung führen
-6. **UMA HostCached-Preference (PR #23762) ist NICHT die Lösung** — System-RAM ist auf Mars für GPU-Compute langsamer als GTT
+6. **UMA HostCached-Preference (PR #23762) ist NICHT die Lösung** — System-RAM ist auf AMD-System für GPU-Compute langsamer als GTT
 
 ### PP-Scaling Matrix (clean pipeline cache)
 

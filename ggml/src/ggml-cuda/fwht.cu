@@ -19,6 +19,7 @@ __global__ void fwht_cuda(const float * src, float * dst, const int64_t n_rows, 
     float     reg[el_w];
     const int lane = threadIdx.x;
 
+    ggml_cuda_pdl_sync();
 #pragma unroll
     for (int i = 0; i < el_w; ++i) {
         reg[i] = src[i * warp_size + lane] * scale;
@@ -73,24 +74,26 @@ bool ggml_cuda_op_fwht(ggml_backend_cuda_context & ctx, const ggml_tensor * src,
 
     const int64_t num_blocks = (rows + rows_per_block - 1) / rows_per_block;
 
-    cudaStream_t stream = ctx.stream();
-    dim3         grid_dims(num_blocks, 1, 1);
-    dim3         block_dims(warp_size, rows_per_block, 1);
+    cudaStream_t                         stream = ctx.stream();
+    dim3                                 grid_dims(num_blocks, 1, 1);
+    dim3                                 block_dims(warp_size, rows_per_block, 1);
+    const ggml_cuda_kernel_launch_params launch_params =
+        ggml_cuda_kernel_launch_params(grid_dims, block_dims, 0, stream);
 
     const float scale = 1 / sqrtf(n);
 
     switch (n) {
         case 64:
-            fwht_cuda<64><<<grid_dims, block_dims, 0, stream>>>(src_d, dst_d, rows, scale);
+            ggml_cuda_kernel_launch(fwht_cuda<64>, launch_params, src_d, dst_d, rows, scale);
             return true;
         case 128:
-            fwht_cuda<128><<<grid_dims, block_dims, 0, stream>>>(src_d, dst_d, rows, scale);
+            ggml_cuda_kernel_launch(fwht_cuda<128>, launch_params, src_d, dst_d, rows, scale);
             return true;
         case 256:
-            fwht_cuda<256><<<grid_dims, block_dims, 0, stream>>>(src_d, dst_d, rows, scale);
+            ggml_cuda_kernel_launch(fwht_cuda<256>, launch_params, src_d, dst_d, rows, scale);
             return true;
         case 512:
-            fwht_cuda<512><<<grid_dims, block_dims, 0, stream>>>(src_d, dst_d, rows, scale);
+            ggml_cuda_kernel_launch(fwht_cuda<512>, launch_params, src_d, dst_d, rows, scale);
             return true;
         default:
             return false;

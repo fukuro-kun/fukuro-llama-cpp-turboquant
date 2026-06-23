@@ -8,7 +8,7 @@
 
 ## Root Cause
 
-Der GPU-Hang auf Mars (AMD 760M, RADV PHOENIX) wird durch eine Kombination aus zwei Faktoren verursacht:
+Der GPU-Hang auf AMD-System (AMD 760M, RADV PHOENIX) wird durch eine Kombination aus zwei Faktoren verursacht:
 
 1. **`amdgpu.lockup_timeout` = 2000ms (Default)**
    Der Linux amdgpu-Kernel-Treiber hat einen Watchdog, der GPU-Jobs nach 2000ms abbricht, wenn sie nicht fertig werden.
