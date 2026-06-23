@@ -109,8 +109,8 @@ git log --oneline upstream/feature/turboquant-kv-cache..feature/turboquant-kv-ca
 |------------|--------------------------------|-------------|----------------------|
 | `ggml-org/llama.cpp` | ✅ Ja | Klassen-Hierarchie (`llama_model_base`) | 735 |
 | `TheTom/llama-cpp-turboquant` | ❌ Nein | Monolithisch (`struct llama_model`) | 643 |
-| `AtomicBot-ai/atomic-llama-cpp-turboquant` | ❌ Nein | Monolithisch (`struct llama_model`) | 598 |
-| `fukuro-llama-cpp-turboquant` | ❌ Nein | Monolithisch (`struct llama_model`) | 688 |
+| `AtomicBot-ai/atomic-llama-cpp-turboquant` | ✅ Ja (sehe Sync 2026-06-19) | Klassen-Hierarchie (`llama_model_base`) | 598 |
+| `fukuro-llama-cpp-turboquant` | ✅ Ja (via Sync-Merge 2026-06-23) | Klassen-Hierarchie (`llama_model_base`) | 688 |
 
 **Wichtig:** Alle drei Forks haben den Commit `994118a18` in ihrer Git-Datenbank (weil `ggml-org` als Upstream-Remote konfiguriert ist und gefetched wird), aber **keiner** hat ihn in den eigenen `master` gemerged.
 
