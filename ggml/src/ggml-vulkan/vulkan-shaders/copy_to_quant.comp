@@ -450,11 +450,21 @@ void main() {
         data_q[db].qs[t / 4u] = uint8_t(qs_byte);
     }
 
-    // Pack signs: 8 elements per byte via subgroup ballot
-    uvec4 ballot = subgroupBallot(((idx >> 2u) & 1u) != 0u);
+    // Pack signs: 8 elements per byte via subgroup shuffle.
+    // subgroupShuffle is used instead of subgroupBallot because ballot
+    // returns a uvec4 whose .x only holds 32 bits. On devices with
+    // subgroup size 64 (e.g. AMD GCN without VK_EXT_subgroup_size_control
+    // support for compute), ballot.y holds bits 32-63 but the old code
+    // only read ballot.x, silently zeroing 50% of the sign bits.
+    // subgroupShuffle operates within the subgroup regardless of size.
+    uint my_hi1 = (idx >> 2u) & 0x1u;
+    uint signs_byte = 0u;
+    [[unroll]] for (uint k = 0; k < 8; k++) {
+        uint contrib = subgroupShuffle(my_hi1, (sg_lane & ~7u) + k);
+        signs_byte |= contrib << k;
+    }
     if (sg_lane % 8u == 0u) {
-        uint local_byte = sg_lane / 8u;
-        data_q[db].signs[t / 8u] = uint8_t((ballot.x >> (local_byte * 8u)) & 0xFFu);
+        data_q[db].signs[t / 8u] = uint8_t(signs_byte);
     }
 
     // Step 7: reconstruction norm via subgroup reduction
