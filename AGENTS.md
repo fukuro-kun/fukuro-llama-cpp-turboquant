@@ -162,6 +162,13 @@ Fuer alle Gemma-4 Modelle (sofern kein begruendeter Spezialfall vorliegt):
 | Dummy-Memory fuer `llama_decode` | ✅ Funktioniert | `llama_memory_diffusion` in `llama-model.cpp` |
 | **KV-Cache Path (PREFILL→DECODE)** | ✅ **Gelöst** | Root Cause: `dg_ensure_pkv_store()` allokierte den gesamten PKV-Store auf `dev_layer(0)`. Bei partiellem GPU-Offload ist das CPU, aber `Kcur`/`Vcur` der GPU-Layer sind CUDA-resident → Cross-Backend `ggml_cpy` schlug fehl. Fix: PKV pro Layer auf dem Buffer-Type des jeweiligen Layer-Device (`m.dev_layer(il)`) allokieren → alle Operationen intra-Backend. Tests: `-ngl 8` (cut=14, "Paris") ✅, `-ngl 0` (cut=8) ✅. Siehe `docs/fork/archive/rca/2026-06-16_DEBUG_SESSION_PKV_FIX.md` fuer Root Cause und `docs/fork/2026-06-15_DIFFUSION_GEMMA_STATUS.md` fuer aktuellen Status. |
 
+### Gemma 4 MTP — Status & Bekannte Probleme
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| **MTP 0% Akzeptanz (f16 + turbo)** | ✅ **Gelöst** | Root Cause: `n_embd_out_impl`/`n_embd_inp_impl` in `gemma4-assistant.cpp` wurden nicht auf `n_embd_backbone` gesetzt → `pending_h`-Puffer war 1024 statt 3840 Floats → Backbone-Hidden-State trunciert. Fix: `hparams.n_embd_inp_impl = hparams.n_embd_backbone; hparams.n_embd_out_impl = hparams.n_embd_backbone;` nach Laden von GGUF. Verifikation: f16 ~50-60% Akzeptanz, turbo4 ~75-100%. |
+| **TurboQuant ISWA innerq_scale** | ✅ **Gelöst** | `llama_kv_cache_iswa_context` überschreibt `get_turbo_innerq_scale_inv()` nicht → inverse WHT in `build_attn_mha` erhielt `nullptr`. Fix: Override hinzugefügt, delegiert an `ctx_base`. Siehe Trilium-Note `K5rDVjhsJt6z` für Details. |
+
 ### Vulkan-Optimierungen — Status
 
 | Feature | Status | Details |

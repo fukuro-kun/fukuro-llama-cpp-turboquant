@@ -3,14 +3,20 @@
 #include "llama-impl.h"
 
 void llama_model_gemma4_assistant::load_arch_hparams(llama_model_loader & ml) {
-    hparams.n_embd_inp_impl = hparams.n_embd_out();
-
     // Read backbone embedding length (target model hidden size)
     // Older GGUF files use n_embd_backbone, newer ones use embedding_length_out
     ml.get_key(LLM_KV_EMBEDDING_LENGTH_BACKBONE, hparams.n_embd_backbone, false);
     if (hparams.n_embd_backbone == 0) {
-        hparams.n_embd_backbone = hparams.n_embd_out();
+        hparams.n_embd_backbone = hparams.n_embd;
     }
+
+    // The MTP assistant's input and output embedding dimensions match the
+    // backbone (target) hidden size, not the assistant's own n_embd.
+    // The assistant's n_embd (e.g. 1024) is the internal hidden size used
+    // inside the transformer layers; the input/output projections (nextn_proj_pre/post)
+    // map between n_embd_backbone and n_embd.
+    hparams.n_embd_inp_impl = hparams.n_embd_backbone;
+    hparams.n_embd_out_impl = hparams.n_embd_backbone;
 
     hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
     ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.is_swa_impl, hparams.n_layer());

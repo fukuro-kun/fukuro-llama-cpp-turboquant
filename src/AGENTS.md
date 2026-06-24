@@ -29,6 +29,11 @@ Diese Dateien enthalten Fork-spezifische Logik und duerfen bei Upstream-Syncs be
 | `models/qwen35moe.cpp` | Qwen 3.5 MoE-Modell |
 | `models/diffusion-gemma.cpp` | DiffusionGemma-Integration |
 
+### Wichtige Konfiguration in `gemma4-assistant.cpp`
+
+- `n_embd_inp_impl` und `n_embd_out_impl` **müssen** auf `n_embd_backbone` gesetzt werden (nicht auf `n_embd`). Der Assistant hat ein eigenes `n_embd` (z.B. 1024), aber Input/Output-Projektionen (`nextn_proj_pre/post`) arbeiten mit `n_embd_backbone` (z.B. 3840). Wenn diese nicht korrekt gesetzt werden, wird der `pending_h`-Puffer in `speculative.cpp` zu klein dimensioniert → Backbone-Hidden-State wird trunciert → 0% MTP-Akzeptanz.
+- `llama_kv_cache_iswa_context` muss `get_turbo_innerq_scale_inv()` (und `get_turbo_rot_forward/inverse`) überschreiben und an `ctx_base` delegieren, da `build_attn_mha` über `this->mctx` (den ISWA-Wrapper) auf diese Methoden zugreift.
+
 ### Modell-Implementierungen
 
 - `src/models/` enthaelt >100 Modell-Dateien (eine pro Architektur).
