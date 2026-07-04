@@ -285,4 +285,63 @@ Die AtomicBot-Remote-Branches `feature/turboquant-kv-cache` und `sync/upstream-2
 
 ---
 
-*Letzte Aktualisierung: 2026-06-22*
+## 10. Git-Hygiene — Quota-Management
+
+### Problem
+
+Codeberg hat Repository-Quota-Limits (750 MiB Git-Storage gesamt). Der Fork brachte
+~6660 Tags und große Binärdateien aus upstream mit, die nicht benoetigt werden und
+massiv Quota verbrauchen.
+
+### Aufraeum-Aktionen
+
+#### 2026-07-02: Tag/Branch-Cleanup
+
+- 6659 lokale Tags geloescht (upstream build-numbers, commit-hash tags, CI prebuilds)
+- 11 obsolete Remote-Branches auf Codeberg geloescht
+- `atomictemp` remote entfernt (historisch)
+- Force-Push master (DFlash-Migration auf cherry-dflash-Basis)
+- DFlash-Migration als `archive/cherry-dflash` Branch archiviert, master auf alte Basis zurueckgesetzt
+
+#### 2026-07-04: History-Bereinigung (filter-repo + Repo-Recreate)
+
+`git filter-repo` entfernte 5 Pfade die nur in der History existierten (nicht im HEAD):
+
+| Datei | Kumulierte Groesse | Versionen |
+|-------|---------------------|-----------|
+| `tools/server/public/bundle.js` | 177.3 MB | 31 |
+| `tools/server/public/index.html.gz` | 144.9 MB | 100 |
+| `ggml-vulkan-shaders.hpp` (root) | 63.4 MB | 13 |
+| `examples/server/public/index.html.gz` | 30.4 MB | 26 |
+| `ggml/src/ggml-vulkan-shaders.hpp` | 16.8 MB | 2 |
+| **Summe** | **~432 MB** | 172 |
+
+Anschliessend Repo-Recreate (Loeschen + Neu-Anlegen auf Codeberg) fuer sofortige
+Quota-Freigabe (ohne 30-Tage Grace-Periode).
+
+### Quota-Entwicklung
+
+| Zeitpunkt | Git gesamt | Repo-Groesse | Aktion |
+|-----------|------------|--------------|--------|
+| 2026-07-02 vor Cleanup | 527.6 MB | 426.7 MB | — |
+| 2026-07-02 nach Tag/Branch-Cleanup | ~527.6 MB | ~426.7 MB | Tags waren nur lokal |
+| 2026-07-04 nach Repo-Loeschung | 100.9 MB | 0 MB | Repo geloescht |
+| 2026-07-04 nach Neu-Anlage | 228.3 MB | 127.4 MB | Bereinigte History gepusht |
+
+**Einsparung: 527.6 MB → 228.3 MB = 299.3 MB (57% Reduktion)**
+
+### Verbleibende Refs
+
+| Ref | Typ | Zweck |
+|-----|-----|-------|
+| `master` | Branch | Hauptentwicklung (AtomicBot-Basis) |
+| `archive/cherry-dflash` | Branch | DFlash-Migration (archiviert) |
+| `archive/sync-atomicbot-2026-06-19` | Tag | Archiv-Checkpoint |
+| `origin` | Remote | Codeberg (primary) |
+| `github` | Remote | GitHub (mirror) |
+| `tomtemp` | Remote | TheTom (fetch-only) |
+| `upstream` | Remote | ggml-org (fetch-only) |
+
+---
+
+*Letzte Aktualisierung: 2026-07-04 (Git-Hygiene: filter-repo + Repo-Recreate)*
