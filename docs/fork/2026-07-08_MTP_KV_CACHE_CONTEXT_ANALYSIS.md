@@ -89,7 +89,11 @@ Der Draft hat zwar keinen eigenen KV-Cache, aber die Memory-Fitting-Phase (`llam
 
 ## 4. MTP-Performance bei großem Kontext
 
-### 4.1 Gemessene Werte (1200 Tokens Generierung, temp=1.0, seed=42)
+### 4.1 Veraltete Werte (trivialer Prompt "Count 1 to 100")
+
+> ⚠️ **WARNUNG:** Diese Werte wurden mit einem trivial vorhersagbaren Prompt
+> ("Count from 1 to 100") gemessen. Sie sind **NICHT repräsentativ** für
+> realistische Nutzung. Siehe §4.2 für den korrekten Direktvergleich.
 
 | ctx | MTP | pp (t/s) | tg (t/s) | Zeit 1200 tok | Drafts akzeptiert |
 |-----|-----|----------|----------|---------------|-------------------|
@@ -99,21 +103,57 @@ Der Draft hat zwar keinen eigenen KV-Cache, aber die Memory-Fitting-Phase (`llam
 | 102.400 (100k) | ❌ | 112.3 | **19.11** | 62.8s | — |
 | 131.072 (128k) | ❌ | 125.1 | **20.36** | 58.9s | — |
 
-### 4.2 Break-Even-Analyse
+### 4.2 Korrigierter Direktvergleich MTP vs. no-MTP (Essay-Prompt)
 
-MTP wird kontraproduktiv bei ctx > ~50-80k auf der GTX 1070.
+**Prompt:** "Schreibe einen ausführlichen Essay über die Geschichte der
+künstlichen Intelligenz..." (6 Aspekte, 1200 Tokens, temp=1.0, seed=42)
+**Konfiguration:** `--n-cpu-moe 20 -ctk turbo3 -ctv turbo4 --flash-attn on`,
+Pinning+Prefetch, n_max=3
+
+| ctx | MTP tg (t/s) | noMTP tg (t/s) | MTP VRAM | noMTP VRAM | MTP Vorteil |
+|-----|-------------|----------------|----------|------------|-------------|
+| 8k | 16.56 | **18.12** | 6832 | 6444 | ❌ -9% |
+| 16k | 15.12 | **17.39** | 7040 | 6612 | ❌ -15% |
+| 32k | 14.49 | **16.49** | 7210 | 6702 | ❌ -14% |
+| 48k | 14.25 | **17.27** | 7380 | 6792 | ❌ -21% |
+| **64k** | **CRASH** | — | — | — | ❌ 2^16 Bug |
+| 96k | 13.38 | **17.16** | 8018 | 7190 | ❌ -28% |
+| 128k | 15.68 | **16.03** | 7794 | 7498 | ❌ -2% |
+
+**Schlussfolgerung:** MTP ist bei JEDEM Kontext langsamer als no-MTP für
+realistische (kreative) Textgenerierung. Der Speedup bei trivialen Prompts
+("Count 1 to 100": 31.93 t/s) entsteht durch ~100% Acceptance Rate — bei
+kreativen Essays werden Drafts meist abgelehnt, und der Draft-Overhead
+(additional KV-Cache reads, serielle Ausführung) dominiert.
+
+### 4.3 Break-Even-Analyse (korrigiert)
+
+Die ursprüngliche Annahme "MTP wird kontraproduktiv bei ctx > ~50-80k" ist
+**falsch**. MTP ist bei JEDEM Kontext kontraproduktiv für realistische
+Generierung auf der GTX 1070.
+
+**Warum der 31.93 t/s Wert bei 8k irreführend war:**
+- Prompt: "Count from 1 to 100" — extrem vorhersagbar, ~100% Acceptance
+- Bei kreativen Texten (Essay, Code, Analyse): Acceptance deutlich niedriger
+- Draft-Overhead (4 Layer Cross-Attention, seriell) addiert sich auf jede Runde
+- GTX 1070: 256 GB/s Bandbreite — KV-Cache-Reads des Drafts dominieren
 
 **Speedup-Formel:**
 ```
 Speedup = expected_tokens_per_step / (1 + draft_cost_ratio)
 ```
 
-Bei 8k Kontext:
+Bei 8k Kontext, trivialer Prompt:
 - `draft_cost_ratio` ≈ 0.05 (KV-Cache winzig)
-- `expected_tokens_per_step` ≈ 2.5 (hohe Acceptance)
+- `expected_tokens_per_step` ≈ 2.5 (hohe Acceptance bei trivialem Text)
 - Speedup = 2.5 / 1.05 = **2.38** → gemessen: +52% (Rest ist MoE-Offloading-Overhead)
 
-Bei 100k Kontext:
+Bei 8k Kontext, kreativer Prompt (Essay):
+- `draft_cost_ratio` ≈ 0.05 (KV-Cache winzig)
+- `expected_tokens_per_step` ≈ 1.1-1.3 (niedrige Acceptance bei kreativem Text)
+- Speedup = 1.2 / 1.05 = **1.14** → mit MoE-Offloading-Overhead < 1.0 → **Netto-Slowdown**
+
+Bei 100k Kontext (egal welcher Prompt):
 - `draft_cost_ratio` ≈ 0.5-0.7 (KV-Reads dominieren auf GTX 1070)
 - `expected_tokens_per_step` ≈ 1.8 (~60% Acceptance)
 - Speedup = 1.8 / 1.6 = **1.125** → mit Attention-Drift + MoE-Overhead < 1.0 → **Netto-Slowdown**
@@ -152,15 +192,23 @@ Draft und Target laufen **seriell**, nicht überlappt:
 
 ---
 
-## 5. Praktische Empfehlung
+## 5. Praktische Empfehlung (korrigiert)
 
 | Use Case | Config | ctx | tg | Begründung |
 |----------|--------|-----|-----|------------|
-| **Chat** (kurze Prompts) | MTP an, turbo3/4 | ≤ 32k | ~30 t/s | MTP glänzt, KV-Cache klein |
-| **RAG / lange Doku** | MTP aus, turbo3/4 | 128k | ~20 t/s | Maximaler Kontext, MTP schadet |
-| **Übergangsbereich** | MTP mit `--spec-draft-n-max 1-2` | 32-64k | ~22-25 t/s | Reduzierte Draft-Last |
+| **Chat / RAG / alles** | MTP **aus**, turbo3/4 | 128k | **16-17 t/s** | MTP schadet bei realistischer Generierung |
+| **Maximaler Kontext** | MTP aus, turbo3/4 | 160k | ~16 t/s | Max. KV-Cache, kein MTP-Overhead |
+| **Trivial-Prompts** (Code-Vervollständigung, Listen) | MTP an, n_max=3 | ≤ 32k | ~30 t/s | Nur bei hoher Acceptance (>80%) |
 
-**Sweet Spot:** Entweder MTP mit kleinem ctx (≤32k, ~30 t/s) oder kein MTP mit großem ctx (128k, ~20 t/s).
+**Empfehlung:** MTP standardmäßig **aus**. Nur bei trivial-vorhersagbaren
+Tasks (Code-Vervollständigung, Listen, Zählen) und kleinem Kontext (≤32k)
+kann MTP einen Speedup bringen. Für realistische Chat/RAG/Analyse-Workloads
+ist MTP auf der GTX 1070 bei jedem Kontext langsamer als no-MTP.
+
+**64k (65536) Bug:** ctx=65536 (= 2^16) crasht reproduzierbar mit MTP
+(CUDA error bei Generierung). 32k, 48k, 80k, 96k, 128k funktionieren.
+Vermutung: Integer-Overflow in der Compute-Buffer-Allokation bei 2^16.
+Workaround: ctx auf 65535 oder 80k setzen.
 
 ---
 
@@ -244,12 +292,34 @@ Ohne MTP entfällt der Compute-Buffer für den Draft-Graphen → mehr Platz für
 
 **Erkenntnis:** 32k crasht trotz MTP-Initialisierung — der Compute-Buffer für den Draft-Graph ist bei diesem Kontext zu groß. 48k+ funktionieren.
 
-### 7.2 MTP n_max Test @ ctx=65536 (64k)
+### 7.2 MTP n_max Test @ ctx=65536 (64k) — KORRIGIERT
 
 | n_max | Ladezeit | VRAM | Generierung | Ergebnis |
 |-------|----------|------|-------------|----------|
-| 1 | ✅ 60s | 7550 MiB | ❌ CUDA error | Compute-Buffer OOM |
-| 2 | ✅ 60s | 7550 MiB | ❌ CUDA error | Compute-Buffer OOM |
-| 3 | ✅ 60s | 7550 MiB | ✅ 17.33 t/s | Stabil |
+| 2 | ✅ 10s | 7550 MiB | ❌ CUDA error | 2^16 Bug |
+| 3 | ✅ 10s | 7550 MiB | ❌ CUDA error | 2^16 Bug |
+| 4 | ✅ 10s | 7550 MiB | ❌ CUDA error | 2^16 Bug |
+| 5 | ✅ 10s | 7550 MiB | ❌ CUDA error | 2^16 Bug |
 
-**Erkenntnis:** n_max=1/2 hilft nicht bei 64k — der Compute-Buffer für den Draft-Graph skaliert mit der Kontext-Größe (Attention-Score-Matrix ist `n_heads × n_ctx` pro Layer), unabhängig von der Draft-Länge. Das Problem ist die Kontext-Größe, nicht wie viele Draft-Tokens generiert werden.
+**Erkenntnis (korrigiert):** Der frühere Claim "n_max=3 funktioniert bei 64k"
+war FALSCH — wahrscheinlich eine Verwechslung mit 96k. Der saubere Test zeigt:
+**ALLE n_max-Werte crashen bei 64k**. Das ist kein n_max-Problem, sondern ein
+**2^16 Integer-Overflow-Bug** in der Compute-Buffer-Allokation.
+
+Bestätigung: 32k, 48k, 80k, 96k, 128k funktionieren alle mit n_max=3. Nur
+65536 (= 2^16) crasht reproduzierbar.
+
+### 7.3 MTP vs. no-MTP Direktvergleich (Essay-Prompt, n_max=3)
+
+Siehe §4.2 für die vollständige Tabelle. Zusammenfassung:
+
+| ctx | MTP tg | noMTP tg | Differenz |
+|-----|--------|----------|-----------|
+| 8k | 16.56 | 18.12 | -9% |
+| 16k | 15.12 | 17.39 | -15% |
+| 32k | 14.49 | 16.49 | -14% |
+| 48k | 14.25 | 17.27 | -21% |
+| 96k | 13.38 | 17.16 | -28% |
+| 128k | 15.68 | 16.03 | -2% |
+
+**MTP ist bei JEDEM Kontext langsamer** für realistische Generierung.
