@@ -228,7 +228,7 @@ Ohne MTP entfällt der Compute-Buffer für den Draft-Graphen → mehr Platz für
 ## 7. Offene Fragen / TODO
 
 - [x] MTP Kontext-Limit mit n_max=3 getestet: läuft bis 96k (32k crasht, 64k/80k/96k laufen)
-- [ ] MTP mit `--spec-draft-n-max 1` oder `2` bei 64k testen — reduziert KV-Read-Overhead? (Benchmark dauerte zu lange, später nachholen)
+- [x] MTP n_max=1/2 Test bei 64k: beide crasht mit CUDA error (Compute-Buffer OOM)
 - [ ] Eventuell "Router" bauen: MTP automatisch an/aus je nach Kontextgröße
 
 ### 7.1 MTP Kontext-Limit Test (n_max=3)
@@ -243,3 +243,13 @@ Ohne MTP entfällt der Compute-Buffer für den Draft-Graphen → mehr Platz für
 | 98.304 (96k) | 8.018 | ✅ OK |
 
 **Erkenntnis:** 32k crasht trotz MTP-Initialisierung — der Compute-Buffer für den Draft-Graph ist bei diesem Kontext zu groß. 48k+ funktionieren.
+
+### 7.2 MTP n_max Test @ ctx=65536 (64k)
+
+| n_max | Ladezeit | VRAM | Generierung | Ergebnis |
+|-------|----------|------|-------------|----------|
+| 1 | ✅ 60s | 7550 MiB | ❌ CUDA error | Compute-Buffer OOM |
+| 2 | ✅ 60s | 7550 MiB | ❌ CUDA error | Compute-Buffer OOM |
+| 3 | ✅ 60s | 7550 MiB | ✅ 17.33 t/s | Stabil |
+
+**Erkenntnis:** n_max=1/2 hilft nicht bei 64k — der Compute-Buffer für den Draft-Graph skaliert mit der Kontext-Größe (Attention-Score-Matrix ist `n_heads × n_ctx` pro Layer), unabhängig von der Draft-Länge. Das Problem ist die Kontext-Größe, nicht wie viele Draft-Tokens generiert werden.
