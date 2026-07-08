@@ -204,3 +204,53 @@ Die GPU-Architektur-Info ist erlaubt, die Host-Namen nicht.
 |---|-----------|------------------|--------|
 | 8 | sicherheitsverletzung | AGENTS.md enthält Host-Namen (committed + uncommitted) | offen — DRINGEND |
 | 9 | beobachtung | Uncommitted: GPU-Nutzungs-Regel + .gitignore + LAN-Deployment | offen (beobachtet) |
+
+---
+
+## Rundgang 5 — 2026-07-08 (~05:15)
+
+### [2026-07-08] — [sicherheitsverletzung] — SESSION_PLAN.md enthält Host-Namen + lokale Pfade (COMMITTED)
+
+**Fund:** Commit `edd42e60f` ("Solo-Session Vorbereitung: thecodacus Patches +
+SESSION_PLAN") enthält `SESSION_PLAN.md` mit mehreren Sicherheitsverletzungen:
+Host-Namen ("Pascal-Host" 6×, "Dev-Host" 2×) und lokale Dateipfade ("/path/to/user/...",
+"~/git/..."). Die Datei ist bereits committet und in der Repo-Historie.
+
+**Quelle A:** `SESSION_PLAN.md` (committed in `edd42e60f`):
+- Zeile 5: "Host: Pascal-Host (GTX 1070, 8GB VRAM, Pascal)"
+- Zeile 6: "Repo: /path/to/fukuro-llama-cpp-turboquant"
+- Zeile 19: "Dev-Host GPU ist TABU"
+- Zeile 41: "ssh Pascal-Host 'ls -la ~/git/fukuro-llama-cpp-turboquant/build/bin/llama-server'"
+
+**Quelle B:** AGENTS.md Sicherheitsregel: "❌ Lokale Host-Namen", "❌ Lokale Dateipfade
+(/path/to/user/...)" + Prüfbefehl `grep -ri "Dev-Host|...|Pascal-Host|...|/path/to/user|..."`
+**Vorschlag:** `git filter-repo` oder `git rebase -i` um SESSION_PLAN.md aus der
+Historie zu entfernen (oder Host-Namen/Pfade durch generische Beschreibungen ersetzen).
+SESSION_PLAN.md sollte außerdem zu `.gitignore` hinzugefügt werden (wie HANDOFF.md).
+**Status:** offen — **KRITISCH: bereits in committed-Historie**
+
+---
+
+### [2026-07-08] — [beobachtung] — thecodacus-Patches hinzugefügt (3 Diff-Dateien)
+
+**Fund:** Commit `edd42e60f` fügt drei Patches aus thecodacus/llama.cpp hinzu:
+- `patches/thecodacus/01-memory-pinning.diff` — cudaHostRegister für mmap-pages (+21% pp)
+- `patches/thecodacus/02-async-expert-prefetch.diff` — Overlap Expert-Upload mit Compute (+20% pp)
+- `patches/thecodacus/03-prefetch-slot-sizing-uaf-fix.diff` — Slot-Sizing + UAF Fix (+14% pp)
+
+Patches sind frei von Host-Namen oder lokalen Pfaden (Sicherheitscheck ✅).
+Geplant für Solo-Session auf Pascal-Host mit Gemma 4 MoE-Modellen.
+
+**Quelle A:** `git show edd42e60f --stat`, `grep -rin "Dev-Host|Pascal-Host|/path/to/user" patches/` (keine Treffer)
+**Quelle B:** SESSION_PLAN.md beschreibt Test-Plan
+**Vorschlag:** Keine Aktion — Patches sind sauber. Nur SESSION_PLAN.md bereinigen (siehe separate Beobachtung).
+**Status:** offen (beobachtet)
+
+---
+
+## Zusammenfassung Rundgang 5
+
+| # | Kategorie | Kurzbeschreibung | Status |
+|---|-----------|------------------|--------|
+| 10 | sicherheitsverletzung | SESSION_PLAN.md: Host-Namen + Pfade (COMMITTED) | offen — KRITISCH |
+| 11 | beobachtung | thecodacus-Patches hinzugefügt (sauber) | offen (beobachtet) |
