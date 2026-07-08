@@ -323,3 +323,116 @@ Exakte Duplikate — `HANDOFF.md` ist kanonisch.
 | 13 | sicherheitsverletzung | Solo-Session-Report: "Pascal-Host" committed | offen — KRITISCH |
 | 14 | artefakt-bereinigung | H/HAND/HANDOFF Duplikate gelöscht | erledigt |
 | 15 | beobachtung | thecodacus MoE-Optimierungen erfolgreich | offen (beobachtet) |
+
+---
+
+## Rundgang 7 — 2026-07-08 (~07:45)
+
+### [2026-07-08] — [sicherheitsverletzung] — UMFASSENDER Security-Audit: Host-Namen in 5 Dateien + 2 Dateinamen
+
+**Fund:** Systematische Prüfung aller committed-Dateien auf Host-Namen ("Dev-Host", "Pascal-Host",
+"Venus", "Mars") zeigt weitreichende Sicherheitsverletzungen. Die AGENTS.md-Sicherheitsregel
+wird durch die eigenen AGENTS.md-Inhalte sowie mehrere weitere Dateien verletzt.
+
+**Betroffene Dateien (committed in HEAD):**
+
+| Datei | Host-Name(n) | Zeilen | Commits |
+|-------|-------------|--------|---------|
+| `AGENTS.md` | Dev-Host (6×), Pascal-Host (1×), Venus (1×), Mars (1×) | 106-112, 182 | `16b62f970`, `ba8acf43a` |
+| `SESSION_PLAN.md` | Pascal-Host (12×), Dev-Host (2×) | 5,12,18,19,31,36,40,41,70,167,213,273,277 | `edd42e60f` |
+| `docs/fork/2026-07-08_BASELINE_PASCAL-HOST.md` | Pascal-Host (im Dateinamen + Zeile 1) | 1 | `a4215b3d6` |
+| `docs/fork/2026-07-08_SOLO_SESSION_REPORT.md` | Pascal-Host (1×) | 168 | `40e9f5ac1` |
+| `scripts/run-gemma4-12b-iq4nl-Pascal-Host-server.sh` | Pascal-Host (im Dateinamen + Zeilen 3,8-10) | 3,8,9,10 | `a4215b3d6` |
+| `docs/fork/2026-06-23_SOLO_SCHICHT_PLAN.md` | Dev-Host (1×) | 161 | (pre-existing) |
+
+**Dateinamen mit Host-Namen (im git tree sichtbar auf Codeberg):**
+- `docs/fork/2026-07-08_BASELINE_PASCAL-HOST.md`
+- `scripts/run-gemma4-12b-iq4nl-Pascal-Host-server.sh`
+
+**Quelle A:** `git grep -in "Pascal-Host" HEAD`, `git grep -in "Dev-Host" HEAD` (alle Treffer in Textdateien)
+**Quelle B:** AGENTS.md Sicherheitsregel: "❌ Lokale Host-Namen" + `grep -ri "Dev-Host|...|Pascal-Host|..."`
+**Vorschlag:** Umfassende Bereinigung erforderlich:
+1. `git filter-repo` oder `git rebase -i` um alle Host-Namen aus der Historie zu entfernen
+2. Dateien umbenennen: `*PASCAL-HOST*` → `*PASCAL*`, `*Pascal-Host*` → `*pascal*`
+3. Host-Namen durch generische Beschreibungen ersetzen:
+   - "Dev-Host" → "Dev-Host (RTX 3070 Mobile)"
+   - "Pascal-Host" → "Pascal-Test-Host (GTX 1070)"
+   - "AMD-GCN (Vega)" → "AMD GCN (Vega)"
+   - "AMD-RDNA3" → "AMD RDNA3"
+4. Danach Force-Push auf Codeberg + GitHub
+**Status:** offen — **KRITISCH: umfassende Bereinigung erforderlich, multiple Commits betroffen**
+
+---
+
+### [2026-07-08] — [beobachtung] — thecodacus Feature-Commit + erweiterter Solo-Session-Report
+
+**Fund:** Zwei neue Commits seit Rundgang 6:
+1. `a4215b3d6` "feature: thecodacus MoE-Optimierungen (Pinning + Prefetch)" —
+   implementiert die Patches aus `patches/thecodacus/` im Code. Benchmark-Ergebnisse:
+   pp512 +72%, pp2048 +95%, pp4096 +106%, tg128 +31% auf GTX 1070.
+2. `40e9f5ac1` "DOX: Solo-Session Report erweitert" — MTP+Pinning+Prefetch Kombi
+   (100% Draft-Akzeptanz, 31.93 t/s +50%), Kontext-Scaling, Korrektheits-Verifikation.
+
+Historie wurde rebaseiert (feature-commit vor Doku-Beobachtungen-Rundgang-6 eingefügt).
+Doku-Beobachtungen-Commits sind erhalten (neue Hashes durch rebase).
+
+**Quelle A:** `git log --oneline`, `git show a4215b3d6 --stat`, `git show 40e9f5ac1 --stat`
+**Quelle B:** `patches/thecodacus/` (3 Diff-Dateien)
+**Vorschlag:** Keine Aktion — Feature erfolgreich implementiert und dokumentiert.
+**Status:** offen (beobachtet)
+
+---
+
+### [2026-07-08] — [veraltet] — Trilium-Projektnote: thecodacus MoE-Optimierungen fehlen
+
+**Fund:** Trilium-Projektnote (eiba6WJDfTiq) erwähnt thecodacus MoE-Optimierungen
+(Memory Pinning, Async Expert Prefetch) nicht, obwohl diese jetzt implementiert
+und dokumentiert sind (Commits `a4215b3d6`, `16b62f970`, `40e9f5ac1`).
+
+**Quelle A:** Trilium-Note `eiba6WJDfTiq` — kein Treffer für "thecodacus", "memory pinning",
+"expert prefetch", "moe-optim"
+**Quelle B:** `AGENTS.md` thecodacus Status-Tabelle, `docs/fork/2026-07-08_SOLO_SESSION_REPORT.md`
+**Vorschlag:** Trilium-Projektnote um thecodacus MoE-Optimierungen Sektion erweitern
+(Fakten: Env-Vars, Benchmark-Zahlen, Status). Dies ist eine inhaltliche Erweiterung,
+nicht nur Konsistenz-Update — vom User oder aktiver Session durchzuführen.
+**Status:** offen
+
+---
+
+## Zusammenfassung Rundgang 7
+
+| # | Kategorie | Kurzbeschreibung | Status |
+|---|-----------|------------------|--------|
+| 16 | sicherheitsverletzung | Umfassender Audit: Host-Namen in 5 Dateien + 2 Dateinamen | offen — KRITISCH |
+| 17 | beobachtung | thecodacus Feature-Commit + erweiterter Report | offen (beobachtet) |
+| 18 | veraltet | Trilium: thecodacus MoE-Optimierungen fehlen | offen |
+
+---
+
+## Gesamt-Zusammenfassung (alle Rundgänge)
+
+| # | Kategorie | Kurzbeschreibung | Status | Dringlichkeit |
+|---|-----------|------------------|--------|---------------|
+| 1 | widersprüchlich | SNAPSHOT.md beschreibt veralteten DFlash-Zustand | offen | mittel |
+| 2 | toter-link | AGENTS.md → 3 gelöschte docs/fork-Dateien | offen | niedrig |
+| 3 | toter-link | FORKS.md → gelöschte BRANCHES.md | offen | niedrig |
+| 4 | toter-link | AGENTS.md → 4 nicht-existierende FORKS.md-Sections | offen | niedrig |
+| 5 | veraltet | Trilium: conda/ellama vs. uv-Regel | offen | mittel |
+| 6 | veraltet | Trilium: BRANCHES.md als kritische Datei | offen | niedrig |
+| 7 | veraltet | Trilium Momentaufnahme: DFlash-Zustand | offen (markiert) | mittel |
+| 8 | sicherheitsverletzung | AGENTS.md enthält Host-Namen (committed) | offen | **KRITISCH** |
+| 9 | beobachtung | Uncommitted: GPU-Nutzungs-Regel + .gitignore | erledigt (committed) | — |
+| 10 | sicherheitsverletzung | SESSION_PLAN.md: Host-Namen + Pfade (committed) | offen | **KRITISCH** |
+| 11 | beobachtung | thecodacus-Patches hinzugefügt (sauber) | erledigt (implementiert) | — |
+| 12 | sicherheitsverletzung | AGENTS.md GPU-Regel committed | offen (siehe #16) | **KRITISCH** |
+| 13 | sicherheitsverletzung | Solo-Session-Report: "Pascal-Host" committed | offen (siehe #16) | **KRITISCH** |
+| 14 | artefakt-bereinigung | H/HAND/HANDOFF Duplikate gelöscht | **erledigt** | — |
+| 15 | beobachtung | thecodacus MoE-Optimierungen erfolgreich | offen (beobachtet) | — |
+| 16 | sicherheitsverletzung | Umfassender Audit: 5 Dateien + 2 Dateinamen | offen | **KRITISCH** |
+| 17 | beobachtung | thecodacus Feature-Commit + erweiterter Report | offen (beobachtet) | — |
+| 18 | veraltet | Trilium: thecodacus MoE-Optimierungen fehlen | offen | mittel |
+
+**DRINGLICHSTE EMPFEHLUNG:** Sicherheitsverletzungen (#8, #10, #16) bereinigen —
+Host-Namen (Dev-Host, Pascal-Host, Venus, Mars) und lokale Pfade (/path/to/user) in committed
+Dateien. Erfordert `git filter-repo` oder `git rebase -i` + Force-Push. Siehe
+Skill `codeberg-quota-cleanup` für Repo-Recreate-Workflow.
