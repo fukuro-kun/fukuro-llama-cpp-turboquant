@@ -18,12 +18,12 @@
 #
 # KV-Cache: K=turbo3 (stärker komprimiert, ~5.1x), V=turbo4 (schonender, ~3.8x)
 # Values sind empfindlicher (tragen Attention-Output), Keys robuster (nur QK^T-Scores)
-# Default ctx=131072 (128k) — maximaler Kontext bei 8GB VRAM
+# Default ctx=163840 (160k) — maximaler Kontext bei 8GB VRAM (8110 MiB belegt)
 #
 # Benchmark-Ergebnisse (GTX 1070, 8GB VRAM):
 #   pp512:  538 t/s, tg128: 21.3 t/s (ohne MTP)
 #   pp512:  538 t/s, tg128: 31.9 t/s (mit MTP, 100% Akzeptanz)
-#   ctx=131072 mit K=turbo3/V=turbo4: 7794 MiB VRAM, korrekt verifiziert
+#   ctx=163840 mit K=turbo3/V=turbo4: 8110 MiB VRAM, korrekt verifiziert (Berlin-Test)
 #
 # Beispiel API-Request:
 #   curl http://Pascal-Host:18080/v1/chat/completions \
@@ -43,7 +43,7 @@ MAIN="/data/modelle/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf"
 DRAFT="/data/modelle/gemma-4-26B-A4B-it/drafts/gemma-4-26b-a4b-it-assistant.Q4_K_M.gguf"
 
 # Konfiguration
-CTX="${CTX:-131072}"
+CTX="${CTX:-163840}"
 NGL="${NGL:-999}"
 NGL_DRAFT="${NGL_DRAFT:-999}"
 N_CPU_MOE="${N_CPU_MOE:-20}"
