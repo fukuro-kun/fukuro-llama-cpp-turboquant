@@ -10,7 +10,7 @@
 #   Health:      http://Pascal-Host:18080/health
 #
 # Verwendung:
-#   ./scripts/run-gemma4-12b-iq4nl-Pascal-Host-server.sh
+#   ./scripts/run-gemma4-12b-iq4nl-pascal-server.sh
 #
 # Beispiel API-Request:
 #   curl http://Pascal-Host:18080/v1/chat/completions \

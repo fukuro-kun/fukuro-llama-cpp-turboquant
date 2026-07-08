@@ -10,7 +10,7 @@
 #   Health:      http://Pascal-Host:18080/health
 #
 # Verwendung:
-#   ./scripts/run-gemma4-26b-a4b-mtp-Pascal-Host-server.sh
+#   ./scripts/run-gemma4-26b-a4b-mtp-pascal-server.sh
 #
 # Env-Vars (optional, mit Defaults):
 #   GGML_CUDA_REGISTER_HOST=1    — Memory Pinning (cudaHostRegister)

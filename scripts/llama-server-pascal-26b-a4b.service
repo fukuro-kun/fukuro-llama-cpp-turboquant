@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/path/to/fukuro-llama-cpp-turboquant/scripts/run-gemma4-26b-a4b-mtp-Pascal-Host-server.sh
+ExecStart=/path/to/fukuro-llama-cpp-turboquant/scripts/run-gemma4-26b-a4b-mtp-pascal-server.sh
 Restart=on-failure
 RestartSec=10
 MemoryMax=10G

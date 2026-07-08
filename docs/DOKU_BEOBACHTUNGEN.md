@@ -470,23 +470,25 @@ UAF-Fix korrekt implementiert.
 | 5 | veraltet | Trilium: conda/ellama vs. uv-Regel | offen | mittel |
 | 6 | veraltet | Trilium: BRANCHES.md als kritische Datei | offen | niedrig |
 | 7 | veraltet | Trilium Momentaufnahme: DFlash-Zustand | offen (markiert) | mittel |
-| 8 | sicherheitsverletzung | AGENTS.md enthält Host-Namen (committed) | offen | **KRITISCH** |
+| 8 | sicherheitsverletzung | AGENTS.md enthält Host-Namen (committed) | **ERLEDIGT** (filter-repo) | — |
 | 9 | beobachtung | Uncommitted: GPU-Nutzungs-Regel + .gitignore | erledigt (committed) | — |
-| 10 | sicherheitsverletzung | SESSION_PLAN.md: Host-Namen + Pfade (committed) | offen | **KRITISCH** |
+| 10 | sicherheitsverletzung | SESSION_PLAN.md: Host-Namen + Pfade (committed) | **ERLEDIGT** (filter-repo) | — |
 | 11 | beobachtung | thecodacus-Patches hinzugefügt (sauber) | erledigt (implementiert) | — |
-| 12 | sicherheitsverletzung | AGENTS.md GPU-Regel committed | offen (siehe #16) | **KRITISCH** |
-| 13 | sicherheitsverletzung | Solo-Session-Report: "Pascal-Host" committed | offen (siehe #16) | **KRITISCH** |
+| 12 | sicherheitsverletzung | AGENTS.md GPU-Regel committed | **ERLEDIGT** (filter-repo) | — |
+| 13 | sicherheitsverletzung | Solo-Session-Report: "Pascal-Host" committed | **ERLEDIGT** (filter-repo) | — |
 | 14 | artefakt-bereinigung | H/HAND/HANDOFF Duplikate gelöscht | **erledigt** | — |
 | 15 | beobachtung | thecodacus MoE-Optimierungen erfolgreich | offen (beobachtet) | — |
-| 16 | sicherheitsverletzung | Umfassender Audit: 5 Dateien + 2 Dateinamen | offen | **KRITISCH** |
+| 16 | sicherheitsverletzung | Umfassender Audit: 5 Dateien + 2 Dateinamen | **ERLEDIGT** (filter-repo) | — |
 | 17 | beobachtung | thecodacus Feature-Commit + erweiterter Report | offen (beobachtet) | — |
 | 18 | veraltet | Trilium: thecodacus MoE-Optimierungen fehlen | offen | mittel |
 | 19 | widersprüchlich | scripts/AGENTS.md Sicherheitsregel vs. Pascal-Host-Skripte | offen | niedrig |
 | 20 | beobachtung | 26B-A4B Service: Maximale Kontext 160k | offen (beobachtet) | — |
 | 21 | beobachtung | Code-Review thecodacus Patches dokumentiert | offen (beobachtet) | — |
 
-**DRINGLICHSTE EMPFEHLUNG:** Sicherheitsverletzungen (#8, #10, #16) bereinigen —
-Host-Namen (Dev-Host, Pascal-Host, Venus, Mars) und lokale Pfade (/path/to/user) in committed
-Dateien. Erfordert `git filter-repo` oder `git rebase -i` + Force-Push. Siehe
-Skill `codeberg-quota-cleanup` für Repo-Recreate-Workflow.
+**SICHERHEITSVERLETZUNGEN BEREINIGT (2026-07-08):** Alle Host-Namen (#8, #10, #12, #13, #16)
+wurden via `git filter-repo` aus der gesamten History entfernt. Ersetzung:
+hydra→Dev-Host, styx→Pascal-Host, uranus→BigGPU-Host, mars→RDNA3-Host, venus→GCN-Host,
+helene→MoonHost1, telesto→MoonHost2. Lokale Pfade → generische Platzhalter.
+Dateinamen umbenannt: styx→pascal. Backup: /tmp/repo-backup-20260708221923.bundle.
+Force-Push ausstehend.
 
