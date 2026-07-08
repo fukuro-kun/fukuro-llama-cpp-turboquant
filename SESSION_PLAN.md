@@ -275,3 +275,60 @@ Am Ende: Vollständiger Performance-Report mit konkreten Empfehlungen.
 - Keine Änderungen an bestehenden Trilium-Notizen (nur neue erstellen oder aktualisieren)
 - Keine Speculative-Decoding-Methoden testen die schon als langsam bekannt sind (DFlash)
 - Keine Vulkan-Tests (Pascal-Host hat nur CUDA/Pascal)
+
+---
+
+## Session-Status (Final-Update 2026-07-08)
+
+### Phase 1: Vorbereitung & Baseline ✅
+- E4B + 26B-A4B auf Pascal-Host verifiziert
+- Build aktuell (edd42e60f, 9171)
+- Baseline-Benchmarks durchgeführt:
+  - E4B Q4_K_M: pp512=811, tg128=41
+  - E4B IQ4_XS: pp512=872, tg128=46
+  - 26B-A4B -ot exps=CPU: pp512=293, pp2048=252, tg128=12.7
+
+### Phase 2: Memory Pinning ✅
+- Patch 01 angewendet, Build erfolgreich
+- Pinning bestätigt: "pinned 13998.48 MiB of mapped model memory"
+- 26B-A4B pp2048: 252→309 t/s (+23%)
+
+### Phase 3: Async Expert Prefetch ✅
+- Patches 02+03 angewendet, Build erfolgreich
+- 26B-A4B pp2048 mit Pinning+Prefetch: 252→490 t/s (+95%)
+- pp4096: 226→465 t/s (+106%)
+- tg128: 12.7→16.6 t/s (+31%)
+
+### Phase 4: Breite Benchmarks ✅
+- E4B mit Pinning: kein Effekt (erwartet, voller Offload)
+- 26B-A4B mit --n-cpu-moe 20: pp512=538, tg128=21.3 (+68% vs Baseline)
+- Kontext-Scaling: pp8192=424, pp16384=212 t/s
+- MTP + Pinning + Prefetch: 100% Akzeptanz, 31.93 t/s (+50% vs ohne MTP)
+
+### Phase 5: Dokumentation ✅
+- `docs/fork/2026-07-08_SOLO_SESSION_REPORT.md` — vollständiger Report
+- `docs/fork/2026-07-08_BASELINE_PASCAL-HOST.md` — Benchmark-Rohdaten
+- FORKS.md — thecodacus-Eintrag in Cherry-Pick-Tabelle
+- AGENTS.md — thecodacus MoE-Optimierungen Status-Tabelle
+- TTT-Eintrag erstellt (08.07.)
+- Trilium-Note PcVm56Ls9rbS aktualisiert
+- HANDOFF.md aktualisiert
+
+### Merge & Push ✅
+- Feature-Branch `feature/thecodacus-pinning` → master (Fast-Forward)
+- Master-Commit: `a4215b3d6`
+- Codeberg-Push erfolgreich
+
+### Korrektheits-Verifikation ✅
+- llama-cli mit temp=0, seed=42: "Berlin" mit und ohne Pinning → token-identisch
+
+### Offen (für nächste Session)
+- P1.3: 26B-A4B als Service-Option (Pascal-Host SSH instabil während Session)
+- Qwen 3.6 MoE Vergleichstest (falls Modell verfügbar)
+- Service-Konfiguration mit Pinning+Prefetch Env-Vars
+
+### Bekannte Limitationen
+- Pinning wirkt NUR bei MoE-Offloading (nicht bei vollem GPU-Offload)
+- Kontext >8k: `--n-cpu-moe 20` wird ineffizient, `-ot exps=CPU` besser
+- turbo3/4 KV-Cache auf Pascal bei MoE-Offloading kontraproduktiv (-6% pp)
+- Pascal-Host Build-System instabil bei I/O-Last (cmake_depends hängt)
