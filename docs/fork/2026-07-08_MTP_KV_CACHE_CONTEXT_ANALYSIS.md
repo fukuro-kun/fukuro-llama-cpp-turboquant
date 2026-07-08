@@ -158,7 +158,7 @@ Bei 100k Kontext (egal welcher Prompt):
 - `expected_tokens_per_step` ≈ 1.8 (~60% Acceptance)
 - Speedup = 1.8 / 1.6 = **1.125** → mit Attention-Drift + MoE-Overhead < 1.0 → **Netto-Slowdown**
 
-### 4.3 Warum MTP bei großem Kontext langsamer wird
+### 4.4 Warum MTP bei großem Kontext langsamer wird
 
 Drei Effekte wirken zusammen:
 
@@ -275,22 +275,28 @@ Ohne MTP entfällt der Compute-Buffer für den Draft-Graphen → mehr Platz für
 
 ## 7. Offene Fragen / TODO
 
-- [x] MTP Kontext-Limit mit n_max=3 getestet: läuft bis 96k (32k crasht, 64k/80k/96k laufen)
-- [x] MTP n_max=1/2 Test bei 64k: beide crasht mit CUDA error (Compute-Buffer OOM)
-- [ ] Eventuell "Router" bauen: MTP automatisch an/aus je nach Kontextgröße
+- [x] MTP Kontext-Limit mit n_max=3 getestet: 64k (2^16) crasht, alle anderen funktionieren (16k-128k)
+- [x] MTP n_max Test bei 64k: ALLE n_max-Werte (2,3,4,5) crashen — 2^16 Bug, nicht n_max-abhängig
+- [x] MTP vs. no-MTP Direktvergleich: MTP ist bei JEDEM Kontext langsamer für realistische Generierung
+- [ ] 2^16 Bug in Compute-Buffer-Allokation investigieren (upstream report?)
+- [ ] Eventuell "Router" bauen: MTP automatisch an/aus — aber aktuell gibt es keinen Use-Case wo MTP hilft (außer trivialen Prompts ≤32k)
 
-### 7.1 MTP Kontext-Limit Test (n_max=3)
+### 7.1 MTP Kontext-Limit Test (n_max=3) — KORRIGIERT
 
 | ctx | VRAM (MiB) | MTP Status |
 |-----|-----------|------------|
-| 16.384 (16k) | 7.550 | ✅ OK |
-| 32.768 (32k) | 7.210 | ❌ Crasht (Compute-Buffer OOM) |
-| 49.152 (48k) | 7.380 | ✅ OK |
-| 65.536 (64k) | 7.550 | ✅ OK |
-| 81.920 (80k) | 7.784 | ✅ OK |
-| 98.304 (96k) | 8.018 | ✅ OK |
+| 16.384 (16k) | 7.040 | ✅ OK (15.12 t/s) |
+| 32.768 (32k) | 7.210 | ✅ OK (14.49 t/s) |
+| 49.152 (48k) | 7.380 | ✅ OK (14.25 t/s) |
+| 65.536 (64k) | 7.550 | ❌ CRASH (2^16 Bug) |
+| 81.920 (80k) | 7.784 | ✅ OK (17.09 t/s) |
+| 98.304 (96k) | 8.018 | ✅ OK (13.38 t/s) |
+| 131.072 (128k) | 7.794 | ✅ OK (15.68 t/s) |
 
-**Erkenntnis:** 32k crasht trotz MTP-Initialisierung — der Compute-Buffer für den Draft-Graph ist bei diesem Kontext zu groß. 48k+ funktionieren.
+**Erkenntnis (korrigiert):** Der frühere Eintrag "32k crasht, 64k OK" war
+FALSCH. Der saubere Test zeigt: **64k (65536 = 2^16) crasht** als einziges.
+Alle anderen Kontexte (16k, 32k, 48k, 80k, 96k, 128k) funktionieren.
+Das ist ein Integer-Overflow-Bug bei 2^16, kein VRAM-Problem.
 
 ### 7.2 MTP n_max Test @ ctx=65536 (64k) — KORRIGIERT
 
