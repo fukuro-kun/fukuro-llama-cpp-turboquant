@@ -154,3 +154,53 @@ behoben, aber nicht die verwaisten Datei-Referenzen.
 **Wurzelursache für #4:** FORKS.md-Bereinigung (`bfcfcdb81`, 912→288 Zeilen)
 entfernte Sections §5.6-§5.11, aber AGENTS.md wurde nicht entsprechend
 aktualisiert.
+
+---
+
+## Rundgang 4 — 2026-07-08 (~04:20)
+
+### [2026-07-08] — [sicherheitsverletzung] — AGENTS.md enthält Host-Namen (committed + uncommitted)
+
+**Fund:** AGENTS.md enthält lokale Host-Namen ("Venus", "Mars", "Dev-Host", "Pascal-Host")
+was die Sicherheitsregel "Keine privaten Daten in oeffentliche Repos" verletzt.
+Die eigene Prüfregel in AGENTS.md (Zeile 96) listet genau diese Namen als verboten.
+
+**Quelle A:**
+- **Committed** (Zeile 182): "AMD-GCN (Vega) turbo3 MTP 0% → 59.7%, AMD-RDNA3 keine Regression"
+- **Uncommitted** (Zeilen 106-112, neue GPU-Nutzungs-Regel): "Dev-Host" 5×, "Pascal-Host" 2×
+  — z.B. "Auf Dev-Host (Dev-Host) wird die GPU von anderen Projekten genutzt",
+  "Pascal-Host verwenden (ssh Pascal-Host, GTX 1070, Pascal)"
+
+**Quelle B:** AGENTS.md Sicherheitsregel (Zeile 88-96):
+"❌ Lokale Host-Namen" + Prüfbefehl `grep -ri "Dev-Host|uranus|mars|venus|Pascal-Host|..."`
+**Vorschlag:** Host-Namen durch generische Beschreibungen ersetzen:
+- "Dev-Host" → "Dev-Host (RTX 3070 Mobile)"
+- "Pascal-Host" → "GPU-Test-Host (GTX 1070, Pascal)"
+- "AMD-GCN (Vega)" → "AMD GCN (Vega)"
+- "AMD-RDNA3" → "AMD RDNA3"
+Die GPU-Architektur-Info ist erlaubt, die Host-Namen nicht.
+**Status:** offen — **DRINGEND: vor Commit der uncommitted-Änderung bereinigen!**
+
+---
+
+### [2026-07-08] — [beobachtung] — Uncommitted: GPU-Nutzungs-Regel + .gitignore + LAN-Deployment
+
+**Fund:** Aktive (uncommitted) Änderungen am Repo durch eine parallele Session:
+1. **AGENTS.md**: Neue Sektion "GPU-Nutzungs-Regel (kritisch!) aktuell am 8.7.2026"
+   + LAN-Deployment-Zeile. Referenzen auf LOKAL.md → "GPU-Nutzungs-Regeln" (existiert ✅)
+   und "Fork-Deployment im LAN" (existiert ✅) sind gültig.
+2. **.gitignore**: `HANDOFF.md` hinzugefügt (sinnvoll — Handoff-Dateien sollen nicht committet werden).
+
+**Quelle A:** `git diff AGENTS.md`, `git diff .gitignore` (Stand 04:06 Uhr)
+**Quelle B:** `LOKAL.md` Zeile 328 ("GPU-Nutzungs-Regeln"), Zeile 330 ("Fork-Deployment im LAN")
+**Vorschlag:** Keine Aktion — Änderungen sind in Arbeit. Nur Host-Namen bereinigen (siehe separate Beobachtung).
+**Status:** offen (beobachtet, nicht vom Doku-Engel zu committen)
+
+---
+
+## Zusammenfassung Rundgang 4
+
+| # | Kategorie | Kurzbeschreibung | Status |
+|---|-----------|------------------|--------|
+| 8 | sicherheitsverletzung | AGENTS.md enthält Host-Namen (committed + uncommitted) | offen — DRINGEND |
+| 9 | beobachtung | Uncommitted: GPU-Nutzungs-Regel + .gitignore + LAN-Deployment | offen (beobachtet) |
