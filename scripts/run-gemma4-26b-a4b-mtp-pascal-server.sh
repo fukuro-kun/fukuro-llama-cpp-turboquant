@@ -16,9 +16,14 @@
 #   GGML_CUDA_REGISTER_HOST=1    — Memory Pinning (cudaHostRegister)
 #   GGML_SCHED_PREFETCH_EXPERTS=1 — Async Expert Prefetch (3 slots)
 #
+# KV-Cache: K=turbo3 (stärker komprimiert, ~5.1x), V=turbo4 (schonender, ~3.8x)
+# Values sind empfindlicher (tragen Attention-Output), Keys robuster (nur QK^T-Scores)
+# Default ctx=131072 (128k) — maximaler Kontext bei 8GB VRAM
+#
 # Benchmark-Ergebnisse (GTX 1070, 8GB VRAM):
 #   pp512:  538 t/s, tg128: 21.3 t/s (ohne MTP)
 #   pp512:  538 t/s, tg128: 31.9 t/s (mit MTP, 100% Akzeptanz)
+#   ctx=131072 mit K=turbo3/V=turbo4: 7794 MiB VRAM, korrekt verifiziert
 #
 # Beispiel API-Request:
 #   curl http://Pascal-Host:18080/v1/chat/completions \
@@ -38,13 +43,16 @@ MAIN="/data/modelle/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf"
 DRAFT="/data/modelle/gemma-4-26B-A4B-it/drafts/gemma-4-26b-a4b-it-assistant.Q4_K_M.gguf"
 
 # Konfiguration
-CTX="${CTX:-8192}"
+CTX="${CTX:-131072}"
 NGL="${NGL:-999}"
 NGL_DRAFT="${NGL_DRAFT:-999}"
 N_CPU_MOE="${N_CPU_MOE:-20}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-18080}"
 FA="${FA:-on}"
+# KV-Cache: K=turbo3 (stärker komprimiert, robuster), V=turbo4 (schonender, empfindlicher)
+CTK="${CTK:-turbo3}"
+CTV="${CTV:-turbo4}"
 TEMP="${TEMP:-1.0}"
 TOP_P="${TOP_P:-0.95}"
 TOP_K="${TOP_K:-64}"
@@ -56,7 +64,7 @@ SPEC_DRAFT_N_MAX="${SPEC_DRAFT_N_MAX:-3}"
 echo "=== Gemma-4 26B-A4B MTP-Server auf Pascal-Host (Pinning+Prefetch) ==="
 echo "Target: $MAIN"
 echo "Draft:  $DRAFT"
-echo "ctx=${CTX}, ngl=${NGL}, n-cpu-moe=${N_CPU_MOE}"
+echo "ctx=${CTX}, ngl=${NGL}, n-cpu-moe=${N_CPU_MOE}, cache=${CTK}/${CTV}"
 echo "Pinning: GGML_CUDA_REGISTER_HOST=${GGML_CUDA_REGISTER_HOST}"
 echo "Prefetch: GGML_SCHED_PREFETCH_EXPERTS=${GGML_SCHED_PREFETCH_EXPERTS}"
 echo "API:    http://${HOST}:${PORT}/v1/chat/completions"
@@ -90,6 +98,8 @@ exec "$SERVER" \
     -ngl "$NGL" \
     -ngld "$NGL_DRAFT" \
     --n-cpu-moe "$N_CPU_MOE" \
+    -ctk "$CTK" \
+    -ctv "$CTV" \
     -fa "$FA" \
     --host "$HOST" \
     --port "$PORT" \
