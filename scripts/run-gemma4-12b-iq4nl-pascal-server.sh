@@ -22,8 +22,8 @@ set -euo pipefail
 
 # Pascal-Host-spezifische Pfade
 SERVER="/path/to/fukuro-llama-cpp-turboquant/build/bin/llama-server"
-MAIN="/data/modelle/gemma-4-12b-it-IQ4_NL.gguf"
-DRAFT="/data/modelle/drafts/gemma-4-12b-it-assistant.IQ4_XS.gguf"
+MAIN="/path/to/models/gemma-4-12b-it-IQ4_NL.gguf"
+DRAFT="/path/to/models/drafts/gemma-4-12b-it-assistant.IQ4_XS.gguf"
 
 # Konfiguration
 CTX="${CTX:-163840}"

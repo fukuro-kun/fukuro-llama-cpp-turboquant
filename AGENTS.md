@@ -83,7 +83,7 @@ Aktualisiere Parent-Dokumente, wenn sich Struktur, Eigentuemer, Workflow oder Ch
 **Striktes Verbot:**
 - ❌ Lokale Host-Namen
 - ❌ Interne IPs oder Domains
-- ❌ Lokale Dateipfade (`/home/fukuro/...`)
+- ❌ Lokale Dateipfade (`/path/to/user/...`)
 - ❌ Persoenliche Identifikatoren
 - ❌ SSH-Keys, Tokens, Passwoerter
 
@@ -93,7 +93,7 @@ Aktualisiere Parent-Dokumente, wenn sich Struktur, Eigentuemer, Workflow oder Ch
 
 **Pruefung vor jedem Commit:**
 ```bash
-grep -ri "hydra\|uranus\|mars\|venus\|styx\|helene\|telesto\|/home/fukuro\|/media/fukuro" .
+grep -ri "Dev-Host\|BigGPU-Host\|RDNA3-Host\|GCN-Host\|Pascal-Host\|MoonHost1\|MoonHost2\|/path/to/user\|/path/to/media" .
 ```
 Falls Treffer → Bereinigen!
 
@@ -179,7 +179,7 @@ Fuer alle Gemma-4 Modelle (sofern kein begruendeter Spezialfall vorliegt):
 |---------|--------|---------|
 | **MTP 0% Akzeptanz (f16 + turbo)** | ✅ **Gelöst** | Root Cause: `n_embd_out_impl`/`n_embd_inp_impl` in `gemma4-assistant.cpp` wurden nicht auf `n_embd_backbone` gesetzt → `pending_h`-Puffer war 1024 statt 3840 Floats → Backbone-Hidden-State trunciert. Fix: `hparams.n_embd_inp_impl = hparams.n_embd_backbone; hparams.n_embd_out_impl = hparams.n_embd_backbone;` nach Laden von GGUF. Verifikation: f16 ~50-60% Akzeptanz, turbo4 ~75-100%. |
 | **TurboQuant ISWA innerq_scale** | ✅ **Gelöst** | `llama_kv_cache_iswa_context` überschreibt `get_turbo_innerq_scale_inv()` nicht → inverse WHT in `build_attn_mha` erhielt `nullptr`. Fix: Override hinzugefügt, delegiert an `ctx_base`. Siehe Trilium-Note `K5rDVjhsJt6z` für Details. |
-| **turbo3 V-Cache 0% auf GCN (Vega)** | ✅ **Gelöst** | Root Cause: turbo3 SET_ROWS Shader verwendete `subgroupBallot` für Signs-Packing, aber `ballot.x` hält nur 32 Bits. Auf AMD GCN (subgroup size 64, kein `VK_EXT_subgroup_size_control` für Compute) fehlen Bits 32-63 → 50% der Sign-Bits waren 0 → korrupte V-Cache-Daten. Fix: `subgroupBallot` durch `subgroupShuffle` ersetzt (subgroup-size-unabhängig). Verifikation: Venus (Vega) turbo3 MTP 0% → 59.7%, Mars (RDNA3) keine Regression. |
+| **turbo3 V-Cache 0% auf GCN (Vega)** | ✅ **Gelöst** | Root Cause: turbo3 SET_ROWS Shader verwendete `subgroupBallot` für Signs-Packing, aber `ballot.x` hält nur 32 Bits. Auf AMD GCN (subgroup size 64, kein `VK_EXT_subgroup_size_control` für Compute) fehlen Bits 32-63 → 50% der Sign-Bits waren 0 → korrupte V-Cache-Daten. Fix: `subgroupBallot` durch `subgroupShuffle` ersetzt (subgroup-size-unabhängig). Verifikation: AMD-GCN (Vega) turbo3 MTP 0% → 59.7%, AMD-RDNA3 keine Regression. |
 
 ### Vulkan-Optimierungen — Status
 

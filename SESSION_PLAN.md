@@ -29,12 +29,12 @@ Am Ende: Vollständiger Performance-Report mit konkreten Empfehlungen.
 ### Phase 1: Vorbereitung & Baseline (0-2h)
 
 1. **E4B-Modelle verifizieren** auf Pascal-Host:
-   - `/data/modelle/gemma-4-E4B-it/gemma-4-E4B-it-Q4_K_M.gguf` (4.7GB)
-   - `/data/modelle/gemma-4-E4B-it/gemma-4-E4B-it-IQ4_XS.gguf` (4.4GB)
+   - `/path/to/models/gemma-4-E4B-it/gemma-4-E4B-it-Q4_K_M.gguf` (4.7GB)
+   - `/path/to/models/gemma-4-E4B-it/gemma-4-E4B-it-IQ4_XS.gguf` (4.4GB)
    - Drafts: `gemma-4-e4b-it-assistant.Q4_K_M.gguf`, `.IQ4_XS.gguf`
 
 2. **26B-A4B verifizieren** auf Pascal-Host:
-   - `/data/modelle/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf` (14GB)
+   - `/path/to/models/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf` (14GB)
    - Draft: `gemma-4-26b-a4b-it-assistant.Q4_K_M.gguf`
 
 3. **Build-Status prüfen**: Ist der aktuelle Binary auf Pascal-Host aktuell?
@@ -44,26 +44,26 @@ Am Ende: Vollständiger Performance-Report mit konkreten Empfehlungen.
 4. **Baseline-Benchmarks** mit `llama-bench`:
    ```bash
    # E4B Q4_K_M - voller Offload
-   llama-bench -m /data/modelle/gemma-4-E4B-it/gemma-4-E4B-it-Q4_K_M.gguf \
+   llama-bench -m /path/to/models/gemma-4-E4B-it/gemma-4-E4B-it-Q4_K_M.gguf \
      -ngl 999 -p 512 -n 128 --flash-attn on
 
    # E4B IQ4_XS - voller Offload
-   llama-bench -m /data/modelle/gemma-4-E4B-it/gemma-4-E4B-it-IQ4_XS.gguf \
+   llama-bench -m /path/to/models/gemma-4-E4B-it/gemma-4-E4B-it-IQ4_XS.gguf \
      -ngl 999 -p 512 -n 128 --flash-attn on
 
    # 26B-A4B IQ4_NL - mit MoE-Offloading
-   llama-bench -m /data/modelle/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf \
+   llama-bench -m /path/to/models/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf \
      -ngl 999 -ot "exps=CPU" -p 512 -n 128 --flash-attn on
 
    # 26B-A4B mit n-cpu-moe Variante
-   llama-bench -m /data/modelle/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf \
+   llama-bench -m /path/to/models/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf \
      -ngl 999 --n-cpu-moe 20 -p 512 -n 128 --flash-attn on
    ```
 
 5. **MTP-Baseline** mit Draft-Modell:
    ```bash
-   llama-bench -m /data/modelle/gemma-4-E4B-it/gemma-4-E4B-it-Q4_K_M.gguf \
-     -md /data/modelle/gemma-4-E4B-it/drafts/gemma-4-e4b-it-assistant.Q4_K_M.gguf \
+   llama-bench -m /path/to/models/gemma-4-E4B-it/gemma-4-E4B-it-Q4_K_M.gguf \
+     -md /path/to/models/gemma-4-E4B-it/drafts/gemma-4-e4b-it-assistant.Q4_K_M.gguf \
      --spec-type draft-mtp -ngl 999 -p 512 -n 128 --flash-attn on
    ```
 
@@ -96,7 +96,7 @@ Am Ende: Vollständiger Performance-Report mit konkreten Empfehlungen.
 5. **Test mit `GGML_CUDA_REGISTER_HOST=1`**:
    ```bash
    GGML_CUDA_REGISTER_HOST=1 llama-bench \
-     -m /data/modelle/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf \
+     -m /path/to/models/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf \
      -ngl 999 -ot "exps=CPU" -p 512 -n 128 --flash-attn on
    ```
    - Erwartet: Log-Zeile "pinned X MiB of mapped model memory"
@@ -118,7 +118,7 @@ Am Ende: Vollständiger Performance-Report mit konkreten Empfehlungen.
 2. **Build & Test mit `GGML_SCHED_PREFETCH_EXPERTS=1`**:
    ```bash
    GGML_SCHED_PREFETCH_EXPERTS=1 llama-bench \
-     -m /data/modelle/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf \
+     -m /path/to/models/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf \
      -ngl 999 -ot "exps=CPU" -p 2048 -n 128 --flash-attn on
    ```
    - **Wichtig:** Braucht großen Batch (`-p 2048+`) für Effekt

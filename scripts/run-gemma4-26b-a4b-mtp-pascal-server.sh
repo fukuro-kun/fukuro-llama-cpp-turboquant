@@ -49,8 +49,8 @@ export GGML_SCHED_PREFETCH_EXPERTS="${GGML_SCHED_PREFETCH_EXPERTS:-1}"
 
 # Pascal-Host-spezifische Pfade
 SERVER="/path/to/fukuro-llama-cpp-turboquant/build/bin/llama-server"
-MAIN="/data/modelle/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf"
-DRAFT="/data/modelle/gemma-4-26B-A4B-it/drafts/gemma-4-26b-a4b-it-assistant.Q4_K_M.gguf"
+MAIN="/path/to/models/gemma-4-26B-A4B-it/google_gemma-4-26B-A4B-it-IQ4_NL.gguf"
+DRAFT="/path/to/models/gemma-4-26B-A4B-it/drafts/gemma-4-26b-a4b-it-assistant.Q4_K_M.gguf"
 
 # Konfiguration
 CTX="${CTX:-163840}"
