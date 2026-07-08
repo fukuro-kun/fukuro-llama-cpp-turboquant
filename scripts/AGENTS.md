@@ -41,6 +41,8 @@
 | `run-gemma4-31b-mtp-server.sh` | Gemma 4 3.1B MTP-Server starten. |
 | `run-gemma4-e2b-mtp-server.sh` | Gemma 4 E2B MTP-Server starten. |
 | `run-gemma4-e4b-mtp-mmproj-server.sh` | Gemma 4 E4B multimodaler MTP-Server starten. |
+| `run-gemma4-12b-iq4nl-Pascal-Host-server.sh` | Gemma 4 12B IQ4_NL MTP-Server (Pascal-Host, Port 18080). |
+| `run-gemma4-26b-a4b-mtp-Pascal-Host-server.sh` | Gemma 4 26B-A4B MoE MTP-Server mit thecodacus Pinning+Prefetch (Pascal-Host). |
 
 - Anpassen vor Verwendung: Kontextlaenge, GPU-Layer, Modellpfad, Port.
 
