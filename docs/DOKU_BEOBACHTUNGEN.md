@@ -254,3 +254,72 @@ Geplant für Solo-Session auf Pascal-Host mit Gemma 4 MoE-Modellen.
 |---|-----------|------------------|--------|
 | 10 | sicherheitsverletzung | SESSION_PLAN.md: Host-Namen + Pfade (COMMITTED) | offen — KRITISCH |
 | 11 | beobachtung | thecodacus-Patches hinzugefügt (sauber) | offen (beobachtet) |
+
+---
+
+## Rundgang 6 — 2026-07-08 (~07:20)
+
+### [2026-07-08] — [sicherheitsverletzung] — AGENTS.md GPU-Nutzungs-Regel mit Host-Namen JETZT COMMITTED
+
+**Fund:** Die zuvor (Rundgang 4) als uncommitted notierte GPU-Nutzungs-Regel mit
+Host-Namen ("Dev-Host" 5×, "Pascal-Host" 2×) ist nun durch Commit `16b62f970` in der
+committed-Historie. Die Sicherheitsverletzung ist jetzt permanent (ohne rebase/filter-repo).
+
+**Quelle A:** `git show 16b62f970` — AGENTS.md Zeilen 106-112 (GPU-Nutzungs-Regel):
+"Dev-Host" 5×, "Pascal-Host" 2×
+**Quelle B:** AGENTS.md Sicherheitsregel: "❌ Lokale Host-Namen" + grep-Pattern
+**Vorschlag:** `git rebase -i` oder `git filter-repo` um Host-Namen zu ersetzen.
+Alternativ: Host-Namen in AGENTS.md durch generische Beschreibungen ersetzen
+und bereinigten Commit als neuen HEAD setzen.
+**Status:** offen — **KRITISCH: committed in 16b62f970**
+
+---
+
+### [2026-07-08] — [sicherheitsverletzung] — Solo-Session-Report enthält "Pascal-Host" (COMMITTED)
+
+**Fund:** `docs/fork/2026-07-08_SOLO_SESSION_REPORT.md` (committed in `16b62f970`)
+enthält Host-Namen "Pascal-Host" in Zeile 126: "Branch: feature/thecodacus-pinning auf Pascal-Host".
+
+**Quelle A:** `docs/fork/2026-07-08_SOLO_SESSION_REPORT.md` Zeile 126
+**Quelle B:** AGENTS.md Sicherheitsregel: "❌ Lokale Host-Namen" + grep-Pattern listet "Pascal-Host"
+**Vorschlag:** "auf Pascal-Host" → "auf dem Pascal-Test-Host (GTX 1070)" oder entfernen.
+**Status:** offen — **KRITISCH: committed in 16b62f970**
+
+---
+
+### [2026-07-08] — [artefakt-bereinigung] — Truncierte Duplikate H/HAND/HANDOFF gelöscht
+
+**Fund:** Drei truncierte Artefakt-Dateien (`H`, `HAND`, `HANDOFF`) durch abgebrochenen
+Shell-Befehl entstanden. Alle 4360 Bytes, identischer MD5 (`760caffd...`) wie `HANDOFF.md`.
+Exakte Duplikate — `HANDOFF.md` ist kanonisch.
+
+**Aktion:** `rm H HAND HANDOFF` — bereinigt durch Doku-Engel (Artefakt-Scan).
+`HANDOFF.md` beibehalten (in `.gitignore` seit Commit `16b62f970` bzw. uncommitted .gitignore).
+**Status:** erledigt durch Doku-Engel
+
+---
+
+### [2026-07-08] — [beobachtung] — thecodacus MoE-Optimierungen: Solo-Session erfolgreich
+
+**Fund:** Commit `16b62f970` dokumentiert erfolgreiche Solo-Session:
+- Prefill-Boost bis +106%, Decode-Boost +68% auf GTX 1070 (Pascal)
+- Memory Pinning + Async Expert Prefetch portiert
+- Env-Vars: `GGML_CUDA_REGISTER_HOST=1`, `GGML_SCHED_PREFETCH_EXPERTS=1`
+- FORKS.md: thecodacus in Cherry-Pick-Tabelle aufgenommen
+- AGENTS.md: thecodacus MoE-Optimierungen Status-Tabelle hinzugefügt
+
+**Quelle A:** `git show 16b62f970 --stat`, `docs/fork/2026-07-08_SOLO_SESSION_REPORT.md`
+**Quelle B:** `patches/thecodacus/` (3 Diff-Dateien aus Rundgang 5)
+**Vorschlag:** Keine Aktion — Feature ist dokumentiert und funktional.
+**Status:** offen (beobachtet)
+
+---
+
+## Zusammenfassung Rundgang 6
+
+| # | Kategorie | Kurzbeschreibung | Status |
+|---|-----------|------------------|--------|
+| 12 | sicherheitsverletzung | AGENTS.md GPU-Regel mit Host-Namen committed | offen — KRITISCH |
+| 13 | sicherheitsverletzung | Solo-Session-Report: "Pascal-Host" committed | offen — KRITISCH |
+| 14 | artefakt-bereinigung | H/HAND/HANDOFF Duplikate gelöscht | erledigt |
+| 15 | beobachtung | thecodacus MoE-Optimierungen erfolgreich | offen (beobachtet) |
