@@ -121,16 +121,59 @@ llama-server -m gemma-4-26B-A4B-it-IQ4_NL.gguf \
 - Partielles Offloading (Experten auf CPU, Attention auf GPU)
 - Bei vollständigem GPU-Offload: kein Effekt (keine H2D-Copies)
 
+## MTP + Pinning + Prefetch (Kombinationstest)
+
+26B-A4B mit Draft-Modell (`gemma-4-26b-a4b-it-assistant.Q4_K_M.gguf`), `--spec-type draft-mtp`:
+
+| Metrik | Wert |
+|--------|------|
+| Draft-Akzeptanz | **100%** (11/11 tokens accepted) |
+| Generation (mit MTP) | **31.93 t/s** |
+| Generation (ohne MTP, Baseline) | 21.3 t/s |
+| MTP-Boost | **+50%** |
+
+**Konfiguration:**
+```bash
+GGML_CUDA_REGISTER_HOST=1 GGML_SCHED_PREFETCH_EXPERTS=1 \
+llama-server -m gemma-4-26B-A4B-it-IQ4_NL.gguf \
+  -md drafts/gemma-4-26b-a4b-it-assistant.Q4_K_M.gguf \
+  --spec-type draft-mtp -ngl 999 -ngld 999 --n-cpu-moe 20 \
+  --flash-attn on
+```
+
+## Kontext-Scaling mit Pinning+Prefetch (--n-cpu-moe 20)
+
+| Kontext | t/s | Skalierung |
+|---------|-----|------------|
+| pp512 | 538 | 1.00x |
+| pp2048 | 513 | 0.95x |
+| pp8192 | 424 | 0.79x |
+| pp16384 | 212 | 0.39x |
+
+**Beobachtung:** Bei 16k Kontext bricht die Performance ein (0.39x vs pp512). Ursache: Bei großen Kontexten werden mehr Experten pro Token aktiviert → mehr H2D-Copies → Prefetch-Overhead wächst. Für Kontext >8k ist `-ot exps=CPU` (alle Experten auf CPU) effizienter als `--n-cpu-moe 20`.
+
+## Korrektheits-Verifikation
+
+**Test:** `llama-cli` mit temp=0, seed=42, Prompt "Die Hauptstadt von Deutschland ist"
+
+| Konfiguration | Ausgabe |
+|---------------|---------|
+| Ohne Pinning | Berlin |
+| Mit Pinning | Berlin |
+
+**Ergebnis:** Token-identische Ausgabe. Pinning ändert nur I/O-Pfade (cudaHostRegister), nicht die Berechnung.
+
 ## Git-Branch
 
-- **Branch:** `feature/thecodacus-pinning` auf Pascal-Host
-- **Commit:** `c2fdbf1df` — "feature: thecodacus MoE-Optimierungen (Pinning + Prefetch)"
+- **Branch:** `feature/thecodacus-pinning` auf Pascal-Host → **gemerged nach master**
+- **Master-Commit:** `a4215b3d6` — "feature: thecodacus MoE-Optimierungen (Pinning + Prefetch)"
 - **Dateien:** 4 geändert, +232 Zeilen
+- **Codeberg:** Push zu `codeberg.org:fukuro/fukuro-llama-cpp-turboquant` erfolgreich
 
 ## Nächste Schritte
 
-1. **Branch nach Codeberg pushen** (User-Bestätigung nötig)
-2. **Merge in master** nach Review
-3. **Service-Konfiguration aktualisieren** mit Pinning+Prefetch Env-Vars
+1. ~~Branch nach Codeberg pushen~~ ✅ Erledigt
+2. ~~Merge in master~~ ✅ Erledigt
+3. **Service-Konfiguration aktualisieren** mit Pinning+Prefetch Env-Vars (für 26B-A4B Service)
 4. **Test mit Qwen 3.6 MoE** (falls verfügbar) für Vergleich mit thecodacus
-5. **Korrektheits-Verifikation** (token-identische Ausgabe, thecodacus bestätigt)
+5. ~~Korrektheits-Verifikation~~ ✅ Token-identisch verifiziert
