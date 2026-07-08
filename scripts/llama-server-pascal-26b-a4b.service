@@ -1,5 +1,5 @@
 [Unit]
-Description=Gemma-4 26B-A4B MTP Server (Pascal-Host) with thecodacus Pinning+Prefetch
+Description=Gemma-4 26B-A4B Server (Pascal-Host) with thecodacus Pinning+Prefetch
 After=network.target
 
 [Service]
