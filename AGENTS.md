@@ -101,10 +101,21 @@ Falls Treffer → Bereinigen!
 
 **Verbindliche Regel:** Python-Pakete werden **nur** via `uv` verwaltet. Nie `pip install --break-system-packages`, nie systemweite Python-Installationen ohne Isolation. Details (Installation, Pfade, zentrale venv) in `LOKAL.md` → "uv und Python-Umgebungen".
 
+### GPU-Nutzungs-Regel (kritisch!) aktuell am 8.7.2026
+
+**Auf Dev-Host (Dev-Host) wird die GPU von anderen Projekten genutzt (xtts-api, InferenzQuelle).**
+
+- **VERBOTEN:** `llama-server`, `llama-bench`, `llama-cli` mit GPU-Offload (`-ngl >0`) auf Dev-Host zu starten.
+- **VERBOTEN:** GPU-Prozesse auf Dev-Host abzuwürgen (`pkill`, `kill`), die nicht zum Fork gehören.
+- **VERBOTEN:** Den GPU-Speicher auf Dev-Host zu füllen — andere Projekte brauchen ihn.
+- **ERLAUBT:** Build auf Dev-Host (`cmake --build build`), CPU-only Tests (`-ngl 0`).
+- **FUER GPU-TESTS:** Pascal-Host verwenden (`ssh Pascal-Host`, GTX 1070, Pascal). Siehe `LOKAL.md` → "GPU-Nutzungs-Regeln" und "Fork-Deployment im LAN" für Workflow und Pfade.
+
 ### Lokale Gegebenheiten
 
 - Host-spezifische Pfade, GPU-Architekturen und Build-Besonderheiten stehen in `LOKAL.md` (in `.gitignore`, nicht committet).
 - Agenten muessen `LOKAL.md` lesen, bevor sie Host-spezifische Aktionen durchfuehren.
+- **LAN-Deployment:** Wo der Fork im LAN geklont ist (welcher Host, welcher Commit-Stand, welcher Service) steht in `LOKAL.md` → "Fork-Deployment im LAN" und in Trilium-Note `eiba6WJDfTiq` → Sektion "LAN-Deployment". Agenten muessen diese Info pruefen, bevor sie Remote-Arbeiten auf anderen Hosts durchfuehren.
 - GPU-Architektur-Build-Matrix (generisch):
   - **Pascal (GTX 1070):** `-DLLAMA_CUDA=ON`, FP16 nur via emulation, kein FlashAttention
   - **Ampere/Ada (RTX 3070/4060):** Volle Feature-Unterstuetzung, FlashAttention, TurboQuant
@@ -180,6 +191,16 @@ Fuer alle Gemma-4 Modelle (sofern kein begruendeter Spezialfall vorliegt):
 | **Vulkan-Turbo3** | ✅ Funktioniert | Eigene Dequant-Shaders (`dequant_turbo3_0`, `mul_mat_vec_tq4_1s`). Langsame bei Kontext >4096 (Dequant-Overhead). Siehe `docs/fork/2026-06-15_STATUS_QUO_VULKAN.md`. |
 | **coopmat2 Feature-Check** | ✅ Cherry-picked | `5a69c9743` — Prueft 7 coopmat2-Features vor Aktivierung. Verhindert Crashes bei unvollstaendiger Extension. decode_vector-Teil entfernt (nicht in Mesa 25.0.7). Siehe [FORKS.md §5.10](FORKS.md#510-coopmat2-feature-check-ergebnis). |
 | **CUDA Fast WHT** | ✅ Cherry-picked | `a817a22bc` (Enum+CPU-WHT in `master`) + `c1f1e28d2` + `192d8ae8b` (CUDA-WHT in `feature/cuda-fast-wht`). `fwht.cu` auf direkte CUDA-Syntax umgeschrieben. Build kompiliert, +11% pp512. **Bereit fuer Merge** in `master`. Siehe [FORKS.md §5.11](FORKS.md#511-cuda-fast-wht-plan). |
+
+### thecodacus MoE-Optimierungen — Status
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| **Memory Pinning** | ✅ In `feature/thecodacus-pinning` | `GGML_CUDA_REGISTER_HOST=1` — cudaHostRegister für mmap-pages. Verhindert OS-Paging der Expert-Gewichte im System-RAM. +19-23% pp bei MoE-Offloading. Portiert von `thecodacus/llama.cpp` Commit `20f5994`. |
+| **Async Expert Prefetch** | ✅ In `feature/thecodacus-pinning` | `GGML_SCHED_PREFETCH_EXPERTS=1` (default 3 Slots) — Overlap Expert-Upload mit GPU-Compute durch zweite Backend-Instanz. +43-67% pp zusätzlich zum Pinning. Portiert von Commits `1163cb3`+`5f83fbb`. |
+| **Kombiniert** | ✅ Getestet | Pinning+Prefetch zusammen: **+72-106% pp, +30% tg** auf GTX 1070 mit 26B-A4B MoE-Offloading. Siehe `docs/fork/2026-07-08_SOLO_SESSION_REPORT.md`. |
+
+**Wichtig:** Diese Optimierungen wirken NUR bei partiellem GPU-Offload von MoE-Modellen (Experten auf CPU). Bei vollständigem GPU-Offload (z.B. E4B) gibt es keine H2D-Copies → kein Effekt.
 
 ---
 

@@ -210,6 +210,7 @@ Alle Cherry-Picks wurden vor dem Sync-Merge abgeschlossen oder blockiert. Detail
 | `236531595` | KV-Cache: SWA checkpoints | ❌ Blockiert (KV-Cache-Refactor) |
 | `d6d0ce821` | Vulkan iq1 shared memory | ✅ Via Sync |
 | `bef69f130` | Vulkan host memory lock contention | ✅ Via Sync |
+| `20f5994`+`1163cb3`+`5f83fbb` | thecodacus MoE Pinning+Prefetch | ✅ In feature/thecodacus-pinning (+95% pp2048 MoE Offload, GTX 1070) |
 
 ### 5.5 Irrelevante Upstream-Bereiche
 
