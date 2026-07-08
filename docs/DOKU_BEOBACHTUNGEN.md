@@ -399,7 +399,57 @@ nicht nur Konsistenz-Update — vom User oder aktiver Session durchzuführen.
 
 ---
 
-## Zusammenfassung Rundgang 7
+## Rundgang 8 — 2026-07-08 (~16:50)
+
+### [2026-07-08] — [widersprüchlich] — scripts/AGENTS.md Sicherheitsregel vs. Pascal-Host-Skripte
+
+**Fund:** `scripts/AGENTS.md` (Child-DOX) hat eine Sicherheitsregel "Keine hartkodierten
+lokalen Pfade, Host-Namen oder Zugangsdaten in Skripten" (Zeile 20). Aber die neuen
+Service-Skripte verletzen diese Regel: Dateinamen und Inhalte enthalten "Pascal-Host".
+
+**Quelle A:** `scripts/AGENTS.md` Zeile 20: "Keine hartkodierten lokalen Pfade, Host-Namen
+oder Zugangsdaten in Skripten."
+**Quelle B:** Neue Skripte (Commits `e95cdcec5`, `dff910039`, `72ef5c5cd`):
+- `scripts/run-gemma4-26b-a4b-mtp-Pascal-Host-server.sh` — Dateiname enthält "Pascal-Host"
+- Inhalt: "curl http://Pascal-Host:18080/v1/chat/completions"
+- `scripts/llama-server-Pascal-Host-26b-a4b.service` — Dateiname enthält "Pascal-Host"
+- `scripts/AGENTS.md` Zeile 44-45: Dokumentiert die Skripte mit "Pascal-Host" im Text
+**Vorschlag:** scripts/AGENTS.md Sicherheitsregel aktualisieren — Host-Namen sind
+in Service-Skripten erlaubt wenn sie LAN-spezifisch sind und nicht öffentlich
+committet werden sollen. Oder: Skripte umbenennen (Pascal-Host → pascal) und Host-Namen
+durch Umgebungsvariablen ersetzen.
+**Status:** offen
+
+---
+
+### [2026-07-08] — [beobachtung] — 26B-A4B Service: Maximale Kontext-Ermittlung (160k)
+
+**Fund:** Commit `72ef5c5cd` maximiert den Kontext für 26B-A4B Service auf 163840 (160k)
+bei K=turbo3/V=turbo4 mixed KV-Cache auf 8GB VRAM. 165888 (162k) führt zu OOM.
+Default ctx von 131072 → 163840.
+
+**Quelle A:** `git show 72ef5c5cd` — "ctx auf 163840 (160k) maximiert",
+"8110 MiB, läuft + Request erfolgreich (Berlin-Test)"
+**Quelle B:** `scripts/run-gemma4-26b-a4b-mtp-Pascal-Host-server.sh` (aktuelle ctx=163840)
+**Vorschlag:** Keine Aktion — Feature erfolgreich dokumentiert und verifiziert.
+**Status:** offen (beobachtet)
+
+---
+
+### [2026-07-08] — [beobachtung] — Code-Review thecodacus Patches dokumentiert
+
+**Fund:** Commit `e95cdcec5` fügt `docs/fork/2026-07-08_CODE_REVIEW_THECODACUS.md` hinzu —
+Code-Review der 3 thecodacus Patches. Ergebnis: produktionsreif, keine Issues,
+UAF-Fix korrekt implementiert.
+
+**Quelle A:** `git show e95cdcec5 --stat` — Code-Review-Datei hinzugefügt
+**Quelle B:** `docs/fork/2026-07-08_CODE_REVIEW_THECODACUS.md` (Review-Ergebnisse)
+**Vorschlag:** Keine Aktion — Code-Review ist dokumentiert und positiv.
+**Status:** offen (beobachtet)
+
+---
+
+## Zusammenfassung Rundgang 8
 
 | # | Kategorie | Kurzbeschreibung | Status |
 |---|-----------|------------------|--------|
@@ -431,8 +481,12 @@ nicht nur Konsistenz-Update — vom User oder aktiver Session durchzuführen.
 | 16 | sicherheitsverletzung | Umfassender Audit: 5 Dateien + 2 Dateinamen | offen | **KRITISCH** |
 | 17 | beobachtung | thecodacus Feature-Commit + erweiterter Report | offen (beobachtet) | — |
 | 18 | veraltet | Trilium: thecodacus MoE-Optimierungen fehlen | offen | mittel |
+| 19 | widersprüchlich | scripts/AGENTS.md Sicherheitsregel vs. Pascal-Host-Skripte | offen | niedrig |
+| 20 | beobachtung | 26B-A4B Service: Maximale Kontext 160k | offen (beobachtet) | — |
+| 21 | beobachtung | Code-Review thecodacus Patches dokumentiert | offen (beobachtet) | — |
 
 **DRINGLICHSTE EMPFEHLUNG:** Sicherheitsverletzungen (#8, #10, #16) bereinigen —
 Host-Namen (Dev-Host, Pascal-Host, Venus, Mars) und lokale Pfade (/path/to/user) in committed
 Dateien. Erfordert `git filter-repo` oder `git rebase -i` + Force-Push. Siehe
 Skill `codeberg-quota-cleanup` für Repo-Recreate-Workflow.
+
