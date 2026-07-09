@@ -92,7 +92,7 @@ git fetch upstream
 |--------|--------|
 | **Architektur** | ✅ `llama_model_base`-Klassenhierarchie (via Sync-Merge mit AtomicBot 2026-06-19). Die monolithische Aera ist beendet. |
 | **DiffusionGemma** | ✅ `llama_model_diffusion_gemma : public llama_model_base` (`src/models/models.h` Zeile 851, `src/models/diffusion-gemma.cpp` 747 Zeilen). Forward-Pass und Entropy-Bound Decoder vollstaendig. Limitierung: Self-Conditioning (SC-Tensoren fehlen in GGUFs). **Offen:** gguf-py Registrierung (`MODEL_ARCH.DIFFUSION_GEMMA`, `add_diffusion_*` Funktionen) fehlt. |
-| **Vulkan TurboQuant** | ✅ turbo3 (~5.1x) und turbo4 (~3.8x) KV-Cache mit FlashAttention auf Vulkan. TurboQuant FA-Pipelines werden via AtomicBot's generischem Shader-Ansatz behandelt. |
+| **Vulkan TurboQuant** | ✅ turbo3 (~5.1x) und turbo4 (~3.8x) KV-Cache auf Vulkan. turbo4 hat FlashAttention (`flash_attn_cm1.comp`), turbo3 FA ist deaktiviert (glslc bug → scalar fallback). Benchmark 2026-07-09: turbo3/3 ist trotzdem konsistent schneller als turbo4/4 (Dequant-Overhead überwiegt FA-Vorteil bei ctx ≤8192). |
 | **Vulkan-Optimierungen** | ✅ Q3_K/Q6_K Block-Load (+57%/+78% tg128 Intel BMG), iq1 shared-memory, host-memory Lock-Kontention. |
 | **Vulkan APU GPU-Hang Fix** | ✅ `nodes_per_submit=10` für UMA-Geräte (Issue #21724). Behebt GPU-Hangs bei >188k Kontext und >16k Prompts. |
 | **Gemma 4 12B Assistant** | ✅ Vollstaendig implementiert (`src/models/gemma4-assistant.cpp`). |
@@ -231,7 +231,7 @@ Alle Cherry-Picks wurden vor dem Sync-Merge abgeschlossen oder blockiert. Detail
 | TurboQuant KV/Weights | ❌ | ✅ | ✅ | ✅ |
 | Gemma 4 MTP | ❌ | ❌ | ✅ | ✅ |
 | DiffusionGemma | ❌ | ❌ | ❌ | ✅ |
-| Vulkan TurboQuant FA | ❌ | ✅ | ✅ | ✅ |
+| Vulkan TurboQuant FA | ❌ | ✅ | ✅ | ✅ (nur turbo4; turbo3 FA deaktiviert) |
 | Vulkan APU GPU-Hang Fix | ❌ | ❌ | ❌ | ✅ |
 | Qwen 3.x NextN | ❌ | ❌ | ✅ | ✅ |
 | UDT-Quantisierung | ❌ | ❌ | ✅ | ✅ |

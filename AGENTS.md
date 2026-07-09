@@ -122,7 +122,8 @@ Falls Treffer → Bereinigen!
   - **AMD iGPU/APU:** `-DLLAMA_VULKAN=ON`, ROCm experimentell
     - ✅ **turbo3 KV-Cache funktioniert:** `--cache-type-k turbo3 --cache-type-v turbo3` (~5.1x Kompression)
     - ✅ **turbo4 KV-Cache funktioniert:** `--cache-type-k turbo4 --cache-type-v turbo4` (~3.8x Kompression)
-    - FlashAttention ist fuer beide TurboQuant-Formate auf Vulkan aktiv
+    - ⚠️ **FlashAttention nur fuer turbo4 aktiv:** turbo3 FA ist DEAKTIVIERT (glslc hängt in infinite optimizer loop bei SPIR-V Generation, `vulkan-shaders-gen.cpp` Zeilen 692-704 auskommentiert). turbo3 fällt auf scalar Attention-Pfad zurück. turbo4 FA aktiv via `flash_attn_cm1.comp`.
+    - ✅ **turbo3/3 ist schneller als turbo4/4 auf Vulkan** (Benchmark 2026-07-09, 26B-A4B, pp512-8192): Der Dequant-Overhead von turbo4 (4.25 bit vs 3.125 bit) überwiegt den FA-Vorteil. turbo3/3 und turbo3/4 (mixed) sind praktisch gleichauf (±1%). Empfehlung: K=turbo3, V=turbo3. Siehe `docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`.
     - ⚠️ **Performance-Klippe bei ~188k Kontext:** Auf AMD APU (shared memory) bricht die Inference-Performance bei ca. 188k Kontext scharf ein (24 t/s → 0.09 t/s, Faktor 243x). Dies ist KEIN VRAM-Bandbreiten-Problem (APU nutzt denselben DDR5), sondern vermutlich ein Code-Pfad-Wechsel im Vulkan-Backend. Workaround: Kontext auf maximal 180k begrenzen. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
 
 ### Build-System
@@ -188,7 +189,7 @@ Fuer alle Gemma-4 Modelle (sofern kein begruendeter Spezialfall vorliegt):
 | **WHT fast path** | ✅ Cherry-picked | Upstream `48e7078ee` + `e82beaa60` (Intel fix). `fwht.comp` Shader fuer schnelle Hadamard-Transformation. Build kompiliert auf System A. Prompt-Verarbeitung +17% bei Gemma 4 12B. |
 | **v_dot2_f32_f16** | ❌ Abgebrochen | Zu komplex — 6 Konflikte, FlashAttention-Refactor-Abhaengigkeiten. Siehe [FORKS.md §5.9](FORKS.md#59-vdot2-cherry-pick-abgebrochen). |
 | **BFloat16 FA** | ❌ Nicht nutzbar | `VK_KHR_shader_bfloat16` nur fuer GFX12+ (Mesa 25.2.x). Unsere GPUs (RDNA3/Vega) zu alt. Siehe [FORKS.md §5.7](FORKS.md#57-warum-bfloat16-fa-fuer-uns-nicht-nutzbar-ist). |
-| **Vulkan-Turbo3** | ✅ Funktioniert | Eigene Dequant-Shaders (`dequant_turbo3_0`, `mul_mat_vec_tq4_1s`). Langsame bei Kontext >4096 (Dequant-Overhead). Siehe `docs/fork/2026-06-15_STATUS_QUO_VULKAN.md`. |
+| **Vulkan-Turbo3** | ✅ Funktioniert | Eigene Dequant-Shaders (`dequant_turbo3_0`, `mul_mat_vec_tq4_1s`). FA deaktiviert (glslc bug), scalar fallback. Trotzdem schneller als turbo4/4 (Benchmark 2026-07-09). Siehe `docs/fork/2026-06-15_STATUS_QUO_VULKAN.md` und `docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`. |
 | **coopmat2 Feature-Check** | ✅ Cherry-picked | `5a69c9743` — Prueft 7 coopmat2-Features vor Aktivierung. Verhindert Crashes bei unvollstaendiger Extension. decode_vector-Teil entfernt (nicht in Mesa 25.0.7). Siehe [FORKS.md §5.10](FORKS.md#510-coopmat2-feature-check-ergebnis). |
 | **CUDA Fast WHT** | ✅ Cherry-picked | `a817a22bc` (Enum+CPU-WHT in `master`) + `c1f1e28d2` + `192d8ae8b` (CUDA-WHT in `feature/cuda-fast-wht`). `fwht.cu` auf direkte CUDA-Syntax umgeschrieben. Build kompiliert, +11% pp512. **Bereit fuer Merge** in `master`. Siehe [FORKS.md §5.11](FORKS.md#511-cuda-fast-wht-plan). |
 

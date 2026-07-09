@@ -54,6 +54,7 @@
 | `bench-mtp-matrix.sh` | Universelles MTP-Matrix Benchmark (konfigurierbar fuer alle Modelle). CSV-Output, VRAM-Monitoring. |
 | `bench-mtp-matrix-196k.sh` | Vollstaendige MTP-Matrix @ ctx=196608 fuer Gemma-4 12B (9 Targets × 12 Drafts). |
 | `bench-b1-vulkan-q3k-q6k.sh` | Vulkan Q3_K/Q6_K Block-Load Benchmark (Cherry-Pick B1 Ergebnisse). Siehe [docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md](../docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md). |
+| `bench-vulkan-kv-cache.sh` | Vulkan KV-Cache Benchmark: turbo3/3, turbo3/4, turbo4/4, f16 bei pp512-8192 mit 26B-A4B. GTT-Cleanup zwischen Tests. Siehe [docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md](../docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md). |
 | `bench-qwen-udt-matrix-local.sh` | Lokale Matrix-Benchmarks fuer Qwen UDT. |
 | `bench-qwen-udt-quality.sh` | Qualitaetsbewertung fuer Qwen UDT. |
 
