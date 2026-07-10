@@ -135,11 +135,13 @@ Falls Treffer → Bereinigen!
 - Styx (CUDA, MoE-Offload): tg gleichauf (CPU-limitiert)
 - 0.5G kleiner → mehr VRAM/RAM für KV-Cache → **+44k Kontext (Mars), +64k Kontext (Styx)**
 
-**Kontextfenster:**
-| System | Altes Limit (IQ4_NL) | Neues Limit (QAT) | Produktiv-ctx |
-|--------|---------------------|-------------------|---------------|
-| Mars (AMD APU) | 180k | 320k (lädt) | **229376 (224k)** — safe bis 15k token Prompts |
-| Styx (GTX 1070) | 160k | 229k (lädt) | **229376 (224k)** — CUDA OOM bei 245k |
+**Kontextfenster (Modell-Maximum: 256K / 262144 tokens):**
+| System | Altes Limit (IQ4_NL) | Neues Limit (QAT) | Produktiv-ctx | Limit-Grund |
+|--------|---------------------|-------------------|---------------|-------------|
+| Mars (AMD APU) | 180k | 224k (lädt) | **229376 (224k)** | RAM (30GB) — 256k OOM-killed |
+| Styx (GTX 1070) | 160k | 229k (lädt) | **229376 (224k)** | VRAM (8GB) — CUDA OOM bei 245k |
+
+Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (256K) als Maximum in der GGUF.
 
 **MTP Q4_0 Draft: AUS** auf beiden Systemen. Q4_0 Draft (48-57% Acceptance) bremst: Mars -2.4%, Styx -14%. Siehe `docs/fork/2026-07-10_QAT_MTP_Q4_0_BENCHMARK.md`.
 

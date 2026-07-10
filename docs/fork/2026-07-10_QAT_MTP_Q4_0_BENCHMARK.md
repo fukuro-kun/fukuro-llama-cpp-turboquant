@@ -84,21 +84,22 @@ Auf Styx sind QAT und IQ4_NL praktisch gleichauf (tg ±0.5%). Der pp-Unterschied
 
 ## Kontextfenster-Erweiterung durch QAT
 
+**Modell-Maximum: 256K (262144 tokens)** — `gemma4.context_length = 262144` in der GGUF. Kontexte über 256k sind sinnlos (RoPE-Positionen gehen nicht weiter). Quelle: [Google Gemma-4 26B-A4B Hugging Face](https://huggingface.co/google/gemma-4-26B-A4B), Trilium-Note `z6bNQ69yJmzc`.
+
 QAT ist 0.5G kleiner als IQ4_NL → mehr VRAM/RAM für KV-Cache → größeres Kontextfenster.
 
-### Mars (AMD APU, Vulkan, shared memory)
+### Mars (AMD APU, Vulkan, shared memory, 30GB RAM)
 
 | Kontext | Lädt? | Bemerkung |
 |---------|-------|-----------|
 | 180224 (180k) | ✅ | Altes IQ4_NL Limit |
 | 229376 (224k) | ✅ | **Neuer Produktiv-Standard** — 15k token Prompt: 139 t/s pp, 18.5 t/s tg |
-| 294912 (288k) | ✅ | Lädt, aber nicht getestet mit großen Prompts |
-| 327680 (320k) | ✅ | Lädt, 64 token tg: 25.3 t/s stabil |
-| 344064 (336k) | ❌ | Timeout beim Laden |
+| 262144 (256k) | ❌ | OOM-killed — KV-Cache übersteigt 30GB RAM |
+| >256k | ❌ | Sinnlos — Modell-Maximum ist 256k |
 
-**Safe Limit: 224k** — bei ~180k token Prompts tritt die Vulkan-Performance-Klippe auf (siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md`). Bis 15k token Prompts sind bei 224k voll nutzbar.
+**Limit: 224k** — 256k (Modell-Maximum) wäre möglich wenn mehr RAM verfügbar wäre. Bei ~180k token Prompts tritt die Vulkan-Performance-Klippe auf (siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md`). Bis 15k token Prompts sind bei 224k voll nutzbar.
 
-### Styx (GTX 1070, CUDA, MoE-Offload)
+### Styx (GTX 1070, CUDA, MoE-Offload, 32GB RAM)
 
 | Kontext | Lädt? | Bemerkung |
 |---------|-------|-----------|
@@ -106,7 +107,7 @@ QAT ist 0.5G kleiner als IQ4_NL → mehr VRAM/RAM für KV-Cache → größeres K
 | 229376 (224k) | ✅ | **Neuer Produktiv-Standard** — 64 token tg: 25.85 t/s stabil |
 | 245760 (240k) | ❌ | CUDA out of memory |
 
-**Safe Limit: 224k** — CUDA OOM bei 245k. +64k Kontext vs IQ4_NL.
+**Limit: 224k** — CUDA OOM bei 245k. 256k (Modell-Maximum) ist mit 8GB VRAM nicht erreichbar. +64k Kontext vs IQ4_NL.
 
 ### Produktiv-Server Verifikation (2026-07-10)
 
@@ -115,7 +116,7 @@ QAT ist 0.5G kleiner als IQ4_NL → mehr VRAM/RAM für KV-Cache → größeres K
 | Mars | QAT-UD-Q4_K_XL | 229376 (224k) | **25.85 t/s** | ✅ aktiv |
 | Styx | QAT-UD-Q4_K_XL | 229376 (224k) | **26.02 t/s** | ✅ aktiv |
 
-Beide Server laufen als systemd User-Services mit dem neuen QAT-Standard.
+Beide Server laufen als systemd User-Services mit dem neuen QAT-Standard. 224k ist das Hardware-Limit — das Modell-Maximum von 256k ist auf Mars (30GB RAM) und Styx (8GB VRAM) nicht voll erreichbar.
 
 ## Technische Hinweise
 
