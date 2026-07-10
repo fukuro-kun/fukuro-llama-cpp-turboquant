@@ -1,0 +1,26 @@
+[Unit]
+Description=Gemma-4 26B-A4B QAT Server (styx) — 224k ctx, turbo3/4, MoE-Offload
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/data/git/fukuro-llama-cpp-turboquant/scripts/run-gemma4-26b-a4b-styx-server.sh
+ExecStop=/bin/kill -TERM $MAINPID
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+
+# Environment
+Environment="CUDA_VISIBLE_DEVICES=0"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+
+# Logging
+StandardOutput=append:/tmp/llama-server-styx.log
+StandardError=append:/tmp/llama-server-styx.log
+
+# Limits
+MemoryMax=12G
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
