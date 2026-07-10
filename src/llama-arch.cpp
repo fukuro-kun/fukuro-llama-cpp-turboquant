@@ -823,8 +823,12 @@ static const std::map<llm_tensor, llm_tensor_info> LLM_TENSOR_INFOS = {
 
 LLM_KV::LLM_KV(llm_arch arch, const char * suffix) : arch(arch), suffix(suffix) {}
 
+LLM_KV::LLM_KV(llm_arch arch, const std::string & arch_name, const char * suffix)
+    : arch(arch), arch_name(arch_name), suffix(suffix) {}
+
 std::string LLM_KV::operator()(llm_kv kv) const {
-    std::string name = ::format(LLM_KV_NAMES.at(kv), LLM_ARCH_NAMES.at(arch));
+    const char * prefix = arch_name.empty() ? LLM_ARCH_NAMES.at(arch) : arch_name.c_str();
+    std::string name    = ::format(LLM_KV_NAMES.at(kv), prefix);
 
     if (suffix != nullptr) {
         name += ".";
@@ -875,9 +879,17 @@ llm_arch llm_arch_from_string(const std::string & name) {
         }
     }
 
-    // Aliases for compatibility with older GGUF files
-    if (name == "gemma4-assistant" || name == "gemma4_mtp") {
-        return LLM_ARCH_GEMMA4_ASSISTANT;
+    // Aliases for compatibility with different GGUF converters
+    // - Upstream PR #23398 uses "gemma4-assistant" (hyphen)
+    // - Older converters use "gemma4_assistant" (underscore)
+    static const std::map<std::string, llm_arch> LLM_ARCH_ALIASES = {
+        { "gemma4-assistant",  LLM_ARCH_GEMMA4_ASSISTANT },
+        { "gemma4_assistant",  LLM_ARCH_GEMMA4_ASSISTANT },
+        { "gemma4_mtp",        LLM_ARCH_GEMMA4_ASSISTANT },
+    };
+    auto it = LLM_ARCH_ALIASES.find(name);
+    if (it != LLM_ARCH_ALIASES.end()) {
+        return it->second;
     }
 
     return LLM_ARCH_UNKNOWN;

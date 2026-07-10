@@ -604,8 +604,10 @@ enum llm_tensor_layer {
 
 struct LLM_KV {
     LLM_KV(llm_arch arch, const char * suffix = nullptr);
+    LLM_KV(llm_arch arch, const std::string & arch_name, const char * suffix = nullptr);
 
-    llm_arch arch;
+    llm_arch   arch;
+    std::string arch_name; // override key prefix (empty = use LLM_ARCH_NAMES.at(arch))
     const char * suffix;
 
     std::string operator()(llm_kv kv) const;

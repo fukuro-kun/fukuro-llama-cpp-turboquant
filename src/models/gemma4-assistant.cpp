@@ -4,8 +4,15 @@
 
 void llama_model_gemma4_assistant::load_arch_hparams(llama_model_loader & ml) {
     // Read backbone embedding length (target model hidden size)
-    // Older GGUF files use n_embd_backbone, newer ones use embedding_length_out
+    // Three sources, in priority order:
+    //   1. n_embd_backbone (older GGUF converters, e.g. TheTom's)
+    //   2. embedding_length_out (upstream PR #23398, newer converters)
+    //   3. n_embd (fallback — wrong for MTP but avoids crash)
     ml.get_key(LLM_KV_EMBEDDING_LENGTH_BACKBONE, hparams.n_embd_backbone, false);
+    if (hparams.n_embd_backbone == 0) {
+        // n_embd_out_impl was already set from embedding_length_out in llama-model.cpp
+        hparams.n_embd_backbone = hparams.n_embd_out_impl;
+    }
     if (hparams.n_embd_backbone == 0) {
         hparams.n_embd_backbone = hparams.n_embd;
     }
