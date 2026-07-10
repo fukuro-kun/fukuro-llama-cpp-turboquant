@@ -48,11 +48,39 @@ QAT ist bei pp und tg deutlich schneller — kleineres Modell (14.2G vs 14.7G) b
 - QAT mit MTP: 24.7 t/s (200 tokens) — **leicht langsamer**
 - Grund: Auf AMD APU (shared memory) überwiegt der Draft-Forward-Pass den MTP-Vorteil. Die 57% Acceptance reicht nicht um den Overhead zu kompensieren.
 
+## Ergebnisse Styx (GTX 1070, CUDA, MoE-Offload)
+
+**System:** Intel i7-7700HQ, GTX 1070 8GB, 32GB RAM, CUDA 12.0, `--n-cpu-moe 20` (20 Experten auf CPU)
+
+### QAT vs IQ4_NL (ohne MTP, turbo3/4, FA on, --n-cpu-moe 20, pp512, tg64)
+
+| Modell | pp512 | tg64 | Größe |
+|--------|-------|------|-------|
+| **QAT-UD-Q4_K_XL** | 350.4 t/s | **24.9 t/s** | 14.2G |
+| IQ4_NL (Google) | 359.3 t/s | 24.7 t/s | 14.7G |
+| **Diff** | -2.5% | **+0.5%** | -3.4% |
+
+Auf Styx sind QAT und IQ4_NL praktisch gleichauf (tg ±0.5%). Der pp-Unterschied liegt im Rauschen. Im Gegensatz zu Mars (wo QAT +10% pp/+16.6% tg schneller war) ist auf Styx kein QAT-Vorteil messbar — die GTX 1070 mit MoE-Offload ist CPU-limitiert (i7-7700HQ), da fällt der Größen-Unterschied (14.2 vs 14.7G) nicht ins Gewicht.
+
+### MTP Q4_0 Draft (turbo3/4, FA on, --n-cpu-moe 20, 200 tokens)
+
+| Modell | tg mit MTP | tg ohne MTP | Acceptance | Speedup |
+|--------|-----------|-------------|------------|---------|
+| QAT-UD-Q4_K_XL | 21.3 t/s | 24.9 t/s | 48.1% | **-14.5%** |
+| IQ4_NL (Google) | 21.5 t/s | 24.7 t/s | 50.8% | **-12.9%** |
+
+**MTP bringt auf Styx KEINEN Speedup — im Gegenteil, es ist 13-14% langsamer!**
+- Beide Modelle: ~50% Acceptance, aber der Draft-Forward-Pass kostet mehr als die akzeptierten Tokens einsparen
+- Grund: GTX 1070 mit 8GB VRAM muss den Draft (241MB) in VRAM laden, der Haupt-Modell-Forward ist aber CPU-limitiert (MoE-Offload) → Draft-Compute konkurriert mit Expert-Prefetch um CPU-Zeit
+
 ## Fazit
 
-1. **QAT-UD-Q4_K_XL ist schneller als IQ4_NL** (+10% pp, +16.6% tg) bei kleinerer Größe. QAT ist die bessere Wahl für Mars.
-2. **MTP Q4_0 Draft funktioniert** (57-65% Acceptance), bringt aber auf Mars keinen Speedup — Draft-Overhead zu hoch für shared-memory GPUs.
-3. **Adapter für neue GGUF-Metadata-Keys** ermöglicht Kompatibilität mit upstream PR #23398 konvertierten Modellen.
+1. **QAT-UD-Q4_K_XL ist auf Mars schneller** (+10% pp, +16.6% tg), auf Styx gleichauf mit IQ4_NL. QAT ist kleiner (14.2G vs 14.7G) — auf VRAM-limitierten Systemen vorteilhaft.
+2. **MTP Q4_0 Draft funktioniert auf beiden Systemen** (48-65% Acceptance), bringt aber **auf KEINEM System Speedup**:
+   - Mars (AMD APU, shared memory): -2.4% (Draft-Overhead überwiegt)
+   - Styx (GTX 1070, MoE-Offload): -14% (Draft konkurriert mit Expert-Prefetch um CPU)
+3. **Empfehlung: MTP Q4_0 Draft AUS** auf beiden Systemen. Der Draft-Overhead überkompensiert die Acceptance-Rate.
+4. **Adapter für neue GGUF-Metadata-Keys** ermöglicht Kompatibilität mit upstream PR #23398 konvertierten Modellen — funktioniert, aber MTP lohnt sich nicht.
 
 ## Technische Hinweise
 
