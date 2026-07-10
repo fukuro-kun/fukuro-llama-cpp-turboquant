@@ -67,11 +67,41 @@ K=turbo4 (mit FlashAttention) könnte schneller sein als K=turbo3 (ohne FA, scal
 
 ### turbo3/4 (Mixed) als valide Alternative
 
-turbo3/4 (K=turbo3, V=turbo4) ist bei allen Kontexten praktisch gleich schnell wie turbo3/3 (±1%). Der Vorteil: V=turbo4 hat höhere Präzision (4.25 bit vs 3.125 bit) bei gleichem Speed. Für Anwendungen die V-Cache-Präzision brauchen ist turbo3/4 eine valide Wahl.
+turbo3/4 (K=turbo3, V=turbo4) ist bei kleinen Kontexten (pp512-8192) praktisch gleich schnell wie turbo3/3 (±1%). Der Vorteil: V=turbo4 hat höhere Präzision (4.25 bit vs 3.125 bit) bei gleichem Speed.
 
-### Empfehlung bestätigt
+## Large-Context Benchmark (96k-128k)
 
-Die aktuelle Empfehlung **K=turbo3, V=turbo3** für AMD-RDNA3 (Vulkan) wird bestätigt. turbo3/3 bietet die beste Performance bei maximaler Kompression (5.1x). turbo3/4 ist eine valide Alternative wenn V-Cache-Präzision wichtiger ist als Kompression.
+**Motivation:** Der erste Benchmark (pp512-8192) testete nicht den realen Use-Case (openclaw agentic framework, 128k-192k Kontext). Bei großen Kontexten könnte FA den Ausschlag geben.
+
+**Setup:** turbo3/turbo4 (mixed) vs turbo4/turbo4, pp96000+pp128000, tg100 nach 128k Kontext. FA on, -ngl 99, 26B-A4B IQ4_NL, 1 Repetition.
+
+### Prompt Processing (t/s)
+
+| KV-Cache | pp@96k | pp@128k | FA |
+|----------|--------|---------|-----|
+| **turbo3/turbo4** | **48.7** | **39.0** | ✅ (V=turbo4) |
+| turbo4/turbo4 | 37.2 | 29.5 | ✅ |
+| **Diff** | **+30.9%** | **+32.2%** | — |
+
+### Token Generation (t/s, tg100 nach 128k Kontext)
+
+| KV-Cache | tg@128k ctx | FA |
+|----------|-------------|-----|
+| **turbo3/turbo4** | **21.7** | ✅ (V=turbo4) |
+| turbo4/turbo4 | 21.6 | ✅ |
+| **Diff** | **+0.5%** | — |
+
+### Fazit Large-Context
+
+**turbo3/turbo4 (mixed) ist bei pp deutlich schneller (+31-32%)** — der geringere Dequant-Overhead von turbo3 K (3.125 bit vs 4.25 bit) überwiegt auch bei 96k-128k Kontext. Bei **tg sind beide praktisch gleich schnell (±0.5%)** — bei Batch Size 1 mit MoE dominiert die Expert-Compute, nicht die Attention.
+
+### Empfehlung aktualisiert
+
+**K=turbo3, V=turbo4** (mixed) ist die optimale Konfiguration für AMD-RDNA3 (Vulkan). turbo3/4 gibt:
+- Beste pp-Performance (+31% vs turbo4/4 bei 96k-128k)
+- Gleiche tg-Performance wie turbo4/4 (±0.5%)
+- Mehr Kompression (turbo3 K: 5.1x, turbo4 V: 3.8x)
+- Höhere V-Cache-Präzision (4.25 bit) für Attention-Output-Qualität
 
 ## Technische Hinweise
 

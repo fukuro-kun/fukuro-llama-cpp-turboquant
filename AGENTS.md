@@ -123,7 +123,7 @@ Falls Treffer → Bereinigen!
     - ✅ **turbo3 KV-Cache funktioniert:** `--cache-type-k turbo3 --cache-type-v turbo3` (~5.1x Kompression)
     - ✅ **turbo4 KV-Cache funktioniert:** `--cache-type-k turbo4 --cache-type-v turbo4` (~3.8x Kompression)
     - ⚠️ **FlashAttention nur fuer turbo4 aktiv:** turbo3 FA ist DEAKTIVIERT (glslc hängt in infinite optimizer loop bei SPIR-V Generation, `vulkan-shaders-gen.cpp` Zeilen 692-704 auskommentiert). turbo3 fällt auf scalar Attention-Pfad zurück. turbo4 FA aktiv via `flash_attn_cm1.comp`.
-    - ✅ **turbo3/3 ist schneller als turbo4/4 auf Vulkan** (Benchmark 2026-07-09, 26B-A4B, pp512-8192): Der Dequant-Overhead von turbo4 (4.25 bit vs 3.125 bit) überwiegt den FA-Vorteil. turbo3/3 und turbo3/4 (mixed) sind praktisch gleichauf (±1%). Empfehlung: K=turbo3, V=turbo3. Siehe `docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`.
+    - ✅ **turbo3/turbo4 (mixed) ist die optimale Vulkan-Konfiguration** (Benchmark 2026-07-09, 26B-A4B, pp512-8192 + pp96k-128k): turbo3 K hat geringeren Dequant-Overhead (3.125 bit vs 4.25 bit), turbo4 V hat höhere Präzision (4.25 bit). Bei pp@96k-128k ist turbo3/4 **+31% schneller** als turbo4/4, bei tg gleichauf (±0.5%). Empfehlung: **K=turbo3, V=turbo4**. Siehe `docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`.
     - ⚠️ **Performance-Klippe bei ~188k Kontext:** Auf AMD APU (shared memory) bricht die Inference-Performance bei ca. 188k Kontext scharf ein (24 t/s → 0.09 t/s, Faktor 243x). Dies ist KEIN VRAM-Bandbreiten-Problem (APU nutzt denselben DDR5), sondern vermutlich ein Code-Pfad-Wechsel im Vulkan-Backend. Workaround: Kontext auf maximal 180k begrenzen. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
 
 ### Build-System

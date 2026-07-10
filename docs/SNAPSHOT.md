@@ -1,6 +1,6 @@
 # Momentaufnahme — fukuro-llama-cpp-turboquant + InferenzQuelle
 
-**Datum:** 2026-07-09 | **Branch:** `master` | **Build:** 424 (633d6d772)
+**Datum:** 2026-07-10 | **Branch:** `master` | **Build:** 424 (633d6d772)
 
 ---
 
@@ -29,10 +29,12 @@
 
 - **Fragestellung:** Ist K=turbo4 (mit FlashAttention) schneller als K=turbo3 (ohne FA, scalar fallback)?
 - **Modell:** Gemma-4 26B-A4B IQ4_NL (14.7GB, MoE 4B aktiv), Vulkan, -ngl 99, FA on
-- **Matrix:** turbo3/3, turbo3/4, turbo4/4, f16/f16 × pp512, pp2048, pp4096, pp8192
-- **Ergebnis:** **Hypothese WIDERLEGT.** turbo3/3 und turbo3/4 sind praktisch gleichauf (±1%), beide konsistent schneller als turbo4/4 (-1.7% bis -8.0%). Der Dequant-Overhead von turbo4 (4.25 bit vs 3.125 bit) überwiegt den FA-Vorteil bei Kontexten bis 8192.
-- **Performance:** pp512: ~200 t/s, tg64: ~22 t/s (26B-A4B MoE)
-- **OOM-Lerneffekt:** 26B-A4B funktioniert auf AMD-RDNA3 wenn RAM/GTT clean ist (`killall -9 llama-bench; sleep 8-10` zwischen Tests). Erster Versuch OOMte weil Memory nicht freigegeben wurde.
+- **Benchmark 1 (pp512-8192):** turbo3/3, turbo3/4, turbo4/4, f16/f16 × pp512-8192
+- **Ergebnis 1:** turbo3/3 und turbo3/4 praktisch gleichauf (±1%), beide schneller als turbo4/4 (-1.7% bis -8.0%). Dequant-Overhead dominiert bei kleinen Kontexten.
+- **Benchmark 2 (Large-Context, 96k-128k):** turbo3/turbo4 vs turbo4/turbo4, pp96k+pp128k, tg100 nach 128k
+- **Ergebnis 2:** turbo3/turbo4 bei pp **+31% schneller** als turbo4/4 (48.7 vs 37.2 t/s @96k, 39.0 vs 29.5 t/s @128k). Bei tg gleichauf (21.7 vs 21.6 t/s). Dequant-Overhead dominiert auch bei großem Kontext.
+- **Empfehlung (aktualisiert):** **K=turbo3, V=turbo4** (mixed) — beste pp, gleiche tg, mehr Kompression, höhere V-Präzision.
+- **OOM-Lerneffekt:** 26B-A4B funktioniert auf AMD-RDNA3 wenn RAM/GTT clean ist (`killall -9 llama-bench; sleep 8-10` zwischen Tests).
 - **Doku:** `docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`, Trilium-Subnote `5DTGKZb95DUO`
 
 ### thecodacus MoE-Optimierungen integriert (2026-07-08, Solo-Session)
@@ -56,7 +58,7 @@
 | CUDA Fast WHT | ✅ | Cherry-picked, +11% pp512, bereit für Merge |
 | thecodacus Pinning+Prefetch | ✅ | +95% pp, +50% tg mit MTP auf MoE-Offload |
 | **Pascal-Host 26B-A4B Service** | ✅ | **Läuft** mit btrfs + Pinning + Prefetch, 24.6 t/s |
-| **AMD-RDNA3 Vulkan Benchmark** | ✅ | turbo3/3 bestätigt als schnellste KV-Cache-Konfig |
+| **AMD-RDNA3 Vulkan Benchmark** | ✅ | turbo3/turbo4 (mixed) als optimale KV-Cache-Konfig bestätigt |
 | Vulkan turbo3 FA | ⚠️ | Deaktiviert (glslc bug) — scalar fallback, trotzdem schneller als turbo4/4 |
 
 ---
