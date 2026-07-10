@@ -82,6 +82,41 @@ Auf Styx sind QAT und IQ4_NL praktisch gleichauf (tg ±0.5%). Der pp-Unterschied
 3. **Empfehlung: MTP Q4_0 Draft AUS** auf beiden Systemen. Der Draft-Overhead überkompensiert die Acceptance-Rate.
 4. **Adapter für neue GGUF-Metadata-Keys** ermöglicht Kompatibilität mit upstream PR #23398 konvertierten Modellen — funktioniert, aber MTP lohnt sich nicht.
 
+## Kontextfenster-Erweiterung durch QAT
+
+QAT ist 0.5G kleiner als IQ4_NL → mehr VRAM/RAM für KV-Cache → größeres Kontextfenster.
+
+### Mars (AMD APU, Vulkan, shared memory)
+
+| Kontext | Lädt? | Bemerkung |
+|---------|-------|-----------|
+| 180224 (180k) | ✅ | Altes IQ4_NL Limit |
+| 229376 (224k) | ✅ | **Neuer Produktiv-Standard** — 15k token Prompt: 139 t/s pp, 18.5 t/s tg |
+| 294912 (288k) | ✅ | Lädt, aber nicht getestet mit großen Prompts |
+| 327680 (320k) | ✅ | Lädt, 64 token tg: 25.3 t/s stabil |
+| 344064 (336k) | ❌ | Timeout beim Laden |
+
+**Safe Limit: 224k** — bei ~180k token Prompts tritt die Vulkan-Performance-Klippe auf (siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md`). Bis 15k token Prompts sind bei 224k voll nutzbar.
+
+### Styx (GTX 1070, CUDA, MoE-Offload)
+
+| Kontext | Lädt? | Bemerkung |
+|---------|-------|-----------|
+| 163840 (160k) | ✅ | Altes IQ4_NL Limit |
+| 229376 (224k) | ✅ | **Neuer Produktiv-Standard** — 64 token tg: 25.85 t/s stabil |
+| 245760 (240k) | ❌ | CUDA out of memory |
+
+**Safe Limit: 224k** — CUDA OOM bei 245k. +64k Kontext vs IQ4_NL.
+
+### Produktiv-Server Verifikation (2026-07-10)
+
+| System | Modell | ctx | tg (32 tok) | Status |
+|--------|--------|-----|-------------|--------|
+| Mars | QAT-UD-Q4_K_XL | 229376 (224k) | **25.85 t/s** | ✅ aktiv |
+| Styx | QAT-UD-Q4_K_XL | 229376 (224k) | **26.02 t/s** | ✅ aktiv |
+
+Beide Server laufen als systemd User-Services mit dem neuen QAT-Standard.
+
 ## Technische Hinweise
 
 - **QAT = normale GGUF:** Kein spezieller QAT-Loader nötig. QAT ist eine Training-Methodik, die Gewichte sind normal quantisiert. Der einzige relevante upstream-Fix ist PR #21451 (BF16 precision für Gemma 4 scale ops) für beste Qualität.

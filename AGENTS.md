@@ -126,6 +126,27 @@ Falls Treffer → Bereinigen!
     - ✅ **turbo3/turbo4 (mixed) ist die optimale Vulkan-Konfiguration** (Benchmark 2026-07-09, 26B-A4B, pp512-8192 + pp96k-128k): turbo3 K hat geringeren Dequant-Overhead (3.125 bit vs 4.25 bit), turbo4 V hat höhere Präzision (4.25 bit). Bei pp@96k-128k ist turbo3/4 **+31% schneller** als turbo4/4, bei tg gleichauf (±0.5%). Empfehlung: **K=turbo3, V=turbo4**. Siehe `docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`.
     - ⚠️ **Performance-Klippe bei ~188k Kontext:** Auf AMD APU (shared memory) bricht die Inference-Performance bei ca. 188k Kontext scharf ein (24 t/s → 0.09 t/s, Faktor 243x). Dies ist KEIN VRAM-Bandbreiten-Problem (APU nutzt denselben DDR5), sondern vermutlich ein Code-Pfad-Wechsel im Vulkan-Backend. Workaround: Kontext auf maximal 180k begrenzen. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
 
+### Produktiv-Standard (seit 2026-07-10): QAT + 224k Kontext
+
+**Modell:** `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf` (14.2G) — QAT (Quantization-Aware Training) von Unsloth. ersetzt `google_gemma-4-26B-A4B-it-IQ4_NL.gguf` (14.7G) als Standard.
+
+**Vorteile QAT:**
+- Mars (Vulkan): +10% pp, +16.6% tg vs IQ4_NL
+- Styx (CUDA, MoE-Offload): tg gleichauf (CPU-limitiert)
+- 0.5G kleiner → mehr VRAM/RAM für KV-Cache → **+44k Kontext (Mars), +64k Kontext (Styx)**
+
+**Kontextfenster:**
+| System | Altes Limit (IQ4_NL) | Neues Limit (QAT) | Produktiv-ctx |
+|--------|---------------------|-------------------|---------------|
+| Mars (AMD APU) | 180k | 320k (lädt) | **229376 (224k)** — safe bis 15k token Prompts |
+| Styx (GTX 1070) | 160k | 229k (lädt) | **229376 (224k)** — CUDA OOM bei 245k |
+
+**MTP Q4_0 Draft: AUS** auf beiden Systemen. Q4_0 Draft (48-57% Acceptance) bremst: Mars -2.4%, Styx -14%. Siehe `docs/fork/2026-07-10_QAT_MTP_Q4_0_BENCHMARK.md`.
+
+**Services:**
+- Mars: `scripts/run-gemma4-26b-a4b-mars-server.sh` + `scripts/llama-server-mars-26b-a4b.service`
+- Styx: `scripts/run-gemma4-26b-a4b-styx-server.sh` + `scripts/llama-server-styx-26b-a4b.service`
+
 ### Build-System
 
 - **CMake** mit Backend-Optionen (`-DLLAMA_CUDA=ON`, `-DLLAMA_VULKAN=ON`, etc.)
