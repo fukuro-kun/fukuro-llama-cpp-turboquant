@@ -4624,6 +4624,10 @@ static void ggml_vk_load_shaders(vk_device& device, vk_pipeline requested) {
             rm_stdq = 2;
             rm_kq = 4;
             rm_stdq_int = 4;
+        } else if (device->architecture == AMD_RDNA3) {
+            // RDNA3 has enough register file and shared memory for 4 rows/workgroup
+            rm_stdq = 2;
+            rm_kq = 4;
         }
     } else if (device->vendor_id == VK_VENDOR_ID_INTEL) {
         rm_stdq = 2;
