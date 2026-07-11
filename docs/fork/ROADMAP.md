@@ -69,7 +69,7 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 15 | ☐ | PipeShard: VRAM-Constrained MoE | Styx, Hydra, Mars | 4-6 Wochen | arXiv:2604.26334 | [M3](plans/SESSION_PLAN_pipeshard.md) | VRAM-optimierte MoE-Inference |
 | 16 | ☐ | Vulkanised 2026: shmem-staging M-V Kernel | Mars, Venus | 2-4 Wochen | upstream | später | >2.5x TG auf Intel Arc |
 | 34 | ☐ | UBBoost: Dynamische Ubatch-Größe | Styx, Hydra | 2-3 Wochen | Discussion #23262 | — | bis 2x PP bei VRAM-konstriktiven Setups — **Recherche 2026-07-12** |
-| 35 | ☐ | Row-Packing für Dequantize-MatVec | Mars, Venus | 1-2 Tage | nein (Zinc Referenz) | — | +10-20% DMMV — **Recherche 2026-07-12, zwei Rows pro Workgroup** |
+| 35 | ✅ | Row-Packing für Dequantize-MatVec | Mars, Venus | 1-2 Tage | nein (Zinc Referenz) | — | +10-20% DMMV (erwartet) → **+1% gemessen** — **Implementiert: rm_stdq=2, rm_kq=4 für RDNA3 (Commit acd8dfe3a). Row-packing war bereits teilweise implementiert (NUM_ROWS=2 default, =4 auf GCN). Erhöhung auf RDNA3 brachte nur +1% auf E2B Q4_K (pp128: 493→498, tg64: 40.0→40.4). DMMV ist nicht der Bottleneck für kleine MoE-Modelle.** |
 | 36 | ☐ | Auto Parameter Fitting TP | Uranus | 1-2 Wochen | PR #22950 (open) | — | vereinfachte TP-Konfiguration — **Recherche 2026-07-12** |
 | 37 | ☐ | LFRU Expert Caching | Styx, Hydra | 2-4 Wochen | vLLM commit 71ed1fc | — | +5.2% speedup, 15-20% hit rate — **Recherche 2026-07-12, siehe auch #14 LFU** |
 | 38 | ☐ | Conf-KV: Confidence-aware KV Eviction | Alle | 2-4 Wochen | arXiv:2605.24786 | — | KV-Cache Kompression ergänzt TurboQuant — **Recherche 2026-07-12** |
