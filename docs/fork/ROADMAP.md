@@ -94,7 +94,7 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 42 | ☐ | CapKV: Capacity-aware KV Eviction | Alle | 4-6 Wochen | arXiv:2604.25975 | später | information-theoretic eviction — **Recherche 2026-07-12** |
 | 43 | ☐ | SliderQuant: Sliding-layer PTQ | Alle | 4-6 Wochen | arXiv:2603.25284 | später | bessere Low-Bit-Quantisierung — **Recherche 2026-07-12** |
 | 44 | ☐ | Alloc-MoE: Budget-aware Expert Activation | Mars, Styx | 6-8 Wochen | arXiv:2604.08133 | später | 1.34x decode speedup — **Recherche 2026-07-12** |
-| 45 | ☐ | CUDA Concurrent Streams QKV | Styx, Hydra | 1-2 Wochen | GGML_CUDA_GRAPH_OPT=1 | später | Compute-Overlap bei Attention — **Recherche 2026-07-12** |
+| 45 | ❌ | CUDA Concurrent Streams QKV | Styx, Hydra | 1-2 Wochen | GGML_CUDA_GRAPH_OPT=1 | später | **Bereits im Fork (PR #16991), aber Regression mit CUDA Graphs (-10.7% tg2048 E4B Ada). Ohne Graphs +1% (im Rauschen). QKV-Projektionen zu klein bei E4B für nennenswerten Overlap. Feature konfligiert mit CUDA-Graph-Capture durch interleaved Node-Order. Benchmark 2026-07-13 auf Uranus (RTX 4060 Ti, E4B Q4_K_XL).** |
 
 ## Tier 4: Langfristig / Forschung (3+ Monate Solo-Agent)
 
