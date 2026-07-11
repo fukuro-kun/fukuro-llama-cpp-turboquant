@@ -139,7 +139,7 @@ Falls Treffer → Bereinigen!
 | System | Altes Limit (IQ4_NL) | Neues Limit (QAT) | Produktiv-ctx | Limit-Grund |
 |--------|---------------------|-------------------|---------------|-------------|
 | Mars (AMD APU) | 180k | 224k (lädt) | **229376 (224k)** | RAM (30GB) — 256k OOM-killed |
-| Styx (GTX 1070) | 160k | 229k (lädt) | **229376 (224k)** | VRAM (8GB) — CUDA OOM bei 245k |
+| Styx (GTX 1070) | 160k | 224k (lädt) | **229376 (224k)** | VRAM (8GB) — CUDA OOM bei 245k |
 
 Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (256K) als Maximum in der GGUF.
 
@@ -171,8 +171,30 @@ Fuer alle Gemma-4 Modelle (sofern kein begruendeter Spezialfall vorliegt):
 
 - **Primary Remote:** `git@codeberg.org:fukuro/fukuro-llama-cpp-turboquant.git`
 - **Branch:** `master` (Hauptentwicklung)
+- **Commit-Format:** `<type>: <Was> — <Warum>` — Types: `feat`, `docs`, `fix`, `security`, `refactor`, `bench`
 - **Commits:** Deutsch, kurz und sachlich (keine generischen Marketing-Floskeln)
 - **Keine automatischen Devin-Eintraege** in Commit-Nachrichten
+- **CHANGELOG.md** (Root): Fuehrt alle bedeutsamen Aenderungen chronologisch. Nach jedem Feature/Bugfix eintragen. Solo-Session-Agenten tragen hier ihren Fortschritt ein.
+
+### ROADMAP-Workflow (Fork-Beschleunigung)
+
+**Zentrale Datei:** `docs/fork/ROADMAP.md` — alle Optimierungs-Ansaetze als Abhakliste mit Meilensteinen (M1-M6).
+
+**Solo-Plaene:** `docs/fork/plans/SESSION_PLAN_<thema>.md` — pro Item >=1 Tag. Items <1 Tag werden zu einem kombinierten Plan zusammengefasst.
+
+**Regeln:**
+- Solo-Plaene werden nur fuer den **aktuellen und naechsten Meilenstein** erstellt. Tier 3-4 Plaene entstehen wenn der Meilenstein naeher rueckt (verhindert veraltete Plaene).
+- Nach Abschluss eines Items: ROADMAP.md Status auf ✅ setzen, Solo-Plan Status auf ✅ setzen.
+- Bei Blockaden: ROADMAP.md Status auf ❌ mit Begruendung, Solo-Plan dokumentiert die Blockade.
+- Monatliche Recherche via `fork-speed-research` Skill (`.devin/skills/fork-speed-research/`) — neue Ansaetze in ROADMAP.md aufnehmen.
+- Meta-Entscheidungen (welche Meilensteine, welche Items zuerst) werden hier in AGENTS.md festgehalten, nicht in der ROADMAP selbst.
+
+**Solo-Session-Ablauf fuer ROADMAP-Items:**
+1. Agent liest `docs/fork/ROADMAP.md` → waehlt naechstes offenes Item im aktuellen Meilenstein
+2. Agent liest `docs/fork/plans/SESSION_PLAN_<thema>.md` → fuehrt Solo-Session aus (nach `solo-session` Skill)
+3. Agent aktualisiert ROADMAP.md (Status ☐→✅) und Solo-Plan (Status)
+4. Agent committet + schreibt TTT-Eintrag
+5. fukuro reviewt: ROADMAP zeigt Fortschritt als Abhakliste
 
 ### Fork-Features und Schluesseldateien
 
