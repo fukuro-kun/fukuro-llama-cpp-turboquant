@@ -56,39 +56,69 @@ Layer-Sharing (PLE: Layer 0-3 teilen sich mit Layer 40-41) + turbo-FA
 
 ## Root Cause
 
-E4B's PLE-Architektur (Per-Layer Embeddings) erzeugt Tensoren mit
-unterschiedlichen Embedding-Größen pro Layer. Das bricht drei Annahmen
-gleichzeitig:
+E4B's Full-Attention-Layer verwenden `head_dim=512` (`attention.key_length: 512`,
+`attention.value_length: 512`). Die SWA-Layer verwenden `head_dim=256`.
+Das SWA-Pattern ist 5 SWA + 1 full (jeder 6. Layer ist full-attention).
 
-1. **FlashAttention** erwartet uniforme K/V-Shapes → crash bei variablen V-Embeddings
-2. **turbo KV-Cache** benötigt FA → kann nicht ohne FA genutzt werden
-3. **Partieller GPU-Offload** (`-ngl < max`) mit Layer-Sharing → Shape-Mismatch
-   beim CPU↔GPU Transfer
+Der MMA FA-Kernel (`ggml_cuda_flash_attn_ext_mma_f16`) hat keine Template-Instanz
+für DKQ=512 — `switch_ncols2<512, 512>` trifft `GGML_ABORT("fatal error")` bei
+`fattn.cu:110` weil DKQ > 256 nicht im switch-case behandelt wird.
 
-Das ist verwandt mit dem bereits bekannten Multi-GPU-Crash
-(`GGML_ASSERT(n_inputs < GGML_SCHED_MAX_SPLIT_INPUTS)`, siehe
-InferenzQuelle MTP_INDEX.md "Technische Erkenntnis: E2B/E4B Multi-GPU Crash"),
-trifft aber auch auf Single-GPU bei 8GB weil turbo-FA hier zwingend nötig ist
-um überhaupt in den VRAM zu passen.
+Der TILE-Kernel hatte ebenfalls eine Lücke: `launch_fattn_tile_switch_ncols2`
+hatte keinen Fallback für DV > 256 wenn `use_gqa_opt=false` (kein Mask, z.B.
+während Model-Loading/Warmup). Der `DV <= 256` Guard übersprang den
+ncols2=1 Fallback → `GGML_ABORT`.
+
+Zusätzlich fehlte eine TILE-Config für 512/512 bei ncols=2, was für den MTP-Draft
+(gqa_ratio=2, 4 heads / 2 KV heads) benötigt wird.
+
+## Fix (2026-07-13)
+
+Drei Commits lösen das Problem:
+
+1. **`fattn.cu`**: Route `head_dim=512` zu `BEST_FATTN_KERNEL_TILE` vor dem
+   `turing_mma_available` Check. TILE hat bereits eine `dkq512-dv512` Instanz.
+
+2. **`fattn-tile.cuh`**: Fallback für DV > 256 ohne Mask. GQA-Grouping ist eine
+   strukturelle Eigenschaft (unabhängig vom Mask):
+   - `gqa_ratio % 4 == 0` → ncols2=4 (E4B main model, gqa_ratio=4)
+   - `gqa_ratio % 2 == 0` → ncols2=2 (MTP draft, gqa_ratio=2)
+   - else → ncols2=1
+
+3. **`fattn-tile.cuh`**: Neue TILE-Config für 512/512 bei ncols=2 in allen 4
+   Config-Funktionen (nvidia fp16/fp32, amd, amd rdna). Werte: nthreads=128,
+   occupancy=2, nbatch_fa=64, nbatch_K=64.
+
+## Verifikation (Uranus, RTX 4060 Ti 16GB, 2026-07-13)
+
+```
+E4B + MTP, turbo4/turbo3 KV, -ngl 99 -fa 1:
+  llama-cli: "The capital of France is" → "Paris" ✅
+  Generation: 103.4 t/s mit MTP spec decoding
+
+E4B + MTP, f16 KV, -ngl 99 -fa 1:
+  llama-cli: "What is 2+2?" → "4" ✅
+  Generation: 112.1 t/s
+
+E4B only (no MTP), f16 KV:
+  pp128: 3589 t/s, tg64: 72 t/s (keine Regression)
+
+E4B only (no MTP), turbo4/turbo3 KV:
+  pp128: 1692 t/s, tg64: 62 t/s (keine Regression)
+```
 
 ## Was funktioniert
 
-- **Ollama** mit E4B: Stabil, 50s pro Inference, 30 tok/s, `num_ctx: 8192`.
-  Ollama nutzt eigenen llama-server mit Standard-KV-Cache (kein turbo, kein
-  custom FA-Pfad). Kein MTP-Speedup, aber fehlerfrei.
-- **E2B** auf 8GB: Funktioniert mit Ollama (kleiner, weniger PLE-Tensoren).
+- **E4B+MTP auf 16GB (RTX 4060 Ti)**: Voll funktionsfähig mit FA + turbo KV.
+  MTP spec decoding funktioniert, ~100 t/s Generation.
+- **E4B+MTP auf 8GB (RTX 3070)**: Sollte mit f16 KV und minimalem Kontext
+  funktionieren (4GB Modell + Draft ~200MB + KV-Cache). Nicht auf Hydra getestet
+  (GPU-Regel: keine GPU-Prozesse auf Hydra).
+- **Ollama** mit E4B: Stabil als Fallback.
 
-## Offene Fragen / TODO
+## Ursprüngliche Fehldiagnose
 
-- [ ] Läuft E4B+MTP auf 16GB Single-GPU (z.B. RTX 4060 Ti)? Genug VRAM für
-      f16 KV-Cache ohne turbo → FA nicht nötig → könnte funktionieren.
-- [ ] Läuft E4B+MTP mit `-ngl 99` (volle GPU) + f16 + `-c 2048` (minimaler
-      Kontext)? Vielleicht reicht minimaler KV-Cache um ohne turbo auszukommen.
-- [ ] FA-Fix für variable V-Embedding-Sizes: PLE-Layer pad/truncate vor FA?
-      (Upstream-Work, nicht trivial)
-
-## Workaround
-
-Bis FA PLE-kompatibel ist: **Ollama für E4B nutzen**, kein llama-server+MTP
-auf 8GB-Systemen. MTP-Speedup ist nur für größere Modelle (12B, 26B) auf
-Systemen mit mehr VRAM (16GB+) verfügbar.
+Die ursprüngliche Analyse ging von "PLE-Architektur mit variablen V-Embedding-Sizes"
+als Root Cause aus. Tatsächlich war es simpler: E4B's full-attention Layer haben
+`head_dim=512`, und der MMA-Kernel unterstützt `DKQ > 256` nicht (nur 576/640
+als Spezialfälle für Deepseek/GLM). PLE ist nicht direkt im Attention-Pfad.
