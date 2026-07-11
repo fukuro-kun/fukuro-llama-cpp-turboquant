@@ -78,6 +78,12 @@ enum MatMulIdType {
     SUBGROUP,
 };
 
+enum MatMulIdType {
+    NONE,
+    DEFAULT,
+    SUBGROUP,
+};
+
 namespace {
 
 void execute_command(std::vector<std::string>& command, std::string& stdout_str, std::string& stderr_str) {
@@ -610,7 +616,7 @@ void matmul_shaders(bool fp16, MatMulIdType matmul_id_type, bool coopmat, bool c
 
 #if defined(GGML_VULKAN_INTEGER_DOT_GLSLC_SUPPORT)
         // Integer dot mmq performs better with f32 accumulators (different shader, skip for dot2)
-        if (!f16acc && !coopmat && !coopmat2 && !dot2 && (is_legacy_quant(tname) || is_k_quant(tname) || tname == "mxfp4")) {
+        if (!f16acc && !coopmat && !coopmat2 && !dot2 && matmul_id_type == MatMulIdType::NONE && (is_legacy_quant(tname) || is_k_quant(tname) || tname == "mxfp4")) {
             string_to_spv(shader_name + "_" + tname + "_q8_1", "mul_mmq.comp", merge_maps(merge_maps(base_dict, float_type_dict), {{data_a_key, "1"}, {"D_TYPE", "float"},}), fp16, coopmat, coopmat2, f16acc);
         }
 #endif
@@ -644,6 +650,7 @@ void process_shaders() {
             matmul_shaders(true, matmul_id_type, false, true, false);
             matmul_shaders(true, matmul_id_type, false, true, true);
 #endif
+
         }
     }
 
