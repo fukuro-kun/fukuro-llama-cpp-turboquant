@@ -644,7 +644,6 @@ void process_shaders() {
             matmul_shaders(true, matmul_id_type, false, true, false);
             matmul_shaders(true, matmul_id_type, false, true, true);
 #endif
-
         }
     }
 
