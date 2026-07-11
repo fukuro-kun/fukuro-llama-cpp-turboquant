@@ -11,7 +11,7 @@
 
 | MS | Name | Items | Status |
 |----|------|-------|--------|
-| **M1** | Quick-Win-Welle | #1-5 (kombiniert) | ⏳ teilweise (#2✅, #5✅, #4⏳, #1❌) |
+| **M1** | Quick-Win-Welle | #1-5 (kombiniert) | ✅ abgeschlossen (#2✅, #4✅, #5✅, #1❌) |
 | **M2** | Vulkan-Offensive | #6, #7, #9, #10, #12 | ⏳ blockiert (#6❌, #7⏭️, #9❌) |
 | **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ☐ offen |
 | **M4** | Speculative Decoding v2 | #11, #28 | ☐ offen |
@@ -29,7 +29,7 @@
 | 1 | ❌ | MTP Logits Copy Optimization | Mars, Styx | 2-3h | PR #23198 | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | +20% PP mit MTP — **19 Konflikte in 10 Kern-Dateien, MTP OFF, skipped** |
 | 2 | ✅ | Tensor Split Regex Optimization | Uranus | 1-2h | PR #24710 (open) | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | befreit 40% decode thread — **angewendet, Build grün auf Hydra+Mars** |
 | 3 | ☐ | Pascal CUDA MMVQ Optimization | Styx | 2-3 Tage | PR #25479 | [M3](plans/SESSION_PLAN_pascal-mmvq.md) | +3-6% decode auf Pascal |
-| 4 | ⏳ | n-gram / Prompt-Lookup Decoding | Alle | 0h | in mainline | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | hilft bei repetitiven Workloads — **verfügbar, Benchmark ausstehend** |
+| 4 | ✅ | n-gram / Prompt-Lookup Decoding | Alle | 0h | in mainline | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | hilft bei repetitiven Workloads — **verfügbar (`--spec-type ngram-mod`), kein Speedup auf E2B (39.1 vs 39.2 t/s)** |
 | 5 | ✅ | GTT Size Tuning für Mars APU | Mars | 1h | Konfiguration | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | >15GB GPU-Speicher — **bereits konfiguriert (26GB GTT), kein Tuning nötig** |
 | 6 | ❌ | Vulkan MUL_MAT_ID Subgroup Optimization | Mars, Venus | 1 Tag | PR #15524 | [M2](plans/SESSION_PLAN_mulmat-id-subgroup.md) | bis +657% MoE PP auf AMD — **23 Konflikte in 3 Vulkan-Dateien, Shader-Gen beschädigt, revertiert. Erfordert manuelle Portierung mit tiefem Vulkan-Shader-Verständnis** |
 | 7 | ⏭️ | Vulkan FlashAttention Refactor | Mars, Venus | 1 Woche | PR #19625 | [M2](plans/SESSION_PLAN_vulkan-fa-refactor.md) | 10-20% scalar FA improvement — **verschoben, abhängig von #6** |
