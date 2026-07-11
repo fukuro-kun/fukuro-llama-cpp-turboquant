@@ -12,7 +12,7 @@
 | MS | Name | Items | Status |
 |----|------|-------|--------|
 | **M1** | Quick-Win-Welle | #1-5 (kombiniert) | ✅ abgeschlossen (#2✅, #4✅, #5✅, #1❌) |
-| **M2** | Vulkan-Offensive | #6, #7, #9, #10, #12 | ❌ blockiert (#6✅ bereits integriert, #7⏭️, #9❌, #10❌) |
+| **M2** | Vulkan-Offensive | #6, #7, #9, #10, #12 | ❌ blockiert (#6✅ bereits integriert, #7✅ bereits integriert, #9❌, #10❌) |
 | **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ⏳ teilweise (#3✅, #6✅, #13❌, #14⏭️) |
 | **M4** | Speculative Decoding v2 | #11, #28 | ☐ offen |
 | **M5** | Coopmat2 + Multi-GPU | #12, #20, #21 | ☐ offen |
@@ -32,7 +32,7 @@
 | 4 | ✅ | n-gram / Prompt-Lookup Decoding | Alle | 0h | in mainline | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | hilft bei repetitiven Workloads — **verfügbar (`--spec-type ngram-mod`), kein Speedup auf E2B (39.1 vs 39.2 t/s)** |
 | 5 | ✅ | GTT Size Tuning für Mars APU | Mars | 1h | Konfiguration | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | >15GB GPU-Speicher — **bereits konfiguriert (26GB GTT), kein Tuning nötig** |
 | 6 | ✅ | Vulkan MUL_MAT_ID Subgroup Optimization | Mars, Venus | 1 Tag | PR #15524 (merged) | [M2](plans/SESSION_PLAN_mulmat-id-subgroup.md) | bis +657% MoE PP auf AMD — **bereits im Fork integriert: MatMulIdType::SUBGROUP, mul_mm_id_funcs.glsl, matmul_id_subgroup_* Shader werden generiert, Pipelines aktiv (subgroup_ballot && subgroup_require_full_support && subgroup_min_size_16)** |
-| 7 | ⏭️ | Vulkan FlashAttention Refactor | Mars, Venus | 1 Woche | PR #19625 | [M2](plans/SESSION_PLAN_vulkan-fa-refactor.md) | 10-20% scalar FA improvement — **verschoben, abhängig von #6** |
+| 7 | ✅ | Vulkan FlashAttention Refactor | Mars, Venus | 1 Woche | PR #19625 (merged) | [M2](plans/SESSION_PLAN_vulkan-fa-refactor.md) | 10-20% scalar FA improvement — **bereits im Fork integriert: Commit 66e999ecc, get_fa_tuning_params_scalar(), row_split, shmem_staging, Q caching in registers, vendor-specific Br selection** |
 
 ## Tier 2: Mittelfristig (1-3 Wochen)
 
