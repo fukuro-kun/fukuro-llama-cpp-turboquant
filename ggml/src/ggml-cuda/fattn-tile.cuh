@@ -1335,6 +1335,14 @@ static void launch_fattn_tile_switch_ncols2(ggml_backend_cuda_context & ctx, ggm
             launch_fattn_tile_switch_ncols1<DKQ, DV, 1, use_logit_softcap>(ctx, dst);
             return;
         }
+
+        // Fallback for DV > 256 (e.g., E4B head_dim=512) without mask or GQA opt.
+        // ncols2=4 is safe when gqa_ratio % 4 == 0 (structural property, independent of mask).
+        // Config exists for 512/512 at ncols=4. Handles warmup/decode without mask.
+        if (gqa_ratio % 4 == 0) {
+            launch_fattn_tile_switch_ncols1<DKQ, DV, 4, use_logit_softcap>(ctx, dst);
+            return;
+        }
     }
     GGML_ABORT("fatal error");
 }
