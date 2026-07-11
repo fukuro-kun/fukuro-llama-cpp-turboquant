@@ -13,7 +13,7 @@
 |----|------|-------|--------|
 | **M1** | Quick-Win-Welle | #1-5 (kombiniert) | ✅ abgeschlossen (#2✅, #4✅, #5✅, #1❌) |
 | **M2** | Vulkan-Offensive | #6, #7, #9, #10, #12 | ⏳ blockiert (#6❌, #7⏭️, #9❌) |
-| **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ☐ offen |
+| **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ⏳ teilweise (#3✅, #13❌) |
 | **M4** | Speculative Decoding v2 | #11, #28 | ☐ offen |
 | **M5** | Coopmat2 + Multi-GPU | #12, #20, #21 | ☐ offen |
 | **M6** | Forschung | #17, #18, #19, #25, #26, #27, #29, #30 | ☐ offen |
@@ -28,7 +28,7 @@
 |---|--------|--------|---------|---------|-----------|-----------|------|
 | 1 | ❌ | MTP Logits Copy Optimization | Mars, Styx | 2-3h | PR #23198 | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | +20% PP mit MTP — **19 Konflikte in 10 Kern-Dateien, MTP OFF, skipped** |
 | 2 | ✅ | Tensor Split Regex Optimization | Uranus | 1-2h | PR #24710 (open) | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | befreit 40% decode thread — **angewendet, Build grün auf Hydra+Mars** |
-| 3 | ☐ | Pascal CUDA MMVQ Optimization | Styx | 2-3 Tage | PR #25479 | [M3](plans/SESSION_PLAN_pascal-mmvq.md) | +3-6% decode auf Pascal |
+| 3 | ✅ | Pascal CUDA MMVQ Optimization | Styx | 2-3 Tage | PR #25479 (draft) | [M3](plans/SESSION_PLAN_pascal-mmvq.md) | +3-6% decode auf Pascal — **manuell portiert, +8.9% Generation auf GTX 1070 (E2B MoE), Code-Review ship-ready** |
 | 4 | ✅ | n-gram / Prompt-Lookup Decoding | Alle | 0h | in mainline | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | hilft bei repetitiven Workloads — **verfügbar (`--spec-type ngram-mod`), kein Speedup auf E2B (39.1 vs 39.2 t/s)** |
 | 5 | ✅ | GTT Size Tuning für Mars APU | Mars | 1h | Konfiguration | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | >15GB GPU-Speicher — **bereits konfiguriert (26GB GTT), kein Tuning nötig** |
 | 6 | ❌ | Vulkan MUL_MAT_ID Subgroup Optimization | Mars, Venus | 1 Tag | PR #15524 | [M2](plans/SESSION_PLAN_mulmat-id-subgroup.md) | bis +657% MoE PP auf AMD — **23 Konflikte in 3 Vulkan-Dateien, Shader-Gen beschädigt, revertiert. Erfordert manuelle Portierung mit tiefem Vulkan-Shader-Verständnis** |
@@ -43,7 +43,7 @@
 | 10 | ☐ | UMA Zero-Copy für Mars APU | Mars, Venus | 1-2 Wochen | PR #22462 | [M2](plans/SESSION_PLAN_uma-zero-copy.md) | +112x transfer speed |
 | 11 | ☐ | EAGLE-3 Speculative Decoding | Alle | 2-3 Wochen | PR #18039 | [M4](plans/SESSION_PLAN_eagle3.md) | bis 6.5x speedup |
 | 12 | ☐ | Vulkan Cooperative Matrix (Coopmat2) | Mars, Uranus | 2-3 Wochen | PR #19075 | [M5](plans/SESSION_PLAN_coopmat2-rdna3.md) | 2.5x FA multiply |
-| 13 | ☐ | Two-Tier GPU+RAM Expert Cache | Styx, Mars | 1-2 Wochen | FR #20757 | [M3](plans/SESSION_PLAN_two-tier-expert-cache.md) | kritisch für Styx 8GB |
+| 13 | ❌ | Two-Tier GPU+RAM Expert Cache | Styx, Mars | 1-2 Wochen | FR #20757 | [M3](plans/SESSION_PLAN_two-tier-expert-cache.md) | kritisch für Styx 8GB — **nicht implementieren: alle PRs closed, thecodacus Memory Pinning deckt Tier 2 bereits ab, geringer ROI für Pascal (compute-bound nicht PCIe-bound)** |
 | 14 | ☐ | LFU Caching Policy für MoE Experts | Styx, Mars | 2-3 Tage | nein (Forschung) | [M3](plans/SESSION_PLAN_lfu-caching.md) | 15-20% expert hit rate |
 | 15 | ☐ | PipeShard: VRAM-Constrained MoE | Styx, Hydra, Mars | 2-3 Wochen | arXiv:2604.26334 | [M3](plans/SESSION_PLAN_pipeshard.md) | VRAM-optimierte MoE-Inference |
 | 16 | ☐ | Vulkanised 2026: shmem-staging M-V Kernel | Mars, Venus | 1-2 Wochen | upstream | später | >2.5x TG auf Intel Arc |
