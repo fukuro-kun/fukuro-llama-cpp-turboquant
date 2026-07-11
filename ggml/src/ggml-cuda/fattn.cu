@@ -553,6 +553,13 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
     }
 #endif // GGML_USE_HIP
 
+    // head_dim 512: MMA kernel not instantiated for DKQ=512 (switch_ncols2 aborts at line 110).
+    // TILE kernel has a dkq512-dv512 template instance and handles this case.
+    // Affects Gemma 4 E4B full-attention layers (head_dim=512, every 6th layer).
+    if (Q->ne[0] == 512) {
+        return BEST_FATTN_KERNEL_TILE;
+    }
+
     // If Turing tensor cores are available, use them:
     if (turing_mma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72) {
         if (can_use_vector_kernel) {
