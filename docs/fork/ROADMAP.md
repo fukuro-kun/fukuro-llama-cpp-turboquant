@@ -12,7 +12,7 @@
 | MS | Name | Items | Status |
 |----|------|-------|--------|
 | **M1** | Quick-Win-Welle | #1-5 (kombiniert) | ✅ abgeschlossen (#2✅, #4✅, #5✅, #1❌) |
-| **M2** | Vulkan-Offensive | #6, #7, #9, #10, #12 | ⏳ blockiert (#6❌, #7⏭️, #9❌) |
+| **M2** | Vulkan-Offensive | #6, #7, #9, #10, #12 | ❌ blockiert (#6✅ bereits integriert, #7⏭️, #9❌, #10❌) |
 | **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ⏳ teilweise (#3✅, #13❌) |
 | **M4** | Speculative Decoding v2 | #11, #28 | ☐ offen |
 | **M5** | Coopmat2 + Multi-GPU | #12, #20, #21 | ☐ offen |
@@ -31,7 +31,7 @@
 | 3 | ✅ | Pascal CUDA MMVQ Optimization | Styx | 2-3 Tage | PR #25479 (draft) | [M3](plans/SESSION_PLAN_pascal-mmvq.md) | +3-6% decode auf Pascal — **manuell portiert, +8.9% Generation auf GTX 1070 (E2B MoE), Code-Review ship-ready** |
 | 4 | ✅ | n-gram / Prompt-Lookup Decoding | Alle | 0h | in mainline | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | hilft bei repetitiven Workloads — **verfügbar (`--spec-type ngram-mod`), kein Speedup auf E2B (39.1 vs 39.2 t/s)** |
 | 5 | ✅ | GTT Size Tuning für Mars APU | Mars | 1h | Konfiguration | [M1-Batch](plans/SESSION_PLAN_quickwins-batch1.md) | >15GB GPU-Speicher — **bereits konfiguriert (26GB GTT), kein Tuning nötig** |
-| 6 | ❌ | Vulkan MUL_MAT_ID Subgroup Optimization | Mars, Venus | 1 Tag | PR #15524 | [M2](plans/SESSION_PLAN_mulmat-id-subgroup.md) | bis +657% MoE PP auf AMD — **23 Konflikte in 3 Vulkan-Dateien, Shader-Gen beschädigt, revertiert. Erfordert manuelle Portierung mit tiefem Vulkan-Shader-Verständnis** |
+| 6 | ✅ | Vulkan MUL_MAT_ID Subgroup Optimization | Mars, Venus | 1 Tag | PR #15524 (merged) | [M2](plans/SESSION_PLAN_mulmat-id-subgroup.md) | bis +657% MoE PP auf AMD — **bereits im Fork integriert: MatMulIdType::SUBGROUP, mul_mm_id_funcs.glsl, matmul_id_subgroup_* Shader werden generiert, Pipelines aktiv (subgroup_ballot && subgroup_require_full_support && subgroup_min_size_16)** |
 | 7 | ⏭️ | Vulkan FlashAttention Refactor | Mars, Venus | 1 Woche | PR #19625 | [M2](plans/SESSION_PLAN_vulkan-fa-refactor.md) | 10-20% scalar FA improvement — **verschoben, abhängig von #6** |
 
 ## Tier 2: Mittelfristig (1-3 Wochen)
@@ -40,7 +40,7 @@
 |---|--------|--------|---------|---------|-----------|-----------|------|
 | 8 | ☐ | Mixed Precision KV Cache (Hot/Cold) | Alle | 1 Woche | commit e889fbd | später | Reduziert KV-Größe bei erhaltener Qualität |
 | 9 | ❌ | Vulkan Shared Memory Staging Kernel | Mars, Venus | 2-3 Tage | PR #20897 (closed) | [M2](plans/SESSION_PLAN_vulkan-shmem-staging.md) | >2.5x TG potenziell — **PR closed ohne Merge (AI-generiert), manuelle Portierung nötig** |
-| 10 | ☐ | UMA Zero-Copy für Mars APU | Mars, Venus | 1-2 Wochen | PR #22462 | [M2](plans/SESSION_PLAN_uma-zero-copy.md) | +112x transfer speed |
+| 10 | ❌ | UMA Zero-Copy für Mars APU | Mars, Venus | 1-2 Wochen | PR #22462 | [M2](plans/SESSION_PLAN_uma-zero-copy.md) | +112x transfer speed — **nicht implementieren: verwandte UMA-PRs (#22455, #22930, #23770) bereits getestet und revertiert, RCA-Masterplan zeigt System-RAM ist langsamer als GTT für GPU-Compute auf Mars, PR #22462 ist open/unstable** |
 | 11 | ☐ | EAGLE-3 Speculative Decoding | Alle | 2-3 Wochen | PR #18039 | [M4](plans/SESSION_PLAN_eagle3.md) | bis 6.5x speedup |
 | 12 | ☐ | Vulkan Cooperative Matrix (Coopmat2) | Mars, Uranus | 2-3 Wochen | PR #19075 | [M5](plans/SESSION_PLAN_coopmat2-rdna3.md) | 2.5x FA multiply |
 | 13 | ❌ | Two-Tier GPU+RAM Expert Cache | Styx, Mars | 1-2 Wochen | FR #20757 | [M3](plans/SESSION_PLAN_two-tier-expert-cache.md) | kritisch für Styx 8GB — **nicht implementieren: alle PRs closed, thecodacus Memory Pinning deckt Tier 2 bereits ab, geringer ROI für Pascal (compute-bound nicht PCIe-bound)** |
