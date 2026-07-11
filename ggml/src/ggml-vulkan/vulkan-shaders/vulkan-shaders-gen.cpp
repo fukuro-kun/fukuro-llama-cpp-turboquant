@@ -78,6 +78,12 @@ enum MatMulIdType {
     SUBGROUP,
 };
 
+enum MatMulIdType {
+    NONE,
+    DEFAULT,
+    SUBGROUP,
+};
+
 namespace {
 
 void execute_command(std::vector<std::string>& command, std::string& stdout_str, std::string& stderr_str) {
