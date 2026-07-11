@@ -12,10 +12,10 @@
 | MS | Name | Items | Status |
 |----|------|-------|--------|
 | **M1** | Quick-Win-Welle | #1-5 (kombiniert) | ✅ abgeschlossen (#2✅, #4✅, #5✅, #1❌) |
-| **M2** | Vulkan-Offensive | #6, #7, #9, #10, #12 | ❌ blockiert (#6✅ bereits integriert, #7✅ bereits integriert, #9❌, #10❌) |
+| **M2** | Vulkan-Offensive | #6, #7, #9, #10, #12 | ✅ evaluiert (#6✅ bereits integriert, #7✅ bereits integriert, #9❌, #10❌, #12✅ bereits integriert) |
 | **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ⏳ teilweise (#3✅, #6✅, #13❌, #14⏭️) |
-| **M4** | Speculative Decoding v2 | #11, #28 | ☐ offen |
-| **M5** | Coopmat2 + Multi-GPU | #12, #20, #21 | ☐ offen |
+| **M4** | Speculative Decoding v2 | #11, #28 | ✅ abgeschlossen (#11✅ bereits integriert, #28✅ eigene Implementierung) |
+| **M5** | Coopmat2 + Multi-GPU | #12, #20, #21 | ⏳ teilweise (#12✅ bereits integriert, #20✅ bereits integriert, #21 offen) |
 | **M6** | Forschung | #17, #18, #19, #25, #26, #27, #29, #30 | ☐ offen |
 
 **Regel:** Solo-Pläne werden nur für den **aktuellen und nächsten Meilenstein** erstellt. Tier 3-4 Pläne entstehen wenn der Meilenstein näher rückt (verhindert veraltete Pläne).
@@ -41,8 +41,8 @@
 | 8 | ☐ | Mixed Precision KV Cache (Hot/Cold) | Alle | 1 Woche | commit e889fbd | später | Reduziert KV-Größe bei erhaltener Qualität |
 | 9 | ❌ | Vulkan Shared Memory Staging Kernel | Mars, Venus | 2-3 Tage | PR #20897 (closed) | [M2](plans/SESSION_PLAN_vulkan-shmem-staging.md) | >2.5x TG potenziell — **PR closed ohne Merge (AI-generiert), manuelle Portierung nötig** |
 | 10 | ❌ | UMA Zero-Copy für Mars APU | Mars, Venus | 1-2 Wochen | PR #22462 | [M2](plans/SESSION_PLAN_uma-zero-copy.md) | +112x transfer speed — **nicht implementieren: verwandte UMA-PRs (#22455, #22930, #23770) bereits getestet und revertiert, RCA-Masterplan zeigt System-RAM ist langsamer als GTT für GPU-Compute auf Mars, PR #22462 ist open/unstable** |
-| 11 | ☐ | EAGLE-3 Speculative Decoding | Alle | 2-3 Wochen | PR #18039 | [M4](plans/SESSION_PLAN_eagle3.md) | bis 6.5x speedup |
-| 12 | ☐ | Vulkan Cooperative Matrix (Coopmat2) | Mars, Uranus | 2-3 Wochen | PR #19075 | [M5](plans/SESSION_PLAN_coopmat2-rdna3.md) | 2.5x FA multiply |
+| 11 | ✅ | EAGLE-3 Speculative Decoding | Alle | 2-3 Wochen | PR #18039 (merged) | [M4](plans/SESSION_PLAN_eagle3.md) | bis 6.5x speedup — **bereits im Fork integriert: Commit 57774253c, LLM_ARCH_EAGLE3 in llama-arch.cpp, eagle3-Modell-Support, --spec-type eagle3 verfügbar** |
+| 12 | ✅ | Vulkan Cooperative Matrix (Coopmat2) | Mars, Uranus | 2-3 Wochen | PR #19075 (merged) | [M5](plans/SESSION_PLAN_coopmat2-rdna3.md) | 2.5x FA multiply — **bereits im Fork integriert: coopmat2 Support in ggml-vulkan.cpp, flash_attn_cm2.comp, mul_mm_cm2.comp, dequant_funcs_cm2.glsl, SPV-Shader auf Mars generiert** |
 | 13 | ❌ | Two-Tier GPU+RAM Expert Cache | Styx, Mars | 1-2 Wochen | FR #20757 | [M3](plans/SESSION_PLAN_two-tier-expert-cache.md) | kritisch für Styx 8GB — **nicht implementieren: alle PRs closed, thecodacus Memory Pinning deckt Tier 2 bereits ab, geringer ROI für Pascal (compute-bound nicht PCIe-bound)** |
 | 14 | ⏭️ | LFU Caching Policy für MoE Experts | Styx, Mars | 2-3 Tage | nein (Forschung) | [M3](plans/SESSION_PLAN_lfu-caching.md) | 15-20% expert hit rate — **verschoben: Recherche zeigt LFU allein nicht lohnenswert (3-4 Wo für 15-20% hit rate). Besser: LFRU (vLLM PR #37190) + thecodacus Pinning. SpecMD "Least-Stale" (arXiv:2602.03921) 85× besser als LRU. Aufwand 3-4 Wo für LFRU, zu viel für Solo-Session. Für Styx (8GB) lohnenswert, für Mars (<5% gain) nicht** |
 | 15 | ☐ | PipeShard: VRAM-Constrained MoE | Styx, Hydra, Mars | 2-3 Wochen | arXiv:2604.26334 | [M3](plans/SESSION_PLAN_pipeshard.md) | VRAM-optimierte MoE-Inference |
@@ -55,7 +55,7 @@
 | 17 | ☐ | HOBBIT: Mixed-Precision Expert Offloading | Styx, Mars | 4-6 Wochen | arXiv:2411.01433 | später | bis 9.93x MoE offloading |
 | 18 | ☐ | DALI: Workload-Aware MoE Offloading | Styx | 2-3 Wochen | arXiv:2602.03495 | später | intelligentes MoE-Offloading |
 | 19 | ☐ | Expected Attention KV Cache Compression | Alle | 2-3 Wochen | arXiv:2510.00636 | später | ergänzt TurboQuant |
-| 20 | ☐ | Tensor Parallelism für Uranus | Uranus | 3-4 Wochen | PR #19378 | [M5](plans/SESSION_PLAN_tensor-parallelism.md) | ~40% boost für 2x 4060 Ti |
+| 20 | ✅ | Tensor Parallelism für Uranus | Uranus | 3-4 Wochen | PR #19378 (merged) | [M5](plans/SESSION_PLAN_tensor-parallelism.md) | ~40% boost für 2x 4060 Ti — **bereits im Fork integriert: Commit d850df3f5, backend-agnostic tensor parallelism, AllReduce in ggml-cuda/allreduce.cu, Meta-Device in llama.cpp** |
 | 21 | ☐ | PagedAttention / Paged KV Cache | Uranus, Mars | 3-4 Wochen | PR #22569 | später | 2.5x aggregate throughput |
 | 22 | ☐ | GWQ: Gradient-Aware Weight Quantization | Alle | 2-3 Wochen | arXiv:2411.00850 | später | 1.2x inference speedup |
 | 23 | ☐ | DuoServe-MoE: Dual-Phase Expert Scheduling | Styx | 3-4 Wochen | arXiv:2509.07379 | später | phase-spezifisches Prefetch |
@@ -68,7 +68,7 @@
 | 25 | ☐ | llama.cpp 2026 Rewrite Merge | Alle | 4-6 Wochen | mainline | später | 2.1x Durchsatz 70B, 1.4x 7B |
 | 26 | ☐ | Q-Filters / LagKV / MiniCache | Alle | 2-3 Wo/Methode | GitHub (qfilters) | später | 5-32x KV compression |
 | 27 | ☐ | Pre-Attention Expert Prediction | Styx, Mars | 2-3 Wochen | Forschung | später | 15% accuracy improvement |
-| 28 | ☐ | Adaptive MTP Speculative Decoding | Alle | 1-2 Wochen | PR #22931 | [M4](plans/SESSION_PLAN_adaptive-mtp.md) | verhindert MTP-Regression |
+| 28 | ✅ | Adaptive MTP Speculative Decoding | Alle | 1-2 Wochen | PR #22931 (closed) | [M4](plans/SESSION_PLAN_adaptive-mtp.md) | verhindert MTP-Regression — **Fork hat eigene Implementierung: `LLAMA_MTP_SKIP_STREAK_THRESHOLD` env var (1-32), skip-streak Mechanismus in common/speculative.cpp. PR #22931 wurde closed (Draft), wäre auch nicht kompatibel (upstream draft-mtp vs Fork gemma4-assistant). Funktionsäquivalent vorhanden** |
 | 29 | ☐ | FastKV: Token-Selective Propagation | Alle | 3-4 Wochen | GitHub (fastkv) | später | 1.82x prefill, 2.87x decode |
 | 30 | ☐ | Speculative Expert Prefetching (MoE-SpeQ) | Styx, Mars | 3-4 Wochen | Forschung | später | 2.34x offloading speedup |
 
