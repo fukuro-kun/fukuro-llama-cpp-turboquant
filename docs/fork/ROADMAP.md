@@ -13,7 +13,7 @@
 |----|------|-------|--------|
 | **M1** | Quick-Win-Welle | #1-5 (kombiniert) | ✅ abgeschlossen (#2✅, #4✅, #5✅, #1❌) |
 | **M2** | Vulkan-Offensive | #6, #7, #9, #10, #12 | ❌ blockiert (#6✅ bereits integriert, #7⏭️, #9❌, #10❌) |
-| **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ⏳ teilweise (#3✅, #13❌) |
+| **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ⏳ teilweise (#3✅, #6✅, #13❌, #14⏭️) |
 | **M4** | Speculative Decoding v2 | #11, #28 | ☐ offen |
 | **M5** | Coopmat2 + Multi-GPU | #12, #20, #21 | ☐ offen |
 | **M6** | Forschung | #17, #18, #19, #25, #26, #27, #29, #30 | ☐ offen |
@@ -44,7 +44,7 @@
 | 11 | ☐ | EAGLE-3 Speculative Decoding | Alle | 2-3 Wochen | PR #18039 | [M4](plans/SESSION_PLAN_eagle3.md) | bis 6.5x speedup |
 | 12 | ☐ | Vulkan Cooperative Matrix (Coopmat2) | Mars, Uranus | 2-3 Wochen | PR #19075 | [M5](plans/SESSION_PLAN_coopmat2-rdna3.md) | 2.5x FA multiply |
 | 13 | ❌ | Two-Tier GPU+RAM Expert Cache | Styx, Mars | 1-2 Wochen | FR #20757 | [M3](plans/SESSION_PLAN_two-tier-expert-cache.md) | kritisch für Styx 8GB — **nicht implementieren: alle PRs closed, thecodacus Memory Pinning deckt Tier 2 bereits ab, geringer ROI für Pascal (compute-bound nicht PCIe-bound)** |
-| 14 | ☐ | LFU Caching Policy für MoE Experts | Styx, Mars | 2-3 Tage | nein (Forschung) | [M3](plans/SESSION_PLAN_lfu-caching.md) | 15-20% expert hit rate |
+| 14 | ⏭️ | LFU Caching Policy für MoE Experts | Styx, Mars | 2-3 Tage | nein (Forschung) | [M3](plans/SESSION_PLAN_lfu-caching.md) | 15-20% expert hit rate — **verschoben: Recherche zeigt LFU allein nicht lohnenswert (3-4 Wo für 15-20% hit rate). Besser: LFRU (vLLM PR #37190) + thecodacus Pinning. SpecMD "Least-Stale" (arXiv:2602.03921) 85× besser als LRU. Aufwand 3-4 Wo für LFRU, zu viel für Solo-Session. Für Styx (8GB) lohnenswert, für Mars (<5% gain) nicht** |
 | 15 | ☐ | PipeShard: VRAM-Constrained MoE | Styx, Hydra, Mars | 2-3 Wochen | arXiv:2604.26334 | [M3](plans/SESSION_PLAN_pipeshard.md) | VRAM-optimierte MoE-Inference |
 | 16 | ☐ | Vulkanised 2026: shmem-staging M-V Kernel | Mars, Venus | 1-2 Wochen | upstream | später | >2.5x TG auf Intel Arc |
 
