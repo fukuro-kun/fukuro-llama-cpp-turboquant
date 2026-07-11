@@ -6,6 +6,12 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-13
+
+### Solo-Session (Phase 1: E4B+MTP Crash Fix)
+
+- **fix: E4B+MTP FA Crash (head_dim=512) — gelöst** — Root Cause: E4B full-attention Layer haben `head_dim=512`, MMA-Kernel hat keine Template-Instanz für DKQ=512 (`fattn.cu:110` abort). TILE-Kernel hatte auch Lücken: kein Fallback für DV>256 ohne Mask, keine Config für 512/512 bei ncols=2. Drei Commits: (1) `fattn.cu`: Route head_dim=512 zu TILE-Kernel, (2) `fattn-tile.cuh`: Fallback für DV>256 mit gqa_ratio-basiertem ncols2, (3) `fattn-tile.cuh`: Neue TILE-Config für 512/512 bei ncols=2 in allen 4 Config-Funktionen. Verifikation auf Uranus (RTX 4060 Ti 16GB): E4B+MTP mit turbo4/turbo3 KV → 103 t/s, f16 → 112 t/s. Keine Regressionen. Code-Review: ship-ready, keine Issues. Commits `f9e7564bd`, `bd8ef5978`, `1a0af56dc`.
+
 ## 2026-07-11
 
 ### Solo-Session (05:00–17:00)
