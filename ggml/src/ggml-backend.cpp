@@ -1857,6 +1857,18 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                                 }
                             }
                         }
+                        static int dbg3 = 0;
+                        if (dbg3++ < 5) {
+                            int n_used = 0, n_valid = 0, n_need = 0;
+                            for (int64_t e = 0; e < n_expert; e++) {
+                                if (ggml_bitset_get(used_ids.data(), e)) n_used++;
+                                if (ggml_bitset_get(valid_bitset->data(), e)) n_valid++;
+                                if (ggml_bitset_get(need_upload.data(), e)) n_need++;
+                            }
+                            fprintf(stderr, "Expert cache: n_expert=%ld used=%d valid=%d need_upload=%d hits=%lu misses=%lu\n",
+                                    (long)n_expert, n_used, n_valid, n_need,
+                                    (unsigned long)sched->expert_cache_hits, (unsigned long)sched->expert_cache_misses);
+                        }
                     }
 
                     const std::vector<ggml_bitset_t> & upload_ids = valid_bitset ? need_upload : used_ids;
