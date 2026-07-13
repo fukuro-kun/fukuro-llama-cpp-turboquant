@@ -947,7 +947,7 @@ static int ggml_backend_sched_backend_id_from_cur(ggml_backend_sched_t sched, st
         }
         // skip ROPE since the rope freqs tensor is too small to choose a backend based on it
         // not an ideal solution
-        if (tensor->op != GGML_OP_ROPE && src->buffer != NULL && src->buffer->usage != GGML_BACKEND_BUFFER_USAGE_ANY) {
+        if (tensor->op != GGML_OP_ROPE && src->buffer != NULL && src->buffer->usage == GGML_BACKEND_BUFFER_USAGE_WEIGHTS) {
             int src_backend_id = ggml_backend_sched_backend_from_buffer(sched, src, tensor);
             // check if a backend with higher prio wants to offload the op
             if (sched->op_offload && src_backend_id == sched->n_backends - 1 && ggml_backend_buffer_is_host(src->buffer)) {
@@ -1313,7 +1313,7 @@ void ggml_backend_sched_split_graph(ggml_backend_sched_t sched, struct ggml_cgra
                     }
                     // check if a weight is on a different and incompatible backend
                     // by starting a new split, the memory of the previously offloaded weights can be reused
-                    if (src->buffer != NULL && src->buffer->usage != GGML_BACKEND_BUFFER_USAGE_ANY) {
+                    if (src->buffer != NULL && src->buffer->usage == GGML_BACKEND_BUFFER_USAGE_WEIGHTS) {
                         int src_backend_id = tensor_backend_id(src);
                         if (src_backend_id != cur_backend_id && !ggml_backend_sched_buffer_supported(sched, src, cur_backend_id)) {
                             need_new_split = true;
@@ -1597,7 +1597,7 @@ static size_t ggml_backend_sched_prefetch_max_size(ggml_backend_sched_t sched) {
         for (int input_id = 0; input_id < split->n_inputs; input_id++) {
             const ggml_tensor * input = split->inputs[input_id];
             if (input->buffer &&
-                ggml_backend_buffer_get_usage(input->buffer) != GGML_BACKEND_BUFFER_USAGE_ANY &&
+                ggml_backend_buffer_get_usage(input->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
                 ggml_backend_buffer_is_host(input->buffer)) {
                 max_size = std::max(max_size, ggml_nbytes(input));
             }
@@ -1706,7 +1706,7 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                         }
                     }
                     if (node &&
-                        ggml_backend_buffer_get_usage(input->buffer) != GGML_BACKEND_BUFFER_USAGE_ANY &&
+                        ggml_backend_buffer_get_usage(input->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
                         ggml_backend_buffer_is_host(input->buffer)) {
                         const ggml_tensor * ids = node->src[2];
                         const int64_t n_expert = input->ne[2];
@@ -1754,7 +1754,7 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     }
                 }
                 if (node &&
-                    ggml_backend_buffer_get_usage(input->buffer) != GGML_BACKEND_BUFFER_USAGE_ANY &&
+                    ggml_backend_buffer_get_usage(input->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
                     ggml_backend_buffer_is_host(input->buffer) &&
                     node->op == GGML_OP_MUL_MAT_ID && node->src[0] == input_cpy) {
 
