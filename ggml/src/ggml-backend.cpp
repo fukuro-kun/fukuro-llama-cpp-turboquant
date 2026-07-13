@@ -1932,8 +1932,11 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     // has already been copied to this GPU buffer in a previous
                     // forward pass, skip the copy entirely. This is safe for MoE
                     // expert weights which don't change during inference.
+                    // Only cache 3D tensors with multiple experts (ne[2] >= 8)
+                    // to avoid caching intermediate compute results.
                     bool skip_copy = false;
-                    if (sched->expert_cache_enabled && input_cpy->buffer) {
+                    const bool is_expert_weight = input->ne[2] >= 8 && ggml_n_dims(input) >= 3;
+                    if (sched->expert_cache_enabled && input_cpy->buffer && is_expert_weight) {
                         void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
                         auto key = std::make_tuple(input->data, buf_base, sched->cur_copy);
                         if (sched->tensor_copied.count(key)) {
@@ -1956,8 +1959,8 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                             }
                             ggml_backend_tensor_copy(input, input_cpy);
                         }
-                        // Mark as copied for future forward passes
-                        if (sched->expert_cache_enabled && input_cpy->buffer) {
+                        // Mark as copied for future forward passes (only for expert weights)
+                        if (sched->expert_cache_enabled && input_cpy->buffer && is_expert_weight) {
                             void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
                             auto key = std::make_tuple(input->data, buf_base, sched->cur_copy);
                             sched->tensor_copied.insert(key);
