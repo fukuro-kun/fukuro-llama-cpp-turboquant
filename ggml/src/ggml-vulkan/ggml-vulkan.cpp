@@ -7703,7 +7703,7 @@ static void ggml_vk_buffer_write_2d(vk_buffer& dst, size_t offset, const void * 
             uint64_t aligned_offset = offset & ~(atom_size - 1);
             uint64_t end_offset = (offset + (uint64_t)dpitch * height + atom_size - 1) & ~(atom_size - 1);
             uint64_t aligned_size = end_offset - aligned_offset;
-            if (aligned_offset + aligned_size > dst->size) {
+            if (aligned_size == 0 || aligned_offset + aligned_size > dst->size) {
                 aligned_size = VK_WHOLE_SIZE;
             }
             vk::MappedMemoryRange range;
@@ -7849,7 +7849,7 @@ static void ggml_vk_buffer_read_2d(vk_buffer& src, size_t offset, void * dst, si
             uint64_t aligned_offset = offset & ~(atom_size - 1);
             uint64_t end_offset = (offset + (uint64_t)spitch * height + atom_size - 1) & ~(atom_size - 1);
             uint64_t aligned_size = end_offset - aligned_offset;
-            if (aligned_offset + aligned_size > src->size) {
+            if (aligned_size == 0 || aligned_offset + aligned_size > src->size) {
                 aligned_size = VK_WHOLE_SIZE;
             }
             vk::MappedMemoryRange range;
