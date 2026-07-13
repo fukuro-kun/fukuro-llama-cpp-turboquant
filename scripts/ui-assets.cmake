@@ -226,6 +226,14 @@ function(hf_download version out_var out_resolved)
 endfunction()
 
 function(emit_files dist_dir)
+    # Workaround: loading.html is missing from some HF releases.
+    # Create it from index.html if it doesn't exist.
+    if(NOT EXISTS "${dist_dir}/loading.html" AND EXISTS "${dist_dir}/index.html")
+        file(READ "${dist_dir}/index.html" _loading_content)
+        file(WRITE "${dist_dir}/loading.html" "${_loading_content}")
+        message(STATUS "UI: loading.html missing, created from index.html")
+    endif()
+
     # If gzip is requested, compress every asset into a parallel _gzip/ tree
     # the structure stays the same; for ex: /abc/def --> /_gzip/abc/def
     # embed.cpp will check for _gzip and will pick it up
