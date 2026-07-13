@@ -1,7 +1,7 @@
 # ROADMAP — Fork-Beschleunigung
 
 **Erstellt:** 2026-07-11
-**Aktualisiert:** 2026-07-12 (Research-Sweep #2, Zeit-Schätzung kalibriert)
+**Aktualisiert:** 2026-07-13 (Research-Sweep #3, 2-Slot Prefetch Sweet-Spot, M3 abgeschlossen)
 **Quelle:** [Optimierungs-Recherche 2026-07-11](2026-07-11_OPTIMIZATION_RESEARCH.md) + [Recherche 2026-07-12](2026-07-12_OPTIMIZATION_RESEARCH.md) (Web + arXiv, 4 parallele Subagents pro Sweep)
 **Hardware:** Mars (RDNA3/Vulkan/30GB), Styx (Pascal/CUDA/8GB), Hydra (Ampere/CUDA/8GB), Uranus (2x Ada/CUDA/32GB), Venus (GCN/Vulkan)
 **Ausschluss:** Treiber-Neuimplementierung, Kernel-Rekompilierung, Hopper-spezifische Features
@@ -30,7 +30,7 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ✅ abgeschlossen (#3✅, #6✅, #13❌, #14⏭️, #15❌, #37✅, #40⏭️) |
 | **M4** | Speculative Decoding v2 | #11, #28 | ✅ abgeschlossen (#11✅ bereits integriert, #28✅ eigene Implementierung) |
 | **M5** | Coopmat2 + Multi-GPU | #12, #20, #21 | ⏳ teilweise (#12✅ bereits integriert, #20✅ bereits integriert, #21 offen) |
-| **M6** | Forschung | #17, #18, #19, #25, #26, #27, #29, #30 | ☐ offen |
+| **M6** | Forschung | #17, #18, #19, #25, #26, #27, #29, #30, #39, #41-#55, #69-#76 | ☐ offen (Research-Sweep #3: 2026-07-13) |
 
 **Regel:** Solo-Pläne werden nur für den **aktuellen und nächsten Meilenstein** erstellt. Tier 3-4 Pläne entstehen wenn der Meilenstein näher rückt (verhindert veraltete Pläne).
 
@@ -52,6 +52,11 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 31 | ❌ | K-Quant A-Matrix Transpose (CM1) | Mars | 1-2 Tage | PR #22970 (open) | — | +5-15% PP auf coopmat1 — **Recherche 2026-07-12: PR ist CM1-only, Mars nutzt CM2 (coopmat2). Code-Zeile 5338: "cm1 is used only when cm2 is unavailable". PR bringt keinen Speedup auf CM2-Geräten. Venus (GCN) hat kein coopmat. Nicht lohnenswert für den Fork** |
 | 32 | ❌ | Pascal L1 Cache Tuning | Styx | 4-8h | nein (Compiler-Flag) | — | +5-10% bei memory-bound — **Recherche 2026-07-12, -Xptxas -dlcm=ca aktiviert L1/Texture Cache auf Pascal GP104. Benchmark: kein Speedup (pp128: 1453→1445 -0.5%, tg64: 77.25→77.22 -0.04%). GTX 1070 hat nur 48KB L1/Shared per SM, Streaming-Workloads evicten L1 sofort. Flag als GGML_CUDA_L1_CACHE=ON Option verfügbar, aber wirkungslos** |
 | 33 | ⏭️ | Per-Quant MMVQ/MMQ Batch Threshold | Mars, Venus | 1-2 Tage | Commit bc81d47 | — | bis +76% PP auf AMD MFMA — **Recherche 2026-07-12: Fork hat bereits ggml_vk_should_use_mmvq() mit vendor+quant-spezifischen Thresholds (AMD: k<2048→false, per-quant Logik). Commit bc81d47 wäre Fein-Tuning, aber Kernlogik bereits vorhanden. +76% wurden auf MI250X gemessen, nicht Phoenix RDNA3. Low-priority, verschoben** |
+| 56 | ☐ | Vulkan UMA Cached Host Memory | Mars, Venus | 4-8h | PR #23762 (open) | — | 3x Get-BW auf APU — **Recherche 2026-07-13: PR #23762 (open, verifiziert). Bevorzugt HostCached statt write-combining auf UMA. Auf AMD 880M APU: Get-BW 4.6→14.97 GB/s (3x), Set-BW 3.9→14.52 GB/s (3.7x). Mars (Radeon 760M) sollte ähnlich profitieren. Einfacher Cherry-Pick, 4-8h.** |
+| 57 | ☐ | MMQ Stream-k Disable für Tensor-Split MoE | Uranus | 2-4h | PR #22170 (merged) | — | 30-50% P2P PP auf Dual-GPU MoE — **Recherche 2026-07-13: PR #22170 (merged upstream), nicht im Fork. Deaktiviert stream-k für tensor-split MoE (overhead > benefit). 30-50% P2P prompt improvement auf Dual 3090. Uranus (2x 4060 Ti) sollte profitieren. Einfacher Cherry-Pick.** |
+| 58 | ☐ | KV Cache Size Limiting + Demand Paging | Alle | 1-2 Wochen | PR #18747 | — | Reduziert KV-Memory bei langen Contexts — **Recherche 2026-07-13: PR #18747, nicht im Fork. --kv-cache-tokens N limitiert KV-Allokation, --kv-cache-demand-paged nutzt mmap(MAP_NORESERVE). Block-Tracking als Foundation für PagedAttention. Besonders nützlich für Styx (8GB VRAM, 224k Context).** |
+| 59 | ☐ | Tensor Prefetching (--prefetch-weights) | Styx, Hydra, Uranus | 1-2 Tage | PR #21067 (draft) | — | Layer-level Prefetch via async copy — **Recherche 2026-07-13: PR #21067 (draft). Überlappt compute mit weight loading für nächste Layer. Nur CUDA, erfordert --no-mmap. Komplementär zu thecodacus Expert-Prefetch (MoE-spezifisch). Profitabel bei großen ubatch (1024+).** |
+| 60 | ☐ | RADV Driver-Specific Shader Optimizations | Mars, Venus | 4-8h | nein (Driver-Config) | — | 5-15% möglicher Speedup — **Recherche 2026-07-13: RADV Environment-Variables (radv_invariant_geom, radv_no_dynamic_bounds, etc.). Mesa 26.0+ Features. Muss benchmarked werden. Kein Code-Change, nur Driver-Konfiguration.** |
 
 ## Tier 2: Mittelfristig (2-6 Wochen Solo-Agent)
 
@@ -75,6 +80,14 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 38 | ⏭️ | Conf-KV: Confidence-aware KV Eviction | Alle | 2-4 Wochen | arXiv:2605.24786 | — | KV-Cache Kompression ergänzt TurboQuant — **Eval 2026-07-13: Verschoben. Conf-KV nutzt FP16/INT8 mixed precision, konflikt mit TurboQuant turbo3/turbo4 (3.125/4.25 bit). Eviction policy könnte komplementär sein, aber mixed-precision storage braucht signifikante Anpassung an ISWA-Architektur. TurboQuant-native Ansätze priorisieren.** |
 | 39 | ☐ | Talon: Adaptive Token Trees | Alle | 4-6 Wochen | arXiv:2601.07353 | — | höhere Spec-Decoding Acceptance — **Recherche 2026-07-12** |
 | 40 | ⏭️ | MoE Load Balancing Expert Frequency | Styx, Hydra | 2-3 Wochen | nein (Konzept) | — | bessere Load-Balance bei MoE-Offloading — **Phase 1 implementiert (2026-07-13): Expert Frequency Tracking via C API + LLAMA_MOE_FREQ_TRACK=1. Validiert auf Styx (26B QAT, 30 Layer × 128 Experts). Phase 2 (frequency-guided layer offloading): NEGATIVERGEBNIS. Sowohl pure-entropy als auch swap-Strategie verschlechtern tg128 um -7%. Root Cause: kälteste Layer (höchste Entropy) sind späte Layer (23-27), die auf GPU sein müssen für Generation-Performance. Default "erste N Layer auf CPU" ist optimal weil späte Layer auf GPU bleiben. Per-Expert-Platzierung (statt per-Layer) wäre nötig für echten Benefit, erfordert aber Tensor-Splitting (3D→2D) — tiefer GGML-Eingriff. Frequency-Tracking-Infrastruktur bleibt nützlich für Analyse und zukünftige Per-Expert-Optimierung.** |
+| 61 | ☐ | Persistent VRAM Expert Cache | Styx, Uranus | 1-2 Wochen | PR #23170 (merged) | — | Massiver Speedup bei cache hits — **Recherche 2026-07-13: PR #23170 (merged upstream), nicht im Fork. Persistenter VRAM-Puffer für hot CPU-resident experts mit explizitem expert→slot bookkeeping. Löst unser Buffer-Recycling-Crash-Problem durch persistente Slots. Invertiertes execution model: MUL_MAT_ID auf CPU, GPU führt cached rows parallel aus.** |
+| 62 | ☐ | MoE Expert Profiling & REAP Pruning | Alle MoE | 1-2 Tage | PR #20454 (open) | — | Intelligente Expert-Placement — **Recherche 2026-07-13: PR #20454 (open). C++ profiler für REAP saliency scores aus GGUF inference. Nutzt unsere vorhandene MoE-Frequency-Tracking-Infrastruktur. Ermöglicht datengetriebene Expert-Placement-Entscheidungen.** |
+| 63 | ☐ | xKV: Cross-Layer KV-Cache Compression | Alle | 2-3 Wochen | arXiv:2503.18893 | — | 8× KV-Kompression orthogonal zu TurboQuant — **Recherche 2026-07-13: Training-freie SVD-basierte Kompression über Layer-Gruppen. Bis 8× Kompression bei 2-3% Genauigkeitsverlust. Orthogonal zu TurboQuant (Cross-Layer vs Token-Level). GitHub: abdelfattah-lab/xKV.** |
+| 64 | ☐ | Block-Sparse Flash Attention (BSFA) | Alle CUDA | 1-2 Wochen | arXiv:2512.07011 | — | 1.10-1.24× Speedup, drop-in FA Enhancement — **Recherche 2026-07-13: Drop-in Ersatz für FlashAttention, überspringt irrelevante Value-Blocks basierend auf kalibrierten Thresholds. Training-frei, 16 Samples Kalibrierung. >99% Genauigkeit. GitHub: Danielohayon/Block-Sparse-Flash-Attention.** |
+| 65 | ☐ | Pre-Attention Expert Prediction | Styx, Hydra, Uranus | 1-2 Wochen | arXiv:2511.10676 | — | 93-97% expert prediction accuracy — **Recherche 2026-07-13: Pre-attention prediction mit 2 linear functions vor attention block. Ermöglicht präzisen Prefetch vor MoE-Layer. 93.03% auf DeepSeek V2 Lite, 94.69% auf Qwen3-30B.** |
+| 66 | ☐ | BucketServe: Dynamic Batching | Alle | 1-2 Wochen | arXiv:2507.17120 | — | bis 3.58× Throughput — **Recherche 2026-07-13: Bucket-basiertes dynamisches Batching für multi-request Szenarien. Besonders relevant für Server-Workloads (phobos, styx, uranus).** |
+| 67 | ☐ | MXFP4 Quantization für gpt-oss | Alle | 1-2 Wochen | Diskussion #15095 | — | Native gpt-oss Modellnutzung — **Recherche 2026-07-13: OCP open-standard MXFP4 Format. Alle major Backends (CUDA, Vulkan, Metal, CPU). Ermöglicht gpt-oss Modelle ohne Konvertierung.** |
+| 68 | ☐ | Vulkan Matmul Parameter-Tuning AMD | Mars | 1-2 Tage | PR #18749 (merged) | — | +1-3% auf RDNA3 — **Recherche 2026-07-13: PR #18749 (merged upstream). Matmul-Parameter-Kombinationen spezifisch für AMD coopmat. Auf Radeon 8060S getuned, zeigt +1-3% auf RDNA3. Tuning-Änderung, kein Code-Refactoring.** |
 
 ## Tier 3: Komplex (6-12 Wochen Solo-Agent)
 
@@ -95,6 +108,14 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 43 | ☐ | SliderQuant: Sliding-layer PTQ | Alle | 4-6 Wochen | arXiv:2603.25284 | später | bessere Low-Bit-Quantisierung — **Recherche 2026-07-12** |
 | 44 | ☐ | Alloc-MoE: Budget-aware Expert Activation | Mars, Styx | 6-8 Wochen | arXiv:2604.08133 | später | 1.34x decode speedup — **Recherche 2026-07-12** |
 | 45 | ❌ | CUDA Concurrent Streams QKV | Styx, Hydra | 1-2 Wochen | GGML_CUDA_GRAPH_OPT=1 | später | **Bereits im Fork (PR #16991). Benchmark 2026-07-13: (1) Uranus (RTX 4060 Ti 16GB, E4B voll auf GPU): tg2048 -10.7% mit CUDA Graphs (interleaved Node-Order bricht Graph-Capture), tg512 +1% ohne Graphs (Rauschen). (2) Styx (GTX 1070 8GB, 26B QAT MoE-Offload): kein Effekt — CPU-Offload erzeugt Split-Buffers → CUDA Graphs deaktiviert → Feature aktiviert gar nicht. Nur nutzbar bei single-GPU + voller Offload + CUDA-Graphs-kompatibel, und dann Regression.** |
+| 69 | ☐ | FlashMoE: ML-based Cache Replacement | Styx, Hydra | 2-3 Wochen | arXiv:2601.17063 | später | 2.6× speedup, 51% hit rate — **Recherche 2026-07-13** |
+| 70 | ☐ | ST-MoE: Spatio-Temporal Prefetching | Styx, Hydra, Uranus | 2-3 Wochen | arXiv:2606.15453 | später | 2.5× speedup, 85% prediction — **Recherche 2026-07-13** |
+| 71 | ☐ | Efficient CPU-GPU Collaborative MoE | Styx, Hydra | 3-4 Wochen | arXiv:2512.16473 | später | N-index M-way set-associative cache — **Recherche 2026-07-13** |
+| 72 | ☐ | N4_0 Native 4-bit Float | Uranus | 2-3 Wochen | PR #23572 | später | +40% PP (Blackwell-bedingt) — **Recherche 2026-07-13** |
+| 73 | ☐ | CascadeInfer: Length-Aware Scheduling | Alle | 2-3 Wochen | arXiv:2512.19179 | später | 67% Latenz-Reduktion — **Recherche 2026-07-13** |
+| 74 | ☐ | Vulkan Descriptor Indexing (Bindless) | Mars, Venus | 2-4 Wochen | nein | später | Reduziert Descriptor-Binding-Overhead — **Recherche 2026-07-13** |
+| 75 | ☐ | Non-blocking Pipeline Scheduling | Uranus | 3-4 Wochen | PR #19922 | später | Reduziert Pipeline-Bubbles — **Recherche 2026-07-13** |
+| 76 | ☐ | CPU Backend Operator Fusion | Alle | 3-4 Wochen | Diskussion #22315 | später | Reduziert Memory-Traffic CPU-Path — **Recherche 2026-07-13** |
 
 ## Tier 4: Langfristig / Forschung (3+ Monate Solo-Agent)
 
