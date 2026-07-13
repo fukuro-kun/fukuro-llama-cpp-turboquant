@@ -1,6 +1,24 @@
 # Momentaufnahme — fukuro-llama-cpp-turboquant + InferenzQuelle
 
-**Datum:** 2026-07-13 | **Branch:** `master` | **Letzter Commit:** `21fdf8c88` (ROADMAP updates)
+**Datum:** 2026-07-13 | **Branch:** `master` | **Letzter Commit:** `2974c655d` (CHANGELOG UI-Assets Fix)
+
+---
+
+## ⚠️ Aktion für fukuro: Mars-Server (LXC phobos) Neubau
+
+Der Mars llama-server läuft im LXC 240 (phobos) und muss neu gebaut werden, um den UMA-Cache-Fix zu aktivieren:
+
+```bash
+ssh mars
+sudo lxc-attach -n phobos
+cd /home/fukuro/git/fukuro-llama-cpp-turboquant
+git fetch origin master && git reset --hard origin/master
+rm -rf build && cmake -B build -DLLAMA_VULKAN=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target llama-server -j$(nproc)
+systemctl --user restart llama-server.service
+```
+
+Der Bare-Metal-Build auf Mars ist bereits erfolgreich (llama-bench + llama-server). Der LXC braucht nur den git pull + build + restart.
 
 ---
 
