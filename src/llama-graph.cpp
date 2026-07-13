@@ -1578,9 +1578,8 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         ggml_tensor * experts_copy = ggml_cont(ctx0, selected_experts);
         ggml_set_output(experts_copy);
         ggml_format_name(experts_copy, "ffn_moe_topk_copy-%d", il);
-        cb(experts_copy, "ffn_moe_topk_copy", il);
-        // Note: moe_topk_copies is stored per-graph-build; the llama_context
-        // reads these tensors after compute via the graph result
+        // Explicitly add to graph so it gets computed (no other op consumes it)
+        ggml_build_forward_expand(gf, experts_copy);
     }
 
     if (arch == LLM_ARCH_GROVEMOE && n_expert != hparams.n_expert) {
