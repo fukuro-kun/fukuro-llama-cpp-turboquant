@@ -1753,18 +1753,6 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                         break;
                     }
                 }
-                if (sched->expert_cache_enabled) {
-                    static int dbg2 = 0;
-                    if (dbg2++ < 3) {
-                        fprintf(stderr, "Expert cache: node=%p n_nodes=%d usage=%d is_host=%d node_op=%d src0_match=%d\n",
-                                node ? (void*)node : nullptr,
-                                split->graph.n_nodes,
-                                input->buffer ? (int)ggml_backend_buffer_get_usage(input->buffer) : -1,
-                                input->buffer ? (int)ggml_backend_buffer_is_host(input->buffer) : -1,
-                                node ? (int)node->op : -1,
-                                (node && input_cpy) ? (int)(node->src[0] == input_cpy) : -1);
-                    }
-                }
                 if (node &&
                     ggml_backend_buffer_get_usage(input->buffer) != GGML_BACKEND_BUFFER_USAGE_ANY &&
                     ggml_backend_buffer_is_host(input->buffer) &&
@@ -1772,14 +1760,6 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
 
                     const int64_t n_expert   = node->op == GGML_OP_MUL_MAT_ID ? input->ne[2] : input->ne[1];
                     const size_t expert_size = node->op == GGML_OP_MUL_MAT_ID ? input->nb[2] : input->nb[1];
-
-                    if (sched->expert_cache_enabled) {
-                        static int dbg_count = 0;
-                        if (dbg_count++ < 3) {
-                            fprintf(stderr, "Expert cache: selective copy path reached, n_expert=%ld, input_cpy->buffer=%p\n",
-                                    (long)n_expert, input_cpy->buffer ? (void*)input_cpy->buffer : nullptr);
-                        }
-                    }
 
                     ggml_backend_synchronize(input_backend);
 
@@ -1851,12 +1831,6 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                                     valid_bitset->resize(ggml_bitset_size(n_expert), 0);
                                 }
                             }
-                        } else {
-                            static bool warned = false;
-                            if (!warned) {
-                                fprintf(stderr, "Expert cache: input_cpy has no buffer, cache disabled for this tensor\n");
-                                warned = true;
-                            }
                         }
                     }
 
@@ -1876,18 +1850,6 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                                     sched->expert_cache_misses++;
                                 }
                             }
-                        }
-                        static int dbg3 = 0;
-                        if (dbg3++ < 5) {
-                            int n_used = 0, n_valid = 0, n_need = 0;
-                            for (int64_t e = 0; e < n_expert; e++) {
-                                if (ggml_bitset_get(used_ids.data(), e)) n_used++;
-                                if (ggml_bitset_get(valid_bitset->data(), e)) n_valid++;
-                                if (ggml_bitset_get(need_upload.data(), e)) n_need++;
-                            }
-                            fprintf(stderr, "Expert cache: n_expert=%ld used=%d valid=%d need_upload=%d hits=%lu misses=%lu\n",
-                                    (long)n_expert, n_used, n_valid, n_need,
-                                    (unsigned long)sched->expert_cache_hits, (unsigned long)sched->expert_cache_misses);
                         }
                     }
 
@@ -1936,15 +1898,6 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     // to avoid caching intermediate compute results.
                     bool skip_copy = false;
                     const bool is_expert_weight = input->ne[2] >= 8 && ggml_n_dims(input) >= 3;
-                    if (sched->expert_cache_enabled) {
-                        static int dbg4 = 0;
-                        if (dbg4++ < 5) {
-                            fprintf(stderr, "Expert cache: generic path input ne=[%ld,%ld,%ld,%ld] n_dims=%d is_expert=%d nbytes=%zu is_host=%d\n",
-                                    (long)input->ne[0], (long)input->ne[1], (long)input->ne[2], (long)input->ne[3],
-                                    ggml_n_dims(input), is_expert_weight, ggml_nbytes(input),
-                                    input->buffer ? (int)ggml_backend_buffer_is_host(input->buffer) : -1);
-                        }
-                    }
                     if (sched->expert_cache_enabled && input_cpy->buffer && is_expert_weight) {
                         void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
                         auto key = std::make_tuple(input->data, buf_base, sched->cur_copy);

@@ -8,6 +8,38 @@
 
 Implementiere einen persistenten LFRU (Least Frequently Recently Used) GPU-Cache für MoE-Experten, der die selektive Copy-on-Demand-Logik im Scheduler erweitert. Hot experts bleiben auf GPU, cold experts werden on-demand hochgeladen. Basis: #40 Expert Frequency Tracking + thecodacus async prefetch.
 
+## Ergebnis
+
+**Status: Postponed — Root Cause gefunden, aber nicht behebbar ohne tiefere Modell-Lader-Änderungen**
+
+### Root Cause: thecodacus Prefetch hat nie auf Styx funktioniert
+
+1. **Buffer-Usage-Problem:** Expert-Weights haben `GGML_BACKEND_BUFFER_USAGE_COMPUTE` (2) statt `WEIGHTS` (1). Der `op_offload`-Check im Scheduler verlangt WEIGHTS — ohne op_offload wird MUL_MAT_ID auf CPU ausgeführt, kein GPU-Upload nötig.
+
+2. **Split-Graph-Struktur:** Erste Node im Split ist `GGML_OP_SCALE` (32), nicht `GGML_OP_MUL_MAT_ID` (30). Der selektive Kopierpfad prüft nur `nodes[0]` — Fix: MUL_MAT_ID-Suche im gesamten Split-Graph implementiert.
+
+3. **-ncmoe offloaded BOTH weights AND computation:** Mit `-ncmoe 20` sind Expert-Weights UND MUL_MAT_ID-Computation auf CPU. Es gibt keinen Cross-Backend-Copy der Expert-Weights. Der generische Kopierpfad enthält nur kleine Compute-Tensoren (ne=[2816,1,1,1], 11KB), keine Expert-Weights (ne=[n_embd,n_ff,128], mehrere MB).
+
+### Was implementiert wurde
+
+- `GGML_EXPERT_CACHE=1` Env-Var für Tensor-Level Upload Skipping
+- `tensor_copied` Set im Scheduler für (input_data, buf_base, cur_copy) Tracking
+- Filter: nur 3D-Tensoren mit ne[2]>=8 (Expert-Weight-Shape)
+- WEIGHTS-Check relaxt zu `!= GGML_BACKEND_BUFFER_USAGE_ANY` (3 Stellen: op_offload, split logic, prefetch/selective copy)
+- MUL_MAT_ID-Suche im Split-Graph statt nur nodes[0]
+
+### Was nicht funktioniert
+
+- Cache-Hit-Rate = 0% weil keine Expert-Weights durch den Kopierpfad gehen
+- thecodacus Prefetch ebenfalls inaktiv (gleicher WEIGHTS-Check)
+- Keine Performance-Verbesserung (27.4 t/s mit/ohne Cache)
+
+### Nächste Schritte (für spätere Session)
+
+1. **Root Cause fixen:** Warum haben Expert-Weights COMPUTE statt WEIGHTS? Vermutlich im `tensor_buft_overrides`-Pfad der Modell-Ladung. Buffer-Allokation für überladene Tensoren prüfen.
+2. **Nach Fix:** op_offload sollte MUL_MAT_ID auf GPU offloaden → Cross-Backend-Copy → Cache aktiv
+3. **Alternative:** Per-Expert Tensor-Splitting (3D→2D) für selektiven Upload, unabhängig von op_offload
+
 ## Entscheidungen
 
 | Frage | Entscheidung | Begründung |
