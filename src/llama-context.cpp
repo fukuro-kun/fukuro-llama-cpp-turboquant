@@ -2511,6 +2511,21 @@ void llama_context::set_moe_freq_track(bool enable) {
     }
 }
 
+const uint64_t * llama_context::get_moe_freq_flat(size_t * n_data) const {
+    // Flatten the 2D moe_freq into a contiguous array for C API access
+    // Note: moe_freq_flat is mutable to allow this in a const method
+    const_cast<std::vector<uint64_t>&>(moe_freq_flat).clear();
+    for (const auto & layer_freq : moe_freq) {
+        const_cast<std::vector<uint64_t>&>(moe_freq_flat).insert(
+            const_cast<std::vector<uint64_t>&>(moe_freq_flat).end(),
+            layer_freq.begin(), layer_freq.end());
+    }
+    if (n_data) {
+        *n_data = moe_freq_flat.size();
+    }
+    return moe_freq_flat.empty() ? nullptr : moe_freq_flat.data();
+}
+
 void llama_context::track_moe_freq(ggml_cgraph * gf) {
     if (moe_freq.empty()) {
         return;
@@ -2520,7 +2535,6 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
     // copies created by build_moe_ffn, marked as output so the scheduler
     // preserves their data.
     const int n_nodes = ggml_graph_n_nodes(gf);
-    int n_found = 0;
     for (int i = 0; i < n_nodes; i++) {
         ggml_tensor * node = ggml_graph_node(gf, i);
         if (!node || node->name[0] == '\0') continue;
@@ -2534,17 +2548,6 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
         const size_t n_elems = ggml_nelements(node);
         if (n_elems == 0) continue;
 
-        // Debug: print info for first few layers
-        if (n_found < 5) {
-            fprintf(stderr, "DEBUG moe_copy: name=%s il=%d ne=[%ld,%ld] data=%p flags=0x%x first 4 vals: ",
-                    node->name, il, (long)node->ne[0], (long)node->ne[1], (void*)node->data, node->flags);
-            std::vector<int32_t> tmp(std::min((size_t)4, n_elems));
-            ggml_backend_tensor_get(node, tmp.data(), 0, tmp.size() * sizeof(int32_t));
-            for (auto v : tmp) fprintf(stderr, "%d ", v);
-            fprintf(stderr, "\n");
-        }
-        n_found++;
-
         // Read contiguous tensor data
         std::vector<int32_t> data(n_elems);
         ggml_backend_tensor_get(node, data.data(), 0, n_elems * sizeof(int32_t));
@@ -2557,7 +2560,6 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
             }
         }
     }
-    fprintf(stderr, "DEBUG moe_copy: found %d copy tensors in graph (n_nodes=%d)\n", n_found, n_nodes);
 }
 
 //
@@ -3829,18 +3831,7 @@ void llama_set_moe_freq_track(struct llama_context * ctx, bool enable) {
 }
 
 const uint64_t * llama_get_moe_freq(const struct llama_context * ctx, size_t * n_data) {
-    const auto & freq = ctx->get_moe_freq();
-    if (n_data) {
-        size_t total = 0;
-        for (const auto & layer_freq : freq) {
-            total += layer_freq.size();
-        }
-        *n_data = total;
-    }
-    if (freq.empty() || freq[0].empty()) {
-        return nullptr;
-    }
-    return freq[0].data();
+    return ctx->get_moe_freq_flat(n_data);
 }
 
 float * llama_get_embeddings_nextn(llama_context * ctx) {
