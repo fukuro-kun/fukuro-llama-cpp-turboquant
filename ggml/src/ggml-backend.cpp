@@ -1741,6 +1741,14 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     const int64_t n_expert   = node->op == GGML_OP_MUL_MAT_ID ? input->ne[2] : input->ne[1];
                     const size_t expert_size = node->op == GGML_OP_MUL_MAT_ID ? input->nb[2] : input->nb[1];
 
+                    if (sched->expert_cache_enabled) {
+                        static int dbg_count = 0;
+                        if (dbg_count++ < 3) {
+                            fprintf(stderr, "Expert cache: selective copy path reached, n_expert=%ld, input_cpy->buffer=%p\n",
+                                    (long)n_expert, input_cpy->buffer ? (void*)input_cpy->buffer : nullptr);
+                        }
+                    }
+
                     ggml_backend_synchronize(input_backend);
 
                     // get the ids
