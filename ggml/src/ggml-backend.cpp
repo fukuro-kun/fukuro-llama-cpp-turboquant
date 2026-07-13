@@ -1730,7 +1730,19 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                 }
 
                 // when offloading MoE weights, we can reduce the amount of data copied by copying only the experts that are used
-                ggml_tensor * node = split->graph.nodes[0];
+                ggml_tensor * node = split->graph.n_nodes > 0 ? split->graph.nodes[0] : nullptr;
+                if (sched->expert_cache_enabled) {
+                    static int dbg2 = 0;
+                    if (dbg2++ < 3) {
+                        fprintf(stderr, "Expert cache: node=%p n_nodes=%d usage=%d is_host=%d node_op=%d src0_match=%d\n",
+                                node ? (void*)node : nullptr,
+                                split->graph.n_nodes,
+                                input->buffer ? (int)ggml_backend_buffer_get_usage(input->buffer) : -1,
+                                input->buffer ? (int)ggml_backend_buffer_is_host(input->buffer) : -1,
+                                node ? (int)node->op : -1,
+                                (node && input_cpy) ? (int)(node->src[0] == input_cpy) : -1);
+                    }
+                }
                 if (split->graph.n_nodes > 0 &&
                     ggml_backend_buffer_get_usage(input->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
                     ggml_backend_buffer_is_host(input->buffer) && (
