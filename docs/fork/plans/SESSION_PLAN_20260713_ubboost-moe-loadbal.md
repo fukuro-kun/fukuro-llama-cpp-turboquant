@@ -23,8 +23,10 @@
 - [x] Styx Fork gepullt auf e09da1df4
 - [x] Styx Build gestartet (Hintergrund)
 - [x] Code-Analyse #34 (n_ubatch Architektur verstanden)
-- [ ] SESSION_PLAN geschrieben ← du bist hier
-- [ ] hydra Build (parallel, CPU-only Korrektheitstest)
+- [x] SESSION_PLAN geschrieben
+- [x] hydra Build (erfolgreich)
+- [x] Pascal TILE Fix (fp32 config 512/512 ncols=2 nbatch_fa 32→64)
+- [x] CPU-only Korrektheitstest auf hydra (E4B, -ngl 0: UBBoost erkannt)
 
 ### Phase 1: #34 UBBoost Implementierung
 - [ ] `n_ubatch_prefill` zu `llama_cparams` hinzufügen

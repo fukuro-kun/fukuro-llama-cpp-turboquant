@@ -1371,6 +1371,11 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
         return nullptr;
     }
 
+    // MoE expert frequency tracking (#40): read selected_experts tensors after compute
+    if (moe_freq_track) {
+        track_moe_freq(res->get_gf());
+    }
+
     ret = GGML_STATUS_SUCCESS;
 
     return res;
@@ -2479,6 +2484,70 @@ llm_graph_cb llama_context::graph_get_cb() const {
             }
         }
     };
+}
+
+//
+// MoE expert frequency tracking (#40)
+//
+
+void llama_context::moe_freq_init() {
+    const auto & hparams = model.hparams;
+    const uint32_t n_layer = hparams.n_layer();
+    const uint32_t n_expert = hparams.n_expert;
+    moe_freq.assign(n_layer, std::vector<uint64_t>(n_expert, 0));
+    moe_topk_mapped = false;
+}
+
+void llama_context::set_moe_freq_track(bool enable) {
+    moe_freq_track = enable;
+    if (enable && moe_freq.empty()) {
+        moe_freq_init();
+    }
+}
+
+void llama_context::track_moe_freq(ggml_cgraph * gf) {
+    if (moe_freq.empty()) {
+        return;
+    }
+
+    // On first call, map node indices for "ffn_moe_topk-*" tensors
+    if (!moe_topk_mapped) {
+        moe_topk_tensors.clear();
+        const int n_nodes = ggml_graph_n_nodes(gf);
+        for (int i = 0; i < n_nodes; i++) {
+            ggml_tensor * node = ggml_graph_node(gf, i);
+            if (!node || node->name[0] == '\0') continue;
+            if (strncmp(node->name, "ffn_moe_topk-", 13) == 0) {
+                moe_topk_tensors.push_back(i);
+            }
+        }
+        moe_topk_mapped = true;
+    }
+
+    // Read selected expert indices from each topk tensor
+    for (int idx : moe_topk_tensors) {
+        ggml_tensor * node = ggml_graph_node(gf, idx);
+        if (!node) continue;
+
+        // Parse layer index from name "ffn_moe_topk-<il>"
+        int il = atoi(node->name + 13);
+        if (il < 0 || il >= (int)moe_freq.size()) continue;
+
+        const size_t n_elems = ggml_nelements(node);
+        if (n_elems == 0) continue;
+
+        // Copy tensor data to host (tensor may be on GPU)
+        std::vector<int32_t> data(n_elems);
+        ggml_backend_tensor_get(node, data.data(), 0, n_elems * sizeof(int32_t));
+
+        // Update frequency counts
+        for (size_t i = 0; i < n_elems; i++) {
+            int expert = data[i];
+            if (expert >= 0 && expert < (int)moe_freq[il].size()) {
+                moe_freq[il][expert]++;
+            }
+        }
+    }
 }
 
 //
@@ -3743,6 +3812,25 @@ llama_memory_t llama_get_memory(const struct llama_context * ctx) {
     }
 
     return ctx->get_memory();
+}
+
+void llama_set_moe_freq_track(struct llama_context * ctx, bool enable) {
+    ctx->set_moe_freq_track(enable);
+}
+
+const uint64_t * llama_get_moe_freq(const struct llama_context * ctx, size_t * n_data) {
+    const auto & freq = ctx->get_moe_freq();
+    if (n_data) {
+        size_t total = 0;
+        for (const auto & layer_freq : freq) {
+            total += layer_freq.size();
+        }
+        *n_data = total;
+    }
+    if (freq.empty() || freq[0].empty()) {
+        return nullptr;
+    }
+    return freq[0].data();
 }
 
 float * llama_get_embeddings_nextn(llama_context * ctx) {

@@ -558,6 +558,13 @@ extern "C" {
     LLAMA_API           llama_memory_t   llama_get_memory  (const struct llama_context * ctx);
     LLAMA_API  enum llama_pooling_type   llama_pooling_type(const struct llama_context * ctx); // TODO: rename to llama_get_pooling_type
 
+    // MoE expert frequency tracking (#40)
+    // Enable/disable tracking of which experts are selected during inference
+    LLAMA_API void llama_set_moe_freq_track(struct llama_context * ctx, bool enable);
+    // Get expert frequency counts: returns a flat array of uint64_t with n_layer * n_expert entries
+    // The caller must provide n_layer and n_expert (from llama_model_n_expert etc.) to interpret the data
+    LLAMA_API const uint64_t * llama_get_moe_freq(const struct llama_context * ctx, size_t * n_data);
+
     LLAMA_API const struct llama_vocab * llama_model_get_vocab(const struct llama_model * model);
     LLAMA_API enum llama_rope_type       llama_model_rope_type(const struct llama_model * model);
 
@@ -569,6 +576,7 @@ extern "C" {
     LLAMA_API int32_t llama_model_n_head     (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_head_kv  (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_swa      (const struct llama_model * model);
+    LLAMA_API int32_t llama_model_n_expert   (const struct llama_model * model);
 
     // Get the model's RoPE frequency scaling factor
     LLAMA_API float llama_model_rope_freq_scale_train(const struct llama_model * model);

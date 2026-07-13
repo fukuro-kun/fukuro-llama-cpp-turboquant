@@ -252,6 +252,10 @@ public:
 
     bool set_sampler(llama_seq_id seq_id, llama_sampler * sampler);
 
+    // MoE expert frequency tracking (#40)
+    void set_moe_freq_track(bool enable);
+    const std::vector<std::vector<uint64_t>> & get_moe_freq() const { return moe_freq; }
+
 private:
     llm_graph_params graph_params(
                         llm_graph_result * res,
@@ -260,6 +264,10 @@ private:
                           llm_graph_type   gtype) const;
 
     llm_graph_cb graph_get_cb() const;
+
+    // MoE expert frequency tracking (#40)
+    void track_moe_freq(ggml_cgraph * gf);
+    void moe_freq_init();
 
     // TODO: read/write lora adapters and cvec
     size_t state_write_data(llama_io_write_i & io);
@@ -386,4 +394,10 @@ private:
     mutable int32_t n_eval   = 0; // number of eval calls
 
     mutable int32_t n_reused = 0; // number of times the previous graph was reused
+
+    // MoE expert frequency tracking (#40)
+    bool moe_freq_track = false;
+    std::vector<std::vector<uint64_t>> moe_freq; // [n_layer][n_expert] — expert activation counts
+    std::vector<int> moe_topk_tensors; // node indices of "ffn_moe_topk-*" tensors in the graph
+    bool moe_topk_mapped = false;      // whether we've mapped the topk tensor node indices
 };

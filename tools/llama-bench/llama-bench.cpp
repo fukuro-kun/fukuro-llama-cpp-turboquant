@@ -2322,6 +2322,12 @@ int llama_bench(int argc, char ** argv) {
             return 1;
         }
 
+        // MoE expert frequency tracking (#40): enable via env var LLAMA_MOE_FREQ_TRACK=1
+        bool moe_freq_track = getenv("LLAMA_MOE_FREQ_TRACK") && atoi(getenv("LLAMA_MOE_FREQ_TRACK")) != 0;
+        if (moe_freq_track) {
+            llama_set_moe_freq_track(ctx, true);
+        }
+
         test t(inst, lmodel, ctx);
 
         llama_memory_clear(llama_get_memory(ctx), false);
@@ -2465,6 +2471,46 @@ int llama_bench(int argc, char ** argv) {
         }
 
         llama_perf_context_print(ctx);
+
+        // MoE expert frequency report (#40)
+        if (moe_freq_track) {
+            size_t n_data = 0;
+            const uint64_t * freq = llama_get_moe_freq(ctx, &n_data);
+            if (freq && n_data > 0) {
+                int32_t n_expert = llama_model_n_expert(lmodel);
+                int32_t n_layer  = llama_model_n_layer(lmodel);
+                if (n_expert > 0 && n_layer > 0) {
+                    fprintf(stderr, "\n=== MoE Expert Frequency Report ===\n");
+                    fprintf(stderr, "Layers: %d, Experts/layer: %d, Total samples: %zu\n", n_layer, n_expert, n_data);
+                    // Per-layer summary: top-3 and bottom-3 experts
+                    for (int il = 0; il < n_layer && il < (int)(n_data / n_expert); il++) {
+                        const uint64_t * layer_freq = freq + il * n_expert;
+                        uint64_t total = 0;
+                        for (int e = 0; e < n_expert; e++) total += layer_freq[e];
+                        if (total == 0) continue;
+
+                        // Find top-3 and bottom-3
+                        std::vector<std::pair<uint64_t, int>> exps;
+                        for (int e = 0; e < n_expert; e++) exps.push_back({layer_freq[e], e});
+                        std::sort(exps.begin(), exps.end(), std::greater<>());
+
+                        fprintf(stderr, "Layer %2d (total=%lu): top=[", il, (unsigned long)total);
+                        for (int i = 0; i < std::min(3, n_expert); i++) {
+                            fprintf(stderr, "%s#%d:%lu(%.1f%%)", i ? "," : "", exps[i].second,
+                                    (unsigned long)exps[i].first, 100.0 * exps[i].first / total);
+                        }
+                        fprintf(stderr, "] bottom=[");
+                        for (int i = 0; i < std::min(3, n_expert); i++) {
+                            int idx = n_expert - 1 - i;
+                            fprintf(stderr, "%s#%d:%lu(%.1f%%)", i ? "," : "", exps[idx].second,
+                                    (unsigned long)exps[idx].first, 100.0 * exps[idx].first / total);
+                        }
+                        fprintf(stderr, "]\n");
+                    }
+                    fprintf(stderr, "=== End MoE Report ===\n\n");
+                }
+            }
+        }
 
         llama_free(ctx);
 
