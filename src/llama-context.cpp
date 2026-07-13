@@ -2551,15 +2551,24 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
             // contiguous — single read
             ggml_backend_tensor_get(node, data.data(), 0, n_elems * sizeof(int32_t));
         } else {
-            // non-contiguous view — copy to a contiguous CPU tensor first
-            size_t ctx_size = ggml_tensor_overhead() * 4 + n_elems * sizeof(int32_t) + 1024;
-            struct ggml_init_params params = {ctx_size, nullptr, false};
-            ggml_context * ctx_tmp = ggml_init(params);
-            ggml_tensor * tmp = ggml_new_tensor(ctx_tmp, GGML_TYPE_I32, GGML_MAX_DIMS, node->ne);
-            ggml_backend_tensor_copy(node, tmp);
-            ggml_backend_synchronize(backend_cpu);
-            memcpy(data.data(), tmp->data, n_elems * sizeof(int32_t));
-            ggml_free(ctx_tmp);
+            // non-contiguous view — read row by row using stride
+            // For each token (dim 1), read n_expert_used int32s at offset t * nb[1]
+            for (int32_t t = 0; t < n_tokens; t++) {
+                char * dst = (char *)(data.data() + t * n_expert_used);
+                ggml_backend_tensor_get(node, dst, t * nb1, n_expert_used * nb0);
+            }
+        }
+
+        // Debug: print first few values on first call
+        static int debug_count = 0;
+        if (debug_count < 3) {
+            fprintf(stderr, "DEBUG moe_topk: name=%s ne=[%d,%d] nb=[%ld,%ld] first vals:",
+                    node->name, n_expert_used, n_tokens, (long)nb0, (long)nb1);
+            for (int i = 0; i < std::min((int)n_elems, 8); i++) {
+                fprintf(stderr, " %d", data[i]);
+            }
+            fprintf(stderr, "\n");
+            debug_count++;
         }
 
         // Update frequency counts
