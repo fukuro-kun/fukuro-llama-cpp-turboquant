@@ -1373,6 +1373,8 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
 
     // MoE expert frequency tracking (#40): read selected_experts tensors after compute
     if (moe_freq_track) {
+        // ensure GPU compute is complete before reading tensor data
+        ggml_backend_sched_synchronize(sched.get());
         track_moe_freq(res->get_gf());
     }
 
@@ -2528,6 +2530,7 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
     for (int idx : moe_topk_tensors) {
         ggml_tensor * node = ggml_graph_node(gf, idx);
         if (!node) continue;
+        if (node->type != GGML_TYPE_I32) continue;
 
         // Parse layer index from name "ffn_moe_topk-<il>"
         int il = atoi(node->name + 13);
@@ -2536,7 +2539,7 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
         const size_t n_elems = ggml_nelements(node);
         if (n_elems == 0) continue;
 
-        // Copy tensor data to host (tensor may be on GPU)
+        // Copy tensor data to host (tensor may be on GPU, but we synchronized above)
         std::vector<int32_t> data(n_elems);
         ggml_backend_tensor_get(node, data.data(), 0, n_elems * sizeof(int32_t));
 
