@@ -7,9 +7,36 @@
 
 ## Session-Ziel
 
-Fix den Root Cause Bug aus #37: MoE Expert-Weights haben `GGML_BACKEND_BUFFER_USAGE_COMPUTE` (2) statt `WEIGHTS` (1), was den `op_offload`-Mechanismus blockiert. Dadurch wird MUL_MAT_ID komplett auf CPU ausgeführt — thecodacus Prefetch und Expert-Cache sind inaktiv.
+Fix den Root Cause Bug aus #37: thecodacus Prefetch und Expert-Cache funktionieren nicht auf Styx. Ursprüngliche Hypothese: Expert-Weights haben COMPUTE statt WEIGHTS Buffer-Usage. Tatsächlicher Root Cause: Selektiver Kopierpfad prüft nur nodes[0], aber bei Gemma-4 ist nodes[0] = SCALE nicht MUL_MAT_ID.
 
-Nach dem Fix sollten Expert-Weights WEIGHTS-Usage haben, `op_offload` MUL_MAT_ID auf GPU offloaden, und der Cross-Backend-Copy-Pfad aktiviert werden.
+## Ergebnis
+
+**Status: Abgeschlossen — thecodacus Prefetch funktioniert (+28-31% PP), Expert-Cache postponed**
+
+### Root Cause geklärt
+
+1. **Expert-Weights haben korrekt WEIGHTS-Usage (1)** — Der Debug-Output mit `usage=2` (COMPUTE) bezog sich auf einen anderen Buffer (Compute-Staging-Buffer im ersten Split), nicht auf die Expert-Weight-Buffer.
+
+2. **Selektiver Kopierpfad war broken** — Der Code prüfte nur `split->graph.nodes[0]` auf `MUL_MAT_ID`. Bei Gemma-4 ist die erste Node im Split `GGML_OP_SCALE` (32), nicht `MUL_MAT_ID` (30). Fix: Suche im gesamten Split-Graph nach dem MUL_MAT_ID-Node.
+
+3. **op_offload Default-Threshold=32 verhindert GPU-Offload bei Decode** — `GGML_OP_OFFLOAD_MIN_BATCH=1` aktiviert GPU-Offload, aber -37% Performance auf Pascal (Copy-Overhead > CPU-Compute). Default Threshold=32 ist optimal für Pascal.
+
+### thecodacus Prefetch: +28-31% PP
+
+| Test | Ohne Prefetch | Mit Prefetch | Delta |
+|------|--------------|--------------|-------|
+| pp512 | 421 t/s | 540 t/s | **+28%** |
+| pp2048 | 394 t/s | 517 t/s | **+31%** |
+| pp8192 | 311 t/s | 338 t/s | **+8.5%** |
+| tg8 | 23-27 t/s | 20-25 t/s | -10-15% (VRAM-Verbrauch) |
+
+Prefetch ist bereits im Styx-Server-Script aktiviert (`GGML_SCHED_PREFETCH_EXPERTS=1`).
+
+### Expert-Cache: Postponed
+
+- Cache-Hit-Rate = 0% weil Expert-Weights den selektiven Kopierpfad nicht durchlaufen
+- Expert-Level-Cache im selektiven Kopierpfad crasht (Buffer-Recycling-Konflikt)
+- Postponed bis Buffer-Pinning oder Per-Expert Tensor-Splitting
 
 ## Entscheidungen
 
