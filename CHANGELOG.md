@@ -17,6 +17,10 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-13
 
+### Solo-Session (Phase 2: UBBoost + MoE Load Balancing)
+
+- **feat: #34 UBBoost — implementiert, +20-41% PP, +19% TG auf Pascal** — Separate `n_ubatch_prefill` für Prefill-Phase. CLI flag `-ubp`/`--ubatch-prefill` (default 0 = use n_ubatch). Graph reserviert für `max(n_ubatch, n_ubatch_prefill)`. Decode wählt dynamisch `n_ubatch_prefill` (prefill) oder `n_ubatch` (decode) basierend auf Token-Count. SWA-Cache-Sizing-Fix: `max(n_ubatch, n_ubatch_prefill)` statt `n_ubatch` für ISWA/hybrid-ISWA Konstruktoren (verhindert OOM bei größeren Prefill-Batches). Pascal TILE-Fix: fp32 Config für 512/512 ncols=2 `nbatch_fa` 32→64 (static_assert auf Pascal). Benchmark Styx (GTX 1070, turbo3/4 KV): E4B ub=256/ubp=512: **+20% pp2048, +41% pp8192, +19% tg128** vs ub=512 baseline. 26B ub=256/ubp=512: **+18% pp2048, +10% pp8192, +4.5% tg128**. Optimal: ub=256, ubp=512. ubp>512 OOM auf 8GB. Commits `6eb8f9f5f`, `50685e399`, `0ab002883`.
+
 ### Solo-Session (Phase 1: E4B+MTP Crash Fix)
 
 - **fix: E4B+MTP FA Crash (head_dim=512) — gelöst** — Root Cause: E4B full-attention Layer haben `head_dim=512`, MMA-Kernel hat keine Template-Instanz für DKQ=512 (`fattn.cu:110` abort). TILE-Kernel hatte auch Lücken: kein Fallback für DV>256 ohne Mask, keine Config für 512/512 bei ncols=2. Drei Commits: (1) `fattn.cu`: Route head_dim=512 zu TILE-Kernel, (2) `fattn-tile.cuh`: Fallback für DV>256 mit gqa_ratio-basiertem ncols2, (3) `fattn-tile.cuh`: Neue TILE-Config für 512/512 bei ncols=2 in allen 4 Config-Funktionen. Verifikation auf Uranus (RTX 4060 Ti 16GB): E4B+MTP mit turbo4/turbo3 KV → 103 t/s, f16 → 112 t/s. Keine Regressionen. Code-Review: ship-ready, keine Issues. Commits `f9e7564bd`, `bd8ef5978`, `1a0af56dc`.
