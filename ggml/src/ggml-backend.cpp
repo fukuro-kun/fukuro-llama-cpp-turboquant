@@ -2067,7 +2067,15 @@ ggml_backend_sched_t ggml_backend_sched_new(
     const int prefetch_n_slots = GGML_SCHED_PREFETCH_EXPERTS ? atoi(GGML_SCHED_PREFETCH_EXPERTS) : 0;
     sched->prefetch_experts = op_offload && prefetch_n_slots > 0;
     // default of 3 covers the gate/up/down expert tensors of one MoE layer
-    sched->prefetch_n_slots = prefetch_n_slots <= 1 ? 3 : std::min(prefetch_n_slots, GGML_SCHED_MAX_PREFETCH_SLOTS);
+    // GGML_SCHED_PREFETCH_EXPERTS=1 → 3 slots (default), =2 → 2 slots, etc.
+    // Use GGML_SCHED_PREFETCH_SLOTS to override independently:
+    //   GGML_SCHED_PREFETCH_EXPERTS=1 GGML_SCHED_PREFETCH_SLOTS=1 → 1 slot (less VRAM, less overlap)
+    const char * GGML_SCHED_PREFETCH_SLOTS = getenv("GGML_SCHED_PREFETCH_SLOTS");
+    if (GGML_SCHED_PREFETCH_SLOTS) {
+        sched->prefetch_n_slots = std::max(1, std::min(atoi(GGML_SCHED_PREFETCH_SLOTS), GGML_SCHED_MAX_PREFETCH_SLOTS));
+    } else {
+        sched->prefetch_n_slots = prefetch_n_slots <= 1 ? 3 : std::min(prefetch_n_slots, GGML_SCHED_MAX_PREFETCH_SLOTS);
+    }
 
     // Expert upload skipping (#37): avoid re-uploading experts that are already
     // valid in the input_cpy buffer from a previous forward pass.
