@@ -1691,10 +1691,18 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                 // for the routing ids, upload the full tensor through the prefetch backend
                 // and let the copy overlap compute of the previous split
                 if (sched->prefetch_experts && !sched->callback_eval && split_prefetch_slot == -1 && split->graph.n_nodes > 0) {
-                    ggml_tensor * node = split->graph.nodes[0];
-                    if (ggml_backend_buffer_get_usage(input->buffer) != GGML_BACKEND_BUFFER_USAGE_ANY &&
-                        ggml_backend_buffer_is_host(input->buffer) &&
-                        node->op == GGML_OP_MUL_MAT_ID && node->src[0] == input_cpy) {
+                    // Search for MUL_MAT_ID node (might not be nodes[0] if SCALE precedes it)
+                    ggml_tensor * node = nullptr;
+                    for (int j = 0; j < split->graph.n_nodes; j++) {
+                        ggml_tensor * n = split->graph.nodes[j];
+                        if (n->op == GGML_OP_MUL_MAT_ID && n->src[0] == input_cpy) {
+                            node = n;
+                            break;
+                        }
+                    }
+                    if (node &&
+                        ggml_backend_buffer_get_usage(input->buffer) != GGML_BACKEND_BUFFER_USAGE_ANY &&
+                        ggml_backend_buffer_is_host(input->buffer)) {
                         const ggml_tensor * ids = node->src[2];
                         const int64_t n_expert = input->ne[2];
                         if (ids->ne[0]*ids->ne[1] >= 2*n_expert &&
@@ -1730,7 +1738,16 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                 }
 
                 // when offloading MoE weights, we can reduce the amount of data copied by copying only the experts that are used
-                ggml_tensor * node = split->graph.n_nodes > 0 ? split->graph.nodes[0] : nullptr;
+                // Search for the MUL_MAT_ID node that uses this input as src[0], not just nodes[0]
+                // (the first node might be a SCALE or other op applied to the weights)
+                ggml_tensor * node = nullptr;
+                for (int j = 0; j < split->graph.n_nodes; j++) {
+                    ggml_tensor * n = split->graph.nodes[j];
+                    if (n->op == GGML_OP_MUL_MAT_ID && n->src[0] == input_cpy) {
+                        node = n;
+                        break;
+                    }
+                }
                 if (sched->expert_cache_enabled) {
                     static int dbg2 = 0;
                     if (dbg2++ < 3) {
@@ -1743,12 +1760,10 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                                 (node && input_cpy) ? (int)(node->src[0] == input_cpy) : -1);
                     }
                 }
-                if (split->graph.n_nodes > 0 &&
+                if (node &&
                     ggml_backend_buffer_get_usage(input->buffer) != GGML_BACKEND_BUFFER_USAGE_ANY &&
-                    ggml_backend_buffer_is_host(input->buffer) && (
-                    (node->src[0] == input_cpy && node->op == GGML_OP_MUL_MAT_ID)
-                    //|| (node->src[1] == input_cpy && node->op == GGML_OP_ADD_ID) /* GGML_OP_ADD_ID weights are small and not worth splitting */
-                    )) {
+                    ggml_backend_buffer_is_host(input->buffer) &&
+                    node->op == GGML_OP_MUL_MAT_ID && node->src[0] == input_cpy) {
 
                     const int64_t n_expert   = node->op == GGML_OP_MUL_MAT_ID ? input->ne[2] : input->ne[1];
                     const size_t expert_size = node->op == GGML_OP_MUL_MAT_ID ? input->nb[2] : input->nb[1];
