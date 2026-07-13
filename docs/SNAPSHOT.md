@@ -13,12 +13,21 @@ ssh mars
 sudo lxc-attach -n phobos
 cd /home/fukuro/git/fukuro-llama-cpp-turboquant
 git fetch origin master && git reset --hard origin/master
-rm -rf build && cmake -B build -DLLAMA_VULKAN=ON -DCMAKE_BUILD_TYPE=Release
+rm -rf build && cmake -B build -DGGML_VULKAN=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target llama-server -j$(nproc)
 systemctl --user restart llama-server.service
 ```
 
-Der Bare-Metal-Build auf Mars ist bereits erfolgreich (llama-bench + llama-server). Der LXC braucht nur den git pull + build + restart.
+Der Bare-Metal-Build auf Mars ist bereits erfolgreich (llama-bench + llama-server mit Vulkan). Der LXC braucht nur den git pull + build + restart.
+
+**Wichtig:** `-DGGML_VULKAN=ON` (nicht `-DLLAMA_VULKAN=ON`) — das CMake-Flag hat sich geändert.
+
+## QAT-Benchmark Mars (2026-07-13, 2-Slot Prefetch + UMA Cached)
+
+| Modell | pp512 | tg128 | Backend | Anmerkung |
+|--------|-------|-------|---------|-----------|
+| Q4_K_M (15.85 GiB) | 185.14 | 17.90 | Vulkan | +9.3% pp, +11.0% tg vs baseline |
+| QAT Q4_K_XL (13.26 GiB) | 202.72 | 22.06 | Vulkan | Produktiv-Modell, beste Performance |
 
 ---
 
