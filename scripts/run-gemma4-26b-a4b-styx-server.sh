@@ -20,6 +20,11 @@ set -euo pipefail
 # thecodacus MoE-Optimierungen — aktiviert
 export GGML_CUDA_REGISTER_HOST="${GGML_CUDA_REGISTER_HOST:-1}"
 export GGML_SCHED_PREFETCH_EXPERTS="${GGML_SCHED_PREFETCH_EXPERTS:-1}"
+# 2 Prefetch-Slots: Sweet-Spot aus Benchmark 2026-07-13
+# 1 Slot: +9.8% tg aber -11.9% pp (kein Overlap möglich)
+# 2 Slots: +28.9% pp, +2.1% tg (reiner Win)
+# 3 Slots (default): identisch zu 2 Slots bei pp, minimal besser bei tg
+export GGML_SCHED_PREFETCH_SLOTS="${GGML_SCHED_PREFETCH_SLOTS:-2}"
 
 # Styx-spezifische Pfade
 SERVER="/data/git/fukuro-llama-cpp-turboquant/build/bin/llama-server"
@@ -49,7 +54,7 @@ echo "=== Gemma-4 26B-A4B QAT Server auf Styx ==="
 echo "Target: $MAIN"
 echo "ctx=${CTX} (224k), ngl=${NGL}, n-cpu-moe=${N_CPU_MOE}, cache=${CTK}/${CTV}"
 echo "Pinning: GGML_CUDA_REGISTER_HOST=${GGML_CUDA_REGISTER_HOST}"
-echo "Prefetch: GGML_SCHED_PREFETCH_EXPERTS=${GGML_SCHED_PREFETCH_EXPERTS}"
+echo "Prefetch: GGML_SCHED_PREFETCH_EXPERTS=${GGML_SCHED_PREFETCH_EXPERTS} (slots=${GGML_SCHED_PREFETCH_SLOTS})"
 if [[ "$MTP" == "1" ]]; then
     echo "MTP: AN (n_max=${SPEC_DRAFT_N_MAX}) — Draft: $DRAFT"
     echo "WARNUNG: MTP Q4_0 Draft ist -14% langsamer auf Styx (Benchmark 2026-07-10)"
