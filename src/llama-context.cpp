@@ -2539,17 +2539,6 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
         const size_t n_elems = ggml_nelements(node);
         if (n_elems == 0) continue;
 
-        // Debug: print tensor info on first encounter
-        static bool debug_printed = false;
-        if (!debug_printed) {
-            fprintf(stderr, "DEBUG moe_topk: name=%s type=%d ne=[%ld,%ld,%ld,%ld] nb=[%ld,%ld,%ld,%ld] buffer=%p data=%p\n",
-                    node->name, (int)node->type,
-                    (long)node->ne[0], (long)node->ne[1], (long)node->ne[2], (long)node->ne[3],
-                    (long)node->nb[0], (long)node->nb[1], (long)node->nb[2], (long)node->nb[3],
-                    (void*)node->buffer, (void*)node->data);
-            debug_printed = true;
-        }
-
         // Read tensor data respecting strides (ffn_moe_topk is a view, may be non-contiguous)
         // Shape: [n_expert_used, n_tokens, 1, 1]
         const int32_t n_expert_used = (int32_t)node->ne[0];
@@ -2558,24 +2547,19 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
         const size_t nb1 = node->nb[1]; // bytes per row (stride)
 
         std::vector<int32_t> data(n_elems);
-        if (nb1 == n_expert_used * nb0) {
+        if (nb1 == (size_t)n_expert_used * nb0) {
             // contiguous — single read
             ggml_backend_tensor_get(node, data.data(), 0, n_elems * sizeof(int32_t));
         } else {
-            // non-contiguous — read row by row
-            for (int32_t t = 0; t < n_tokens; t++) {
-                ggml_backend_tensor_get(node, data.data() + t * n_expert_used, t * nb1, n_expert_used * sizeof(int32_t));
-            }
-        }
-
-        // Debug: print first few values
-        if (!debug_printed) {
-            fprintf(stderr, "DEBUG moe_topk: first 8 values:");
-            for (int i = 0; i < std::min((int)n_elems, 8); i++) {
-                fprintf(stderr, " %d", data[i]);
-            }
-            fprintf(stderr, "\n");
-            debug_printed = true;
+            // non-contiguous view — copy to a contiguous CPU tensor first
+            size_t ctx_size = ggml_tensor_overhead() * 4 + n_elems * sizeof(int32_t) + 1024;
+            struct ggml_init_params params = {ctx_size, nullptr, false};
+            ggml_context * ctx_tmp = ggml_init(params);
+            ggml_tensor * tmp = ggml_new_tensor(ctx_tmp, GGML_TYPE_I32, GGML_MAX_DIMS, node->ne);
+            ggml_backend_tensor_copy(node, tmp);
+            ggml_backend_synchronize(backend_cpu);
+            memcpy(data.data(), tmp->data, n_elems * sizeof(int32_t));
+            ggml_free(ctx_tmp);
         }
 
         // Update frequency counts
