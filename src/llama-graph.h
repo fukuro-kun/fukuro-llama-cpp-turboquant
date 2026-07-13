@@ -605,6 +605,9 @@ struct llm_graph_params {
 
     std::map<llama_seq_id, llama_sampler *> samplers;
 
+    // MoE expert frequency tracking (#40)
+    bool moe_freq_track = false;
+
     static bool samplers_equal(
           const std::map<llama_seq_id, llama_sampler *> & lhs,
           const std::map<llama_seq_id, llama_sampler *> & rhs) {
@@ -833,6 +836,14 @@ struct llm_graph_context {
 
     ggml_context * ctx0 = nullptr;
     ggml_cgraph  * gf   = nullptr;
+
+    // MoE expert frequency tracking (#40): when true, build_moe_ffn adds
+    // a ggml_cont copy of the selected_experts tensor, marked as output
+    // so the scheduler preserves its data for post-compute reading.
+    bool moe_freq_track = false;
+
+    // Persistent copies of selected_experts per layer, for freq tracking
+    std::vector<ggml_tensor *> moe_topk_copies;
 
     llm_graph_context(const llm_graph_params & params);
     virtual ~llm_graph_context() = default;

@@ -1066,7 +1066,8 @@ llm_graph_context::llm_graph_context(const llm_graph_params & params) :
     cb_func          (params.cb),
     res              (params.res),
     ctx0             (res->get_ctx()),
-    gf               (res->get_gf()) {
+    gf               (res->get_gf()),
+    moe_freq_track   (params.moe_freq_track) {
         res->set_params(params);
     }
 
@@ -1569,6 +1570,18 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
     ggml_tensor * selected_experts = ggml_argsort_top_k(ctx0, selection_probs, n_expert_used); // [n_expert_used, n_tokens]
     cb(selected_experts->src[0], "ffn_moe_argsort", il);
     cb(selected_experts, "ffn_moe_topk", il);
+
+    // MoE expert frequency tracking (#40): create a persistent contiguous copy
+    // of the selected_experts tensor, marked as output so the scheduler
+    // preserves its data for post-compute reading.
+    if (moe_freq_track) {
+        ggml_tensor * experts_copy = ggml_cont(ctx0, selected_experts);
+        ggml_set_output(experts_copy);
+        ggml_format_name(experts_copy, "ffn_moe_topk_copy-%d", il);
+        cb(experts_copy, "ffn_moe_topk_copy", il);
+        // Note: moe_topk_copies is stored per-graph-build; the llama_context
+        // reads these tensors after compute via the graph result
+    }
 
     if (arch == LLM_ARCH_GROVEMOE && n_expert != hparams.n_expert) {
         // TODO: Use scalar div instead when/if implemented

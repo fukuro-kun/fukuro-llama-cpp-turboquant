@@ -2427,6 +2427,7 @@ llm_graph_params llama_context::graph_params(
         /*.mctx        =*/ mctx,
         /*.cross       =*/ &cross,
         /*.samplers    =*/ sampling.samplers,
+        /*.moe_freq_track =*/ moe_freq_track,
         /*.n_outputs   =*/ n_outputs,
         /*.cb          =*/ graph_get_cb(),
         /*.res         =*/ res,
@@ -2470,13 +2471,9 @@ llm_graph_cb llama_context::graph_get_cb() const {
             ggml_set_name(cur, name);
         }
 
-        // MoE expert frequency tracking (#40): mark both argsort base and topk view
-        // as outputs to prevent the scheduler from reusing their buffers.
-        // The scheduler reuses compute buffer space for intermediate tensors,
-        // so without this, all layers' topk tensors point to the same memory.
-        if (moe_freq_track && (strcmp(name, "ffn_moe_argsort") == 0 || strcmp(name, "ffn_moe_topk") == 0)) {
-            ggml_set_output(cur);
-        }
+        // MoE expert frequency tracking (#40): mark topk copy as output
+        // (the copy itself is created in build_moe_ffn when moe_freq_track is true)
+        // No action needed here — the copy is already marked as output in build_moe_ffn
 
         // norm may be automatically assigned to the backend of the previous layer, increasing data transfer between backends
         // FIXME: fix in ggml_backend_sched
@@ -2505,7 +2502,6 @@ void llama_context::moe_freq_init() {
     const uint32_t n_layer = hparams.n_layer();
     const uint32_t n_expert = hparams.n_expert;
     moe_freq.assign(n_layer, std::vector<uint64_t>(n_expert, 0));
-    moe_topk_mapped = false;
 }
 
 void llama_context::set_moe_freq_track(bool enable) {
@@ -2520,67 +2516,30 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
         return;
     }
 
-    // Map node indices for "ffn_moe_topk-*" tensors (re-map every call in case graph was rebuilt)
-    {
-        moe_topk_tensors.clear();
-        const int n_nodes = ggml_graph_n_nodes(gf);
-        for (int i = 0; i < n_nodes; i++) {
-            ggml_tensor * node = ggml_graph_node(gf, i);
-            if (!node || node->name[0] == '\0') continue;
-            if (strncmp(node->name, "ffn_moe_topk-", 13) == 0) {
-                moe_topk_tensors.push_back(i);
-            }
-        }
-    }
-
-    // Read selected expert indices from each topk tensor
-    for (int idx : moe_topk_tensors) {
-        ggml_tensor * node = ggml_graph_node(gf, idx);
-        if (!node) continue;
+    // Find "ffn_moe_topk_copy-*" tensors — these are persistent contiguous
+    // copies created by build_moe_ffn, marked as output so the scheduler
+    // preserves their data.
+    const int n_nodes = ggml_graph_n_nodes(gf);
+    for (int i = 0; i < n_nodes; i++) {
+        ggml_tensor * node = ggml_graph_node(gf, i);
+        if (!node || node->name[0] == '\0') continue;
         if (node->type != GGML_TYPE_I32) continue;
+        if (strncmp(node->name, "ffn_moe_topk_copy-", 18) != 0) continue;
 
-        // Parse layer index from name "ffn_moe_topk-<il>"
-        int il = atoi(node->name + 13);
+        // Parse layer index from name "ffn_moe_topk_copy-<il>"
+        int il = atoi(node->name + 18);
         if (il < 0 || il >= (int)moe_freq.size()) continue;
 
         const size_t n_elems = ggml_nelements(node);
         if (n_elems == 0) continue;
 
-        // Read tensor data respecting strides (ffn_moe_topk is a view, may be non-contiguous)
-        // Shape: [n_expert_used, n_tokens, 1, 1]
-        const int32_t n_expert_used = (int32_t)node->ne[0];
-        const int32_t n_tokens      = (int32_t)node->ne[1];
-        const size_t nb0 = node->nb[0]; // bytes per element
-        const size_t nb1 = node->nb[1]; // bytes per row (stride)
-
+        // Read contiguous tensor data
         std::vector<int32_t> data(n_elems);
-        if (nb1 == (size_t)n_expert_used * nb0) {
-            // contiguous — single read
-            ggml_backend_tensor_get(node, data.data(), 0, n_elems * sizeof(int32_t));
-        } else {
-            // non-contiguous view — read row by row using stride
-            // For each token (dim 1), read n_expert_used int32s at offset t * nb[1]
-            for (int32_t t = 0; t < n_tokens; t++) {
-                char * dst = (char *)(data.data() + t * n_expert_used);
-                ggml_backend_tensor_get(node, dst, t * nb1, n_expert_used * nb0);
-            }
-        }
-
-        // Debug: print first few values on first call
-        static int debug_count = 0;
-        if (debug_count < 3) {
-            fprintf(stderr, "DEBUG moe_topk: name=%s ne=[%d,%d] nb=[%ld,%ld] data=%p buffer=%p first vals:",
-                    node->name, n_expert_used, n_tokens, (long)nb0, (long)nb1, (void*)node->data, (void*)node->buffer);
-            for (int i = 0; i < std::min((int)n_elems, 8); i++) {
-                fprintf(stderr, " %d", data[i]);
-            }
-            fprintf(stderr, "\n");
-            debug_count++;
-        }
+        ggml_backend_tensor_get(node, data.data(), 0, n_elems * sizeof(int32_t));
 
         // Update frequency counts
-        for (size_t i = 0; i < n_elems; i++) {
-            int expert = data[i];
+        for (size_t j = 0; j < n_elems; j++) {
+            int expert = data[j];
             if (expert >= 0 && expert < (int)moe_freq[il].size()) {
                 moe_freq[il][expert]++;
             }

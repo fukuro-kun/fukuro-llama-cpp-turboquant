@@ -398,6 +398,4 @@ private:
     // MoE expert frequency tracking (#40)
     bool moe_freq_track = false;
     std::vector<std::vector<uint64_t>> moe_freq; // [n_layer][n_expert] — expert activation counts
-    std::vector<int> moe_topk_tensors; // node indices of "ffn_moe_topk-*" tensors in the graph
-    bool moe_topk_mapped = false;      // whether we've mapped the topk tensor node indices
 };
