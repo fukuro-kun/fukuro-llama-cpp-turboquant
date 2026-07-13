@@ -2470,11 +2470,11 @@ llm_graph_cb llama_context::graph_get_cb() const {
             ggml_set_name(cur, name);
         }
 
-        // MoE expert frequency tracking (#40): mark argsort output as output
-        // to prevent the scheduler from reusing its buffer for other ops.
-        // The topk tensor is a view on the argsort output, so we need to
-        // preserve the base tensor, not the view.
-        if (moe_freq_track && strcmp(name, "ffn_moe_argsort") == 0) {
+        // MoE expert frequency tracking (#40): mark both argsort base and topk view
+        // as outputs to prevent the scheduler from reusing their buffers.
+        // The scheduler reuses compute buffer space for intermediate tensors,
+        // so without this, all layers' topk tensors point to the same memory.
+        if (moe_freq_track && (strcmp(name, "ffn_moe_argsort") == 0 || strcmp(name, "ffn_moe_topk") == 0)) {
             ggml_set_output(cur);
         }
 
@@ -2520,8 +2520,8 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
         return;
     }
 
-    // On first call, map node indices for "ffn_moe_topk-*" tensors
-    if (!moe_topk_mapped) {
+    // Map node indices for "ffn_moe_topk-*" tensors (re-map every call in case graph was rebuilt)
+    {
         moe_topk_tensors.clear();
         const int n_nodes = ggml_graph_n_nodes(gf);
         for (int i = 0; i < n_nodes; i++) {
@@ -2531,7 +2531,6 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
                 moe_topk_tensors.push_back(i);
             }
         }
-        moe_topk_mapped = true;
     }
 
     // Read selected expert indices from each topk tensor
