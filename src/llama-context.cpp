@@ -2539,9 +2539,23 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
         const size_t n_elems = ggml_nelements(node);
         if (n_elems == 0) continue;
 
-        // Copy tensor data to host (tensor may be on GPU, but we synchronized above)
+        // Read tensor data respecting strides (ffn_moe_topk is a view, may be non-contiguous)
+        // Shape: [n_expert_used, n_tokens, 1, 1]
+        const int32_t n_expert_used = (int32_t)node->ne[0];
+        const int32_t n_tokens      = (int32_t)node->ne[1];
+        const size_t nb0 = node->nb[0]; // bytes per element
+        const size_t nb1 = node->nb[1]; // bytes per row (stride)
+
         std::vector<int32_t> data(n_elems);
-        ggml_backend_tensor_get(node, data.data(), 0, n_elems * sizeof(int32_t));
+        if (nb1 == n_expert_used * nb0) {
+            // contiguous — single read
+            ggml_backend_tensor_get(node, data.data(), 0, n_elems * sizeof(int32_t));
+        } else {
+            // non-contiguous — read row by row
+            for (int32_t t = 0; t < n_tokens; t++) {
+                ggml_backend_tensor_get(node, data.data() + t * n_expert_used, t * nb1, n_expert_used * sizeof(int32_t));
+            }
+        }
 
         // Update frequency counts
         for (size_t i = 0; i < n_elems; i++) {
