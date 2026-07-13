@@ -1,6 +1,6 @@
 # Momentaufnahme — fukuro-llama-cpp-turboquant + InferenzQuelle
 
-**Datum:** 2026-07-13 | **Branch:** `master` | **Letzter Commit:** `e09da1df4` (256k LXC-Migration)
+**Datum:** 2026-07-13 | **Branch:** `master` | **Letzter Commit:** `f0654a32f` (2-slot prefetch results)
 
 ---
 
@@ -16,6 +16,13 @@
 ---
 
 ## Was zuletzt passiert ist
+
+### 2026-07-13: thecodacus Expert Prefetch repariert + 2-Slot Sweet-Spot (Solo-Session)
+
+- **thecodacus Prefetch repariert** — Root Cause: `nodes[0]` war SCALE nicht MUL_MAT_ID. Fix: Graph-Suche im gesamten Split. `GGML_SCHED_PREFETCH_SLOTS` env var hinzugefügt.
+- **2-Slot Sweet-Spot** — Styx: +28.9% pp512, +36.2% pp2048, +36.7% pp8192, +2.1% tg8. Mars: +8.8% pp512, +3.8% tg128. Beide Server-Scripts auf 2-Slot umgestellt. 3-Slot: -35% tg auf Mars (Queue-Konflikt RDNA3).
+- **M3 Meilenstein abgeschlossen** — #37✅ (Prefetch), #15❌ (PipeShard: zu großer Aufwand, marginaler Benefit), #40⏭️ (Phase 2 negativ).
+- **Expert-Cache (#37) postponed** — Buffer-Recycling-Crash, benötigt Buffer-Pinning oder Per-Expert Tensor-Splitting.
 
 ### 2026-07-13: E4B-Deployment Uranus + Doku-Pflege + 256k-Migration
 
