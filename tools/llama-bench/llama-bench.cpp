@@ -2581,6 +2581,13 @@ int llama_bench(int argc, char ** argv) {
 
         llama_perf_context_print(ctx);
 
+        // Expert cache statistics (#37)
+        if (getenv("GGML_EXPERT_CACHE") && atoi(getenv("GGML_EXPERT_CACHE")) != 0) {
+            // The cache stats are internal to the scheduler, but we can at least
+            // print a message indicating the cache was active
+            fprintf(stderr, "Expert cache: enabled (GGML_EXPERT_CACHE=1)\n");
+        }
+
         // MoE expert frequency report (#40)
         if (moe_freq_track) {
             size_t n_data = 0;
