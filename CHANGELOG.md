@@ -17,6 +17,13 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-13
 
+### Infra: phobos DNS-Registrierung + SSH-Config + mars DNS-Korrektur
+
+- **fix: phobos bei pan (dnsmasq) registriert** — LXC 240 (phobos) war nicht im zentralen DNS-Server pan (LXC 249, saturn) eingetragen. A-Record + PTR für `phobos.eulenhorst.lan` → 192.168.1.240 hinzugefügt via `register-device.sh`. MAC: `BC:24:11:16:BA:17`. Vorher war phobos nur über hardcoded IP oder mars' FritzBox-DNS (`phobos.fritz.box`) auflösbar.
+- **fix: mars /etc/resolv.conf korrigiert** — mars nutzte veraltet `search fritz.box` + FritzBox (192.168.1.1) als einzigen DNS-Server. Korrigiert auf `search eulenhorst.lan` + pan (192.168.1.249) primär + FritzBox Fallback — konsistent mit jupiter/saturn. Backup: `/etc/resolv.conf.bak.20260713`.
+- **feat: SSH-config-Eintrag für phobos auf hydra** — `~/.ssh/config`: `Host phobos → HostName phobos.eulenhorst.lan`. Passwortloser Login mit id_ed25519 (Key war bereits in phobos' authorized_keys). `ssh phobos` funktioniert jetzt direkt.
+- **docs: LOKAL.md, SNAPSHOT.md, Trilium aktualisiert** — LOKAL.md: phobos als eigener Host-Eintrag + DNS-Hinweis. SNAPSHOT.md: Neubau-Befehl vereinfacht (`ssh phobos` statt `ssh mars + lxc-attach`). Trilium: Netzwerkplan (`1IYS31C9CrSu`) Mars-Tabelle mit MAC ergänzt, phobos-Note (`o6jGT8Qwqm4y`) DNS-Eintrag dokumentiert, Mars-Note (`IqF1CiABuNV9`) DNS-Korrektur eingetragen.
+
 ### Solo-Session (Phase 3: Expert Prefetch + Buffer-Usage Investigation)
 
 - **fix: thecodacus Expert Prefetch — MUL_MAT_ID Graph-Suche repariert** — Root Cause gefunden warum der selektive Kopierpfad für Expert-Weights nie aktiviert wurde: Der Code prüfte nur `split->graph.nodes[0]` auf `GGML_OP_MUL_MAT_ID`, aber bei Gemma-4 ist die erste Node im Split `GGML_OP_SCALE` (32), nicht `MUL_MAT_ID` (30). Fix: Suche im gesamten Split-Graph nach dem MUL_MAT_ID-Node der `input_cpy` als `src[0]` hat. Expert-Weights haben korrekt `WEIGHTS` Buffer-Usage (1) — der frühere Debug-Output mit `usage=2` (COMPUTE) bezog sich auf einen anderen Buffer (Compute-Staging-Buffer, nicht Weight-Buffer). Commits `aea4b0d7c`, `5f7a4ff0e`.

@@ -1,6 +1,6 @@
 # Momentaufnahme — fukuro-llama-cpp-turboquant + InferenzQuelle
 
-**Datum:** 2026-07-13 | **Branch:** `master` | **Letzter Commit:** `2974c655d` (CHANGELOG UI-Assets Fix)
+**Datum:** 2026-07-13 | **Branch:** `master` | **Letzter Commit:** `177ef53f1` (#57 26B-Benchmark: stream-k -99% pp)
 
 ---
 
@@ -9,8 +9,7 @@
 Der Mars llama-server läuft im LXC 240 (phobos) und muss neu gebaut werden, um den UMA-Cache-Fix zu aktivieren:
 
 ```bash
-ssh mars
-sudo lxc-attach -n phobos
+ssh phobos
 cd /home/fukuro/git/fukuro-llama-cpp-turboquant
 git fetch origin master && git reset --hard origin/master
 rm -rf build && cmake -B build -DGGML_VULKAN=ON -DCMAKE_BUILD_TYPE=Release
@@ -43,6 +42,15 @@ Der Bare-Metal-Build auf Mars ist bereits erfolgreich (llama-bench + llama-serve
 ---
 
 ## Was zuletzt passiert ist
+
+### 2026-07-13: #57 MMQ Stream-k Disable — ❌ Katastrophal auf Uranus
+
+- **#57 implementiert + benchmarked** — `GGML_CUDA_DISABLE_MMQ_STREAM_K` env var in `ggml-cuda.cu`/`mmq.cu`/`common.cuh`. PR #22170 portiert.
+- **Benchmark Uranus (2x RTX 4060 Ti):**
+  - E4B QAT (7.46B): pp512 -64% mit stream-k OFF
+  - **26B IQ4_XS (25.23B) tensor split: pp512 2669→17.48 (-99.3%!), layer split: pp512 3005→11.59 (-99.6%!)** — tg128 unbeeinflusst
+- **Fazit:** Stream-k decomposition ist ESSENZIELL für MMQ-Performance auf Ada GPUs. PR #22170 war für spezifischen Edge Case (fixup-buffer Race Condition bei `src1_ncols != ne11`), nicht für generelle MoE-Workloads. #57 = ❌, env var bleibt nur für Debugging (Default: OFF = stream-k ON).
+- **xtts-api auf Uranus** — Für Benchmark temporär gestoppt, danach wieder gestartet. Health=healthy, 6 Worker, alle Speaker geladen.
 
 ### 2026-07-13: thecodacus Expert Prefetch 2-Slot + UMA Cached + Research-Sweep #3 (Solo-Session)
 
@@ -94,7 +102,7 @@ Der Bare-Metal-Build auf Mars ist bereits erfolgreich (llama-bench + llama-serve
 | **M2** Vulkan-Offensive | ✅ | #6✅, #7✅, #12✅ bereits integriert, #9❌, #10❌ |
 | **M3** MoE-Offloading v2 | ⏳ teils | #3✅, #13❌, #14⏭️, #15☐ |
 | **M4** Speculative Decoding v2 | ✅ | #11✅, #28✅ eigene Implementierung |
-| **M5** Coopmat2 + Multi-GPU | ⏳ teils | #12✅, #20✅, #21 offen |
+| **M5** Coopmat2 + Multi-GPU | ⏳ teils | #12✅, #20✅, #21 offen, #57❌ (stream-k disable katastrophal) |
 | **M6** Forschung | ☐ offen | #17, #18, #19, #25-27, #29, #30 |
 
 ### Fork — Produktiv-Server
@@ -123,7 +131,7 @@ Der Bare-Metal-Build auf Mars ist bereits erfolgreich (llama-bench + llama-serve
 
 ## Aktuell in Arbeit (uncommitted)
 
-**Fork:** Sauber — keine uncommitteten Änderungen (gerade committed `e09da1df4`).
+**Fork:** Sauber — keine uncommitteten Änderungen (gerade committed `177ef53f1`).
 **InferenzQuelle:** 3 modifizierte + 4 neue unversionierte Dateien (AGENTS.md, docs/ARCHITECTURE.md, config/hosts.json, docs/CACHE_PERFORMANCE.md, router/, shared/) — warten auf Review.
 
 ---
