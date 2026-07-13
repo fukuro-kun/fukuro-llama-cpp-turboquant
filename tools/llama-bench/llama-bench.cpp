@@ -1235,9 +1235,9 @@ struct cmd_params_instance {
             merged.reserve(merged.size() + (size_t) n_cpu_moe + 1);
 
             // Frequency-guided layer selection: if LLAMA_MOE_FREQ_IMPORT is set,
-            // read the JSON frequency data and offload the n_cpu_moe layers with
-            // the highest entropy (least concentrated expert selection → coldest)
-            // instead of the default first-n-layers strategy.
+            // read the JSON frequency data and optimize which layers to offload.
+            // Strategy: start with default (first n_cpu_moe layers on CPU), then
+            // swap hot CPU layers with cold GPU layers to keep hot experts on GPU.
             std::vector<int> cpu_layer_indices;
             const char * freq_import = getenv("LLAMA_MOE_FREQ_IMPORT");
             if (freq_import && freq_import[0] != '\0') {
@@ -1276,15 +1276,14 @@ struct cmd_params_instance {
                             }
                         }
 
-                        // Compute per-layer entropy and select coldest n_cpu_moe layers
-                        std::vector<std::pair<double, int>> entropy;
+                        // Compute per-layer entropy (normalized 0-1)
+                        // Low entropy = concentrated selection = hot layer (benefits from GPU)
+                        // High entropy = uniform selection = cold layer (less GPU benefit)
+                        std::vector<double> layer_ent(j_n_layer, 1.0);
                         for (int il = 0; il < j_n_layer; il++) {
                             uint64_t total = 0;
                             for (int e = 0; e < j_n_expert; e++) total += freq_data[il][e];
-                            if (total == 0) {
-                                entropy.push_back({1.0, il}); // max entropy = coldest
-                                continue;
-                            }
+                            if (total == 0) { layer_ent[il] = 1.0; continue; }
                             double ent = 0.0;
                             for (int e = 0; e < j_n_expert; e++) {
                                 if (freq_data[il][e] > 0) {
@@ -1293,21 +1292,42 @@ struct cmd_params_instance {
                                 }
                             }
                             double max_ent = log2((double)j_n_expert);
-                            entropy.push_back({max_ent > 0 ? ent / max_ent : 0.0, il});
+                            layer_ent[il] = max_ent > 0 ? ent / max_ent : 0.0;
                         }
 
-                        // Sort by entropy descending (coldest first)
-                        std::sort(entropy.begin(), entropy.end(), [](const auto & a, const auto & b) {
-                            return a.first > b.first;
-                        });
-
-                        int n_to_offload = std::min(n_cpu_moe, (int)entropy.size());
-                        for (int i = 0; i < n_to_offload; i++) {
-                            cpu_layer_indices.push_back(entropy[i].second);
+                        // Default: first n_cpu_moe layers on CPU, rest on GPU
+                        std::set<int> cpu_set;
+                        for (int i = 0; i < n_cpu_moe && i < j_n_layer; i++) {
+                            cpu_set.insert(i);
                         }
+
+                        // Swap strategy: find hot CPU layers (low entropy) and swap
+                        // with cold GPU layers (high entropy)
+                        int n_swaps = 0;
+                        for (int il_cpu : cpu_set) {
+                            // Find the coldest GPU layer
+                            int best_gpu = -1;
+                            double best_gpu_ent = -1.0;
+                            for (int il = 0; il < j_n_layer; il++) {
+                                if (cpu_set.count(il)) continue;
+                                if (layer_ent[il] > best_gpu_ent) {
+                                    best_gpu_ent = layer_ent[il];
+                                    best_gpu = il;
+                                }
+                            }
+                            if (best_gpu < 0) break;
+                            // Only swap if CPU layer is hotter than GPU layer
+                            if (layer_ent[il_cpu] < best_gpu_ent) {
+                                cpu_set.erase(il_cpu);
+                                cpu_set.insert(best_gpu);
+                                n_swaps++;
+                            }
+                        }
+
+                        for (int il : cpu_set) cpu_layer_indices.push_back(il);
                         std::sort(cpu_layer_indices.begin(), cpu_layer_indices.end());
 
-                        fprintf(stderr, "Frequency-guided MoE offloading (from %s): CPU layers:", freq_import);
+                        fprintf(stderr, "Frequency-guided MoE offloading (from %s, %d swaps): CPU layers:", freq_import, n_swaps);
                         for (int il : cpu_layer_indices) fprintf(stderr, " %d", il);
                         fprintf(stderr, "\n");
                     }
