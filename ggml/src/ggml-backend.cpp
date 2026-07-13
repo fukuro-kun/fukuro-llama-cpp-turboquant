@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <vector>
 #include <map>
+#include <set>
+#include <tuple>
 #include <utility>
 
 #ifdef __APPLE__
@@ -846,6 +848,9 @@ struct ggml_backend_sched {
     uint64_t expert_cache_misses;
     // Map: (buffer_addr, copy_idx) → validity bitset (1 bit per expert slot)
     std::map<std::pair<void*, int>, std::vector<ggml_bitset_t>> expert_valid;
+    // Tensor-level upload skipping: track (input_data_ptr, buf_base_ptr, copy_idx)
+    // tuples that have already been copied. Used in the generic copy path.
+    std::set<std::tuple<void*, void*, int>> tensor_copied;
 
     int debug;
 
@@ -1923,16 +1928,40 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                         }
                     }
                 } else {
-                    // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events
-                    // TODO: add public function to facilitate this, since applications do not have direct access to the backend interface
-                    if (!split_backend->iface.cpy_tensor_async || !split_backend->iface.cpy_tensor_async(input_backend, split_backend, input, input_cpy)) {
-                        ggml_backend_synchronize(input_backend);
-                        if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
-                            ggml_backend_event_synchronize(sched->events[split_backend_id][sched->cur_copy]);
+                    // Tensor-level upload skipping (#37): if this exact tensor
+                    // has already been copied to this GPU buffer in a previous
+                    // forward pass, skip the copy entirely. This is safe for MoE
+                    // expert weights which don't change during inference.
+                    bool skip_copy = false;
+                    if (sched->expert_cache_enabled && input_cpy->buffer) {
+                        void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
+                        auto key = std::make_tuple(input->data, buf_base, sched->cur_copy);
+                        if (sched->tensor_copied.count(key)) {
+                            skip_copy = true;
+                            sched->expert_cache_hits++;
                         } else {
-                            ggml_backend_synchronize(split_backend);
+                            sched->expert_cache_misses++;
                         }
-                        ggml_backend_tensor_copy(input, input_cpy);
+                    }
+
+                    if (!skip_copy) {
+                        // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events
+                        // TODO: add public function to facilitate this, since applications do not have direct access to the backend interface
+                        if (!split_backend->iface.cpy_tensor_async || !split_backend->iface.cpy_tensor_async(input_backend, split_backend, input, input_cpy)) {
+                            ggml_backend_synchronize(input_backend);
+                            if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
+                                ggml_backend_event_synchronize(sched->events[split_backend_id][sched->cur_copy]);
+                            } else {
+                                ggml_backend_synchronize(split_backend);
+                            }
+                            ggml_backend_tensor_copy(input, input_cpy);
+                        }
+                        // Mark as copied for future forward passes
+                        if (sched->expert_cache_enabled && input_cpy->buffer) {
+                            void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
+                            auto key = std::make_tuple(input->data, buf_base, sched->cur_copy);
+                            sched->tensor_copied.insert(key);
+                        }
                     }
                 }
             }
