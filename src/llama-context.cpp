@@ -2471,10 +2471,6 @@ llm_graph_cb llama_context::graph_get_cb() const {
             ggml_set_name(cur, name);
         }
 
-        // MoE expert frequency tracking (#40): mark topk copy as output
-        // (the copy itself is created in build_moe_ffn when moe_freq_track is true)
-        // No action needed here — the copy is already marked as output in build_moe_ffn
-
         // norm may be automatically assigned to the backend of the previous layer, increasing data transfer between backends
         // FIXME: fix in ggml_backend_sched
         const bool full_offload = model.n_gpu_layers() > model.hparams.n_layer_all;
@@ -2513,12 +2509,9 @@ void llama_context::set_moe_freq_track(bool enable) {
 
 const uint64_t * llama_context::get_moe_freq_flat(size_t * n_data) const {
     // Flatten the 2D moe_freq into a contiguous array for C API access
-    // Note: moe_freq_flat is mutable to allow this in a const method
-    const_cast<std::vector<uint64_t>&>(moe_freq_flat).clear();
+    moe_freq_flat.clear();
     for (const auto & layer_freq : moe_freq) {
-        const_cast<std::vector<uint64_t>&>(moe_freq_flat).insert(
-            const_cast<std::vector<uint64_t>&>(moe_freq_flat).end(),
-            layer_freq.begin(), layer_freq.end());
+        moe_freq_flat.insert(moe_freq_flat.end(), layer_freq.begin(), layer_freq.end());
     }
     if (n_data) {
         *n_data = moe_freq_flat.size();

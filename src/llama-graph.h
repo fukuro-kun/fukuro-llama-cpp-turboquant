@@ -692,7 +692,8 @@ struct llm_graph_params {
             gtype == other.gtype &&
             cvec  == other.cvec  &&
             loras == other.loras &&
-            cross == other.cross;
+            cross == other.cross &&
+            moe_freq_track == other.moe_freq_track;
     }
 };
 
@@ -842,8 +843,10 @@ struct llm_graph_context {
     // so the scheduler preserves its data for post-compute reading.
     bool moe_freq_track = false;
 
-    // Persistent copies of selected_experts per layer, for freq tracking
-    std::vector<ggml_tensor *> moe_topk_copies;
+    // Track which layers already have a freq-tracking copy, to avoid
+    // double-counting when build_moe_ffn is called multiple times per
+    // layer (e.g. GroveMoE chunk experts).
+    mutable std::set<int> moe_freq_tracked_layers;
 
     llm_graph_context(const llm_graph_params & params);
     virtual ~llm_graph_context() = default;

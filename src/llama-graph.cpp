@@ -1574,7 +1574,10 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
     // MoE expert frequency tracking (#40): create a persistent contiguous copy
     // of the selected_experts tensor, marked as output so the scheduler
     // preserves its data for post-compute reading.
-    if (moe_freq_track) {
+    // Only track the first build_moe_ffn call per layer (avoids double-counting
+    // for GroveMoE which calls build_moe_ffn twice: main + chunk experts).
+    if (moe_freq_track && moe_freq_tracked_layers.find(il) == moe_freq_tracked_layers.end()) {
+        moe_freq_tracked_layers.insert(il);
         ggml_tensor * experts_copy = ggml_cont(ctx0, selected_experts);
         ggml_set_output(experts_copy);
         ggml_format_name(experts_copy, "ffn_moe_topk_copy-%d", il);

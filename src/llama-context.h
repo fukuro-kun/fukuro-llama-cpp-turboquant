@@ -254,7 +254,6 @@ public:
 
     // MoE expert frequency tracking (#40)
     void set_moe_freq_track(bool enable);
-    const std::vector<std::vector<uint64_t>> & get_moe_freq() const { return moe_freq; }
     const uint64_t * get_moe_freq_flat(size_t * n_data) const;
 
 private:
@@ -399,5 +398,5 @@ private:
     // MoE expert frequency tracking (#40)
     bool moe_freq_track = false;
     std::vector<std::vector<uint64_t>> moe_freq; // [n_layer][n_expert] — expert activation counts
-    std::vector<uint64_t> moe_freq_flat; // flattened version for C API access
+    mutable std::vector<uint64_t> moe_freq_flat; // flattened version for C API access (mutable for const getter)
 };
