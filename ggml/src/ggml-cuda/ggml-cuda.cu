@@ -6017,10 +6017,10 @@ ggml_backend_t ggml_backend_cuda_init(int device) {
 
     // Allow disabling MMQ stream-k decomposition via env var.
     // Stream-k has overhead for tensor-split MoE workloads where straight xy tiling is faster.
-    // See PR #22170 for details.
+    // See PR #22170 for details. Affects all MMQ calls (not just MoE).
     {
         const char * env = getenv("GGML_CUDA_DISABLE_MMQ_STREAM_K");
-        if (env != nullptr && env[0] == '1') {
+        if (env != nullptr && std::atoi(env)) {
             ctx->disable_mmq_stream_k_default = true;
         }
     }
