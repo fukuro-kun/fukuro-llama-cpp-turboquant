@@ -18,6 +18,12 @@
 
 set -euo pipefail
 
+# thecodacus MoE-Optimierungen — aktiviert (Benchmark 2026-07-13)
+# 2-Slot Prefetch: +8.8% pp512, +3.8% tg128 auf Mars (reiner Win!)
+# 3-Slot (default): -35% tg128 auf Mars — NICHT verwenden
+export GGML_SCHED_PREFETCH_EXPERTS="${GGML_SCHED_PREFETCH_EXPERTS:-1}"
+export GGML_SCHED_PREFETCH_SLOTS="${GGML_SCHED_PREFETCH_SLOTS:-2}"
+
 # Mars-spezifische Pfade
 SERVER="/home/fukuro/git/fukuro-llama-cpp-turboquant/build/bin/llama-server"
 MAIN="/jade/models/gemma-4-26B-A4B-it/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf"
@@ -44,6 +50,7 @@ SPEC_DRAFT_N_MAX="${SPEC_DRAFT_N_MAX:-3}"
 echo "=== Gemma-4 26B-A4B QAT Server auf Mars ==="
 echo "Target: $MAIN"
 echo "ctx=${CTX} (256k max), ngl=${NGL}, cache=${CTK}/${CTV}, FA=${FA}, parallel=${PARALLEL}"
+echo "Prefetch: GGML_SCHED_PREFETCH_EXPERTS=${GGML_SCHED_PREFETCH_EXPERTS} (slots=${GGML_SCHED_PREFETCH_SLOTS})"
 if [[ "$MTP" == "1" ]]; then
     echo "MTP: AN (n_max=${SPEC_DRAFT_N_MAX}) — Draft: $DRAFT"
     echo "WARNUNG: MTP Q4_0 Draft ist -2.4% langsamer auf Mars (Benchmark 2026-07-10)"
