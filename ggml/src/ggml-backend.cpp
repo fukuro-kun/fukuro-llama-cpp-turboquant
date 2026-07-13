@@ -1592,7 +1592,7 @@ static size_t ggml_backend_sched_prefetch_max_size(ggml_backend_sched_t sched) {
         for (int input_id = 0; input_id < split->n_inputs; input_id++) {
             const ggml_tensor * input = split->inputs[input_id];
             if (input->buffer &&
-                ggml_backend_buffer_get_usage(input->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
+                ggml_backend_buffer_get_usage(input->buffer) != GGML_BACKEND_BUFFER_USAGE_ANY &&
                 ggml_backend_buffer_is_host(input->buffer)) {
                 max_size = std::max(max_size, ggml_nbytes(input));
             }
@@ -1692,7 +1692,7 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                 // and let the copy overlap compute of the previous split
                 if (sched->prefetch_experts && !sched->callback_eval && split_prefetch_slot == -1 && split->graph.n_nodes > 0) {
                     ggml_tensor * node = split->graph.nodes[0];
-                    if (ggml_backend_buffer_get_usage(input->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
+                    if (ggml_backend_buffer_get_usage(input->buffer) != GGML_BACKEND_BUFFER_USAGE_ANY &&
                         ggml_backend_buffer_is_host(input->buffer) &&
                         node->op == GGML_OP_MUL_MAT_ID && node->src[0] == input_cpy) {
                         const ggml_tensor * ids = node->src[2];
@@ -1744,7 +1744,7 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     }
                 }
                 if (split->graph.n_nodes > 0 &&
-                    ggml_backend_buffer_get_usage(input->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
+                    ggml_backend_buffer_get_usage(input->buffer) != GGML_BACKEND_BUFFER_USAGE_ANY &&
                     ggml_backend_buffer_is_host(input->buffer) && (
                     (node->src[0] == input_cpy && node->op == GGML_OP_MUL_MAT_ID)
                     //|| (node->src[1] == input_cpy && node->op == GGML_OP_ADD_ID) /* GGML_OP_ADD_ID weights are small and not worth splitting */
