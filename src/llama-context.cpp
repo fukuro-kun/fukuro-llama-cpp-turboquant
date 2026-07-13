@@ -2520,6 +2520,7 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
     // copies created by build_moe_ffn, marked as output so the scheduler
     // preserves their data.
     const int n_nodes = ggml_graph_n_nodes(gf);
+    int n_found = 0;
     for (int i = 0; i < n_nodes; i++) {
         ggml_tensor * node = ggml_graph_node(gf, i);
         if (!node || node->name[0] == '\0') continue;
@@ -2533,6 +2534,17 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
         const size_t n_elems = ggml_nelements(node);
         if (n_elems == 0) continue;
 
+        // Debug: print info for first few layers
+        if (n_found < 5) {
+            fprintf(stderr, "DEBUG moe_copy: name=%s il=%d ne=[%ld,%ld] data=%p flags=0x%x first 4 vals: ",
+                    node->name, il, (long)node->ne[0], (long)node->ne[1], (void*)node->data, node->flags);
+            std::vector<int32_t> tmp(std::min((size_t)4, n_elems));
+            ggml_backend_tensor_get(node, tmp.data(), 0, tmp.size() * sizeof(int32_t));
+            for (auto v : tmp) fprintf(stderr, "%d ", v);
+            fprintf(stderr, "\n");
+        }
+        n_found++;
+
         // Read contiguous tensor data
         std::vector<int32_t> data(n_elems);
         ggml_backend_tensor_get(node, data.data(), 0, n_elems * sizeof(int32_t));
@@ -2545,6 +2557,7 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
             }
         }
     }
+    fprintf(stderr, "DEBUG moe_copy: found %d copy tensors in graph (n_nodes=%d)\n", n_found, n_nodes);
 }
 
 //
