@@ -1762,11 +1762,11 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                 }
                 if (node &&
                     ggml_backend_buffer_get_usage(input->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
-                    ggml_backend_buffer_is_host(input->buffer) &&
-                    node->op == GGML_OP_MUL_MAT_ID && node->src[0] == input_cpy) {
+                    ggml_backend_buffer_is_host(input->buffer)) {
 
-                    const int64_t n_expert   = node->op == GGML_OP_MUL_MAT_ID ? input->ne[2] : input->ne[1];
-                    const size_t expert_size = node->op == GGML_OP_MUL_MAT_ID ? input->nb[2] : input->nb[1];
+                    // node is MUL_MAT_ID with src[0] == input_cpy (guaranteed by search above)
+                    const int64_t n_expert   = input->ne[2];
+                    const size_t expert_size = input->nb[2];
 
                     ggml_backend_synchronize(input_backend);
 
@@ -1818,7 +1818,7 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                             expert_size_copy + padding_end);
                     };
 
-    // Expert upload skipping (#37): if expert cache is enabled,
+                    // Expert upload skipping (#37): if expert cache is enabled,
                     // build a need_upload bitset that only includes experts that
                     // are used but not yet valid in the input_cpy buffer.
                     // This avoids re-uploading experts that were already copied
