@@ -1791,25 +1791,31 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                             expert_size_copy + padding_end);
                     };
 
-                    // Expert upload skipping (#37): if expert cache is enabled,
+    // Expert upload skipping (#37): if expert cache is enabled,
                     // build a need_upload bitset that only includes experts that
                     // are used but not yet valid in the input_cpy buffer.
                     // This avoids re-uploading experts that were already copied
                     // in a previous forward pass.
                     std::vector<ggml_bitset_t> * valid_bitset = nullptr;
-                    if (sched->expert_cache_enabled && input_cpy->buffer) {
-                        void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
-                        auto key = std::make_pair(buf_base, sched->cur_copy);
-                        auto it = sched->expert_valid.find(key);
-                        if (it == sched->expert_valid.end()) {
-                            // New buffer or first use — create fresh bitset (all invalid)
-                            sched->expert_valid[key] = std::vector<ggml_bitset_t>(ggml_bitset_size(n_expert), 0);
-                            valid_bitset = &sched->expert_valid[key];
+                    if (sched->expert_cache_enabled) {
+                        if (input_cpy->buffer) {
+                            void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
+                            auto key = std::make_pair(buf_base, sched->cur_copy);
+                            auto it = sched->expert_valid.find(key);
+                            if (it == sched->expert_valid.end()) {
+                                sched->expert_valid[key] = std::vector<ggml_bitset_t>(ggml_bitset_size(n_expert), 0);
+                                valid_bitset = &sched->expert_valid[key];
+                            } else {
+                                valid_bitset = &it->second;
+                                if (valid_bitset->size() < ggml_bitset_size(n_expert)) {
+                                    valid_bitset->resize(ggml_bitset_size(n_expert), 0);
+                                }
+                            }
                         } else {
-                            valid_bitset = &it->second;
-                            // Resize if n_expert changed (shouldn't happen, but safety)
-                            if (valid_bitset->size() < ggml_bitset_size(n_expert)) {
-                                valid_bitset->resize(ggml_bitset_size(n_expert), 0);
+                            static bool warned = false;
+                            if (!warned) {
+                                fprintf(stderr, "Expert cache: input_cpy has no buffer, cache disabled for this tensor\n");
+                                warned = true;
                             }
                         }
                     }
@@ -2021,6 +2027,9 @@ ggml_backend_sched_t ggml_backend_sched_new(
     sched->expert_cache_enabled = op_offload && GGML_EXPERT_CACHE && atoi(GGML_EXPERT_CACHE) != 0;
     sched->expert_cache_hits = 0;
     sched->expert_cache_misses = 0;
+    if (sched->expert_cache_enabled) {
+        fprintf(stderr, "Expert cache: enabled (op_offload=%d, n_slots will be allocated on demand)\n", op_offload);
+    }
 
     ggml_backend_sched_reset(sched);
 
