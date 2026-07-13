@@ -1710,7 +1710,22 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                         ggml_backend_buffer_is_host(input->buffer)) {
                         const ggml_tensor * ids = node->src[2];
                         const int64_t n_expert = input->ne[2];
-                        if (ids->ne[0]*ids->ne[1] >= 2*n_expert &&
+                        // Only prefetch when enough tokens are processed that most experts
+                        // are likely to be used. For decode (batch=1-8), the selective copy
+                        // path is better than full-tensor prefetch.
+                        // ids shape: [n_expert_used, n_tokens, 1, 1]
+                        // n_tokens = ids->ne[1], n_expert_used = ids->ne[0]
+                        const int64_t n_tokens = ids->ne[1];
+                        const int64_t n_expert_used = ids->ne[0];
+                        if (sched->prefetch_experts) {
+                            static int dbg_pf = 0;
+                            if (dbg_pf++ < 3) {
+                                fprintf(stderr, "Prefetch: n_expert=%ld n_tokens=%ld n_expert_used=%ld product=%ld threshold=%ld\n",
+                                        (long)n_expert, (long)n_tokens, (long)n_expert_used,
+                                        (long)(n_tokens * n_expert_used), (long)(2*n_expert));
+                            }
+                        }
+                        if (n_tokens * n_expert_used >= 2*n_expert &&
                             ggml_backend_sched_prefetch_init(sched, split_backend, ggml_nbytes(input))) {
                             const int slot = sched->prefetch_cur;
                             sched->prefetch_cur = (sched->prefetch_cur + 1) % sched->prefetch_n_slots;
