@@ -2570,8 +2570,8 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
         // Debug: print first few values on first call
         static int debug_count = 0;
         if (debug_count < 3) {
-            fprintf(stderr, "DEBUG moe_topk: name=%s ne=[%d,%d] nb=[%ld,%ld] first vals:",
-                    node->name, n_expert_used, n_tokens, (long)nb0, (long)nb1);
+            fprintf(stderr, "DEBUG moe_topk: name=%s ne=[%d,%d] nb=[%ld,%ld] data=%p buffer=%p first vals:",
+                    node->name, n_expert_used, n_tokens, (long)nb0, (long)nb1, (void*)node->data, (void*)node->buffer);
             for (int i = 0; i < std::min((int)n_elems, 8); i++) {
                 fprintf(stderr, " %d", data[i]);
             }
