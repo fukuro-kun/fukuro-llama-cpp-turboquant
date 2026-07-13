@@ -2470,6 +2470,12 @@ llm_graph_cb llama_context::graph_get_cb() const {
             ggml_set_name(cur, name);
         }
 
+        // MoE expert frequency tracking (#40): mark topk tensor as output
+        // to prevent the scheduler from reusing its buffer for other ops
+        if (moe_freq_track && strcmp(name, "ffn_moe_topk") == 0) {
+            ggml_set_output(cur);
+        }
+
         // norm may be automatically assigned to the backend of the previous layer, increasing data transfer between backends
         // FIXME: fix in ggml_backend_sched
         const bool full_offload = model.n_gpu_layers() > model.hparams.n_layer_all;
