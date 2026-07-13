@@ -338,7 +338,8 @@ extern "C" {
     struct llama_context_params {
         uint32_t n_ctx;             // text context, 0 = from model
         uint32_t n_batch;           // logical maximum batch size that can be submitted to llama_decode
-        uint32_t n_ubatch;          // physical maximum batch size
+        uint32_t n_ubatch;          // physical maximum batch size (decode)
+        uint32_t n_ubatch_prefill;  // UBBoost: physical maximum batch size for prefill, 0 = use n_ubatch
         uint32_t n_seq_max;         // max number of sequences (i.e. distinct states for recurrent models)
         uint32_t n_rs_seq;          // number of recurrent-state snapshots per seq for rollback (0 = no rollback) [EXPERIMENTAL]
         uint32_t n_outputs_max;     // max outputs in a ubatch (0 = n_batch)

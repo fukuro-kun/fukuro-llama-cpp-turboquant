@@ -1312,6 +1312,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_UBATCH"));
     add_opt(common_arg(
+        {"-ubp", "--ubatch-prefill"}, "N",
+        string_format("UBBoost: physical batch size for prefill, 0 = use n_ubatch (default: %d)", params.n_ubatch_prefill),
+        [](common_params & params, int value) {
+            params.n_ubatch_prefill = value;
+        }
+    ).set_env("LLAMA_ARG_UBATCH_PREFILL"));
+    add_opt(common_arg(
         {"--keep"}, "N",
         string_format("number of tokens to keep from the initial prompt (default: %d, -1 = all)", params.n_keep),
         [](common_params & params, int value) {

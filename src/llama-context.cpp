@@ -207,6 +207,9 @@ llama_context::llama_context(
 
     cparams.n_ubatch = std::min(cparams.n_batch, params.n_ubatch == 0 ? params.n_batch : params.n_ubatch);
 
+    // UBBoost: separate ubatch size for prefill (0 = use n_ubatch, no change)
+    cparams.n_ubatch_prefill = params.n_ubatch_prefill == 0 ? cparams.n_ubatch : std::min(cparams.n_batch, params.n_ubatch_prefill);
+
     cparams.n_outputs_max = params.n_outputs_max == 0 || llama_model_has_encoder(&model) ? cparams.n_batch : params.n_outputs_max;
 
     cparams.op_offload = params.op_offload;
@@ -248,6 +251,9 @@ llama_context::llama_context(
     LLAMA_LOG_INFO("%s: n_ctx_seq     = %u\n",   __func__, cparams.n_ctx_seq);
     LLAMA_LOG_INFO("%s: n_batch       = %u\n",   __func__, cparams.n_batch);
     LLAMA_LOG_INFO("%s: n_ubatch      = %u\n",   __func__, cparams.n_ubatch);
+    if (cparams.n_ubatch_prefill != cparams.n_ubatch) {
+        LLAMA_LOG_INFO("%s: n_ubatch_prefill = %u (UBBoost)\n", __func__, cparams.n_ubatch_prefill);
+    }
     LLAMA_LOG_INFO("%s: causal_attn   = %d\n",   __func__, cparams.causal_attn);
     LLAMA_LOG_INFO("%s: flash_attn    = %s\n",   __func__, llama_flash_attn_type_name(params.flash_attn_type));
     LLAMA_LOG_INFO("%s: kv_unified    = %s\n",   __func__, cparams.kv_unified ? "true" : "false");
@@ -451,7 +457,7 @@ void llama_context::sched_reserve() {
     const int64_t t_start_us = ggml_time_us();
 
     const uint32_t n_seqs = cparams.n_seq_max;
-    const uint32_t n_tokens = std::min(cparams.n_ctx, cparams.n_ubatch);
+    const uint32_t n_tokens = std::min(cparams.n_ctx, std::max(cparams.n_ubatch, cparams.n_ubatch_prefill));
 
     const size_t max_nodes = this->graph_max_nodes(n_tokens);
 
@@ -474,7 +480,7 @@ void llama_context::sched_reserve() {
     // avoid reserving graphs with zero outputs - assume one output per sequence
     const int n_outputs = n_seqs;
 
-    LLAMA_LOG_DEBUG("%s: worst-case: n_tokens = %d, n_seqs = %d, n_outputs = %d\n", __func__, n_tokens, n_seqs, n_outputs);
+    LLAMA_LOG_DEBUG("%s: worst-case: n_tokens = %d (ubatch=%u, ubatch_prefill=%u), n_seqs = %d, n_outputs = %d\n", __func__, n_tokens, cparams.n_ubatch, cparams.n_ubatch_prefill, n_seqs, n_outputs);
 
     // resolve automatic Flash Attention use
     if (cparams.auto_fa) {
@@ -803,7 +809,7 @@ bool llama_context::memory_update(bool optimize) {
         }
 
         const uint32_t n_seqs = cparams.n_seq_max;
-        const uint32_t n_tokens = std::min(cparams.n_ctx, cparams.n_ubatch);
+        const uint32_t n_tokens = std::min(cparams.n_ctx, std::max(cparams.n_ubatch, cparams.n_ubatch_prefill));
 
         const uint32_t n_outputs_max = std::min(n_tokens, cparams.n_outputs_max);
 
@@ -1764,8 +1770,13 @@ int llama_context::decode(const llama_batch & batch_inp) {
 
     llama_memory_context_ptr mctx;
 
+    // UBBoost: use larger ubatch for prefill (n_tokens_all > n_ubatch), smaller for decode
+    const uint32_t n_ubatch_effective = (uint32_t)n_tokens_all > cparams.n_ubatch
+        ? cparams.n_ubatch_prefill
+        : cparams.n_ubatch;
+
     while (true) {
-        mctx = memory->init_batch(*balloc, cparams.n_ubatch, output_all);
+        mctx = memory->init_batch(*balloc, n_ubatch_effective, output_all);
         if (!mctx) {
             return -2;
         }
@@ -3446,6 +3457,7 @@ llama_context_params llama_context_default_params() {
         /*.n_ctx                       =*/ 512,
         /*.n_batch                     =*/ 2048,
         /*.n_ubatch                    =*/ 512,
+        /*.n_ubatch_prefill            =*/ 0, // 0 = use n_ubatch (UBBoost disabled by default)
         /*.n_seq_max                   =*/ 1,
         /*.n_rs_seq                    =*/ 0,
         /*.n_outputs_max               =*/ 0,

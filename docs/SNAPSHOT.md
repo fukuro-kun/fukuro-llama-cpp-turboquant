@@ -1,6 +1,6 @@
 # Momentaufnahme — fukuro-llama-cpp-turboquant + InferenzQuelle
 
-**Datum:** 2026-07-10 | **Branch:** `master` | **Build:** 424 (633d6d772)
+**Datum:** 2026-07-13 | **Branch:** `master` | **Letzter Commit:** `e09da1df4` (256k LXC-Migration)
 
 ---
 
@@ -11,72 +11,99 @@
 | **fukuro-llama-cpp-turboquant** | Inference Engine (Motor) — C++/CUDA/Vulkan | Codeberg |
 | **InferenzQuelle** | Infrastruktur & Steuerung (Auto) — Python/Bash | Codeberg |
 
-**Nahtstelle:** InferenzQuelle steuert den `llama-server` (aus dem llama-cpp-Fork) per HTTP-API. Test-Framework (pytest) läuft gegen die Binary. Modell-Pfade, Draft-Modelle und TurboQuant-Parameter werden über Config-Files geteilt.
+**Nahtstelle:** InferenzQuelle steuert den `llama-server` (aus dem Fork) per HTTP-API. Test-Framework (pytest) läuft gegen die Binary. Modell-Pfade, Draft-Modelle und TurboQuant-Parameter werden über Config-Files geteilt. Produktiv-Endpunkte: phobos:18080, styx:18080, uranus:8080 — gebündelt über janus:8010 (InferenzQuelle Router).
 
 ---
 
 ## Was zuletzt passiert ist
 
-### Pascal-Host: ext4 → btrfs Migration (2026-07-09)
+### 2026-07-13: E4B-Deployment Uranus + Doku-Pflege + 256k-Migration
 
-- **Problem:** `ext4_dirty_folio` Kernel-Bug (6.8.0-134) crashhte Pascal-Host bei aktivem Memory Pinning (`GGML_CUDA_REGISTER_HOST=1`)
-- **Lösung:** `/data` Partition in-place von ext4 → btrfs migriert (`btrfs-convert`), fstab aktualisiert
-- **Ergebnis:** Kernel-Bug eliminiert, Pinning + Async Expert Prefetch reaktiviert
-- **Verifikation:** 24.6 t/s, dmesg clean, Reboot-Test bestanden (btrfs + XFS HDD auto-mount)
-- **Service:** 26B-A4B Service läuft mit IQ4_NL, Pinning+Prefetch aktiv
+- **E4B QAT Server auf Uranus gestartet** — `gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf` (4.2 GB) + MTP-Draft (Q4_0, n_max=2), 256k/2×128k, Port 8080, turbo4/turbo3 KV, FA on. tg 107.6 t/s (kurz), 47-63 t/s (lang). Manuell (nohup, kein systemd). VRAM knapp neben xtts-api (GPU 1 nur 1.0 GB frei).
+- **256k LXC-Migration committed** (`e09da1df4`) — Mars bare-metal → LXC 240 (phobos), 256k Kontext (Modell-Maximum), 2×128k Slots. AGENTS.md, CHANGELOG, 188k-RCA-Doc, Mars-Startskript.
+- **Fork-Hauptnote §8a aktualisiert** — Uranus-Zeile + Produktiv-Server-Abschnitt (E4B) in Trilium `eiba6WJDfTiq` eingetragen.
+- **188k-Performance-Klippe RCA geklärt** — Kein Vulkan-Bug, sondern OOM-Artefakt durch konkurrierende llama-server (2×16 GB GTT > 26 GB Limit). Solo-Betrieb 224k/256k: 28-32 t/s. 180k-Grenze obsolet.
 
-### AMD-RDNA3: Vulkan KV-Cache Benchmark (2026-07-09)
+### 2026-07-13: E4B+MTP FA Crash Fix (Solo-Session)
 
-- **Fragestellung:** Ist K=turbo4 (mit FlashAttention) schneller als K=turbo3 (ohne FA, scalar fallback)?
-- **Modell:** Gemma-4 26B-A4B IQ4_NL (14.7GB, MoE 4B aktiv), Vulkan, -ngl 99, FA on
-- **Benchmark 1 (pp512-8192):** turbo3/3, turbo3/4, turbo4/4, f16/f16 × pp512-8192
-- **Ergebnis 1:** turbo3/3 und turbo3/4 praktisch gleichauf (±1%), beide schneller als turbo4/4 (-1.7% bis -8.0%). Dequant-Overhead dominiert bei kleinen Kontexten.
-- **Benchmark 2 (Large-Context, 96k-128k):** turbo3/turbo4 vs turbo4/turbo4, pp96k+pp128k, tg100 nach 128k
-- **Ergebnis 2:** turbo3/turbo4 bei pp **+31% schneller** als turbo4/4 (48.7 vs 37.2 t/s @96k, 39.0 vs 29.5 t/s @128k). Bei tg gleichauf (21.7 vs 21.6 t/s). Dequant-Overhead dominiert auch bei großem Kontext.
-- **Empfehlung (aktualisiert):** **K=turbo3, V=turbo4** (mixed) — beste pp, gleiche tg, mehr Kompression, höhere V-Präzision.
-- **OOM-Lerneffekt:** 26B-A4B funktioniert auf AMD-RDNA3 wenn RAM/GTT clean ist (`killall -9 llama-bench; sleep 8-10` zwischen Tests).
-- **Doku:** `docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`, Trilium-Subnote `5DTGKZb95DUO`
+- **head_dim=512 FA Crash gelöst** — E4B full-attention Layer haben `head_dim=512`, MMA-Kernel ohne Template für DKQ=512. Drei Commits: Route zu TILE-Kernel, Fallback für DV>256, neue TILE-Config für 512/512 bei ncols=2. Verifikation Uranus: 103 t/s (turbo4/turbo3), 112 t/s (f16). Commits `f9e7564bd`, `bd8ef5978`, `1a0af56dc`.
+- **#35 Row-Packing DMMV RDNA3** — +1% (erwartet +10-20%), DMMV nicht der Bottleneck für kleine MoE-Modelle. Change beibehalten. Commit `acd8dfe3a`.
+- **#45 CUDA Concurrent Streams QKV** — Bereits im Fork, Regression mit CUDA Graphs (-10.7% auf Uranus, kein Effekt auf Styx wegen MoE-Offload). ❌.
+- **Phase 3 Batch-Eval Tier 2 (8 Items)** — #16✅ bereits integriert, #38⏭️ verschoben, 6 Items ☐ offen.
 
-### thecodacus MoE-Optimierungen integriert (2026-07-08, Solo-Session)
-- **3 Patches portiert** aus `thecodacus/llama.cpp`: Memory Pinning + Async Expert Prefetch + UAF Fix
-- **Merge nach master** (Commit a4215b3d6), Codeberg-Push erfolgreich
-- **Benchmarks auf Pascal-Host (GTX 1070):** +72-106% pp, +30% tg mit Pinning+Prefetch auf 26B-A4B MoE-Offload
-- **MTP + Pinning + Prefetch:** 100% Akzeptanz, 31.93 t/s (+50% vs ohne MTP)
-- **Korrektheit verifiziert:** token-identisch mit/ohne Pinning
+### 2026-07-11: Pascal MMVQ + M1/M2 Batch-Eval
+
+- **#3 Pascal CUDA MMVQ** — manuell portiert, +8.9% Generation auf GTX 1070 (E2B MoE). Commit `5c1884929`.
+- **M1/M2 Batch-Eval** — 11 Items evaluiert: #2✅, #4✅, #5✅, #6✅ bereits integriert, #7✅ bereits integriert, #11✅, #12✅, #20✅, #28✅ eigene Implementierung, #1❌, #9❌, #10❌, #13❌.
+
+### InferenzQuelle (2026-07-13)
+
+- **Branch `uranus-local`** — Letzte Commits: 4-fach Audit Fixes, Judge-Pipeline (Subagent LLM-Judge), Lang-Context-Tests, Test-Cleanup (9 tote Dateien), Kahlschlag (142 tote Dateien).
+- **Uncommittet:** AGENTS.md, docs/AGENTS.md, docs/ARCHITECTURE.md + neue config/hosts.json, docs/CACHE_PERFORMANCE.md, router/, shared/.
 
 ---
 
 ## Wo wir stehen — das große Bild
 
-| Komponente | Status | Notiz |
-|------------|--------|-------|
-| TurboQuant KV/Weights | ✅ | turbo3/turbo4 funktional auf CUDA + Vulkan |
-| Gemma 4 MTP | ✅ | 0%-Bug gefixt, 50-100% Akzeptanz je nach Quant |
-| Qwen 3.x NextN | ✅ | Shared-Model-Draft implementiert |
-| DiffusionGemma | ✅ | PKV-Cross-Backend-Fix, Chat-Template integriert |
-| Vulkan-WHT | ✅ | Cherry-picked, +17% pp bei Gemma 4 12B |
-| CUDA Fast WHT | ✅ | Cherry-picked, +11% pp512, bereit für Merge |
-| thecodacus Pinning+Prefetch | ✅ | +95% pp, +50% tg mit MTP auf MoE-Offload |
-| **Pascal-Host 26B-A4B Service** | ✅ | **Läuft** mit btrfs + Pinning + Prefetch, 24.6 t/s |
-| **AMD-RDNA3 Vulkan Benchmark** | ✅ | turbo3/turbo4 (mixed) als optimale KV-Cache-Konfig bestätigt |
-| Vulkan turbo3 FA | ⚠️ | Deaktiviert (glslc bug) — scalar fallback, trotzdem schneller als turbo4/4 |
+### Fork — Meilensteine
+
+| Meilenstein | Status | Notiz |
+|---|---|---|
+| **M1** Quick-Win-Welle | ✅ | #2✅, #4✅, #5✅, #1❌ |
+| **M2** Vulkan-Offensive | ✅ | #6✅, #7✅, #12✅ bereits integriert, #9❌, #10❌ |
+| **M3** MoE-Offloading v2 | ⏳ teils | #3✅, #13❌, #14⏭️, #15☐ |
+| **M4** Speculative Decoding v2 | ✅ | #11✅, #28✅ eigene Implementierung |
+| **M5** Coopmat2 + Multi-GPU | ⏳ teils | #12✅, #20✅, #21 offen |
+| **M6** Forschung | ☐ offen | #17, #18, #19, #25-27, #29, #30 |
+
+### Fork — Produktiv-Server
+
+| Server | Modell | Kontext | Backend | Status |
+|---|---|---|---|---|
+| **Mars/phobos** (LXC 240) | 26B-A4B QAT | 256k/2×128k | Vulkan | ✅ Produktiv, systemd |
+| **Styx** | 26B-A4B QAT | 224k/1 Slot | CUDA (MoE-Offload) | ✅ Produktiv, systemd |
+| **Uranus** (E4B) | E4B QAT + MTP | 256k/2×128k | CUDA | ✅ Produktiv, manual (nohup) |
+| **Hydra** | — | — | CUDA | Dev-only (GPU shared) |
+| **Venus** | — | — | Vulkan | ⏸️ Suspend-Policy, Service deaktiviert |
+
+### Fork — Komponenten
+
+| Komponente | Status |
+|---|---|
+| TurboQuant KV/Weights | ✅ turbo3/turbo4 auf CUDA + Vulkan |
+| Gemma 4 MTP | ✅ 0%-Bug gefixt, 50-100% Akzeptanz |
+| Qwen 3.x NextN | ✅ Shared-Model-Draft |
+| DiffusionGemma | ✅ PKV-Cross-Backend-Fix |
+| Vulkan-WHT / CUDA Fast WHT | ✅ |
+| thecodacus Pinning+Prefetch | ✅ +95% pp, +50% tg mit MTP |
+| E4B+MTP FA (head_dim=512) | ✅ TILE-Kernel-Fix (2026-07-13) |
+
+---
+
+## Aktuell in Arbeit (uncommitted)
+
+**Fork:** Sauber — keine uncommitteten Änderungen (gerade committed `e09da1df4`).
+**InferenzQuelle:** 3 modifizierte + 4 neue unversionierte Dateien (AGENTS.md, docs/ARCHITECTURE.md, config/hosts.json, docs/CACHE_PERFORMANCE.md, router/, shared/) — warten auf Review.
 
 ---
 
 ## Offene Aufgaben
 
-### [D] Devin — Hochpriorisiert
-1. **CUDA Fast WHT merge** — `feature/cuda-fast-wht` bereit für Merge nach master
-2. **Qwen 3.6 MoE Vergleichstest** — Falls Modell verfügbar, Benchmark gegen thecodacus
+### [F] Fukuro — Hochpriorisiert
+1. **ROADMAP Tier 2 Priorisierung** — Welche der 6 offenen Items (#8 Mixed Precision KV, #15 PipeShard, #34 UBBoost, #36 Auto-TP, #37 LFRU, #40 MoE Load Balancing) als nächstes?
+2. **E4B systemd-Service auf Uranus** — Persistent einrichten (wie Mars/Styx) oder ad-hoc lassen?
+3. **Trilium `Czii4MdFKb3i`** — Leere Momentaufnahme-Note löschen oder befüllen?
+4. **InferenzQuelle uncommittete Änderungen** — router/, shared/, config/hosts.json, CACHE_PERFORMANCE.md reviewen und committen.
 
-### [F] Fukuro — Mittelpriorisiert
-3. **InferenzQuelle uncommittete Änderungen** — MTP_INDEX, STATUS, ARCHITECTURE, benchmark.py — reviewen und committen
-4. **turbo3 FA auf Vulkan aktivieren** — glslc infinite optimizer loop fixen (langfristig)
+### [D] Devin — Mittelpriorisiert
+5. **ROADMAP Tier 2 Items** — Nach Priorisierung implementieren (je 2-6 Wochen).
+6. **#21 Multi-GPU** (M5) — Noch offen, Tier 3.
+7. **M6 Forschungs-Items** — Recherche + Evaluation.
 
 ---
 
 ## Nächste Schritte
 
-1. **CUDA Fast WHT mergen** — Branch ist bereit, +11% pp512
-2. **InferenzQuelle Änderungen committen** — Uncommittete MTP/Benchmark-Änderungen reviewen
-3. **26B-A4B als Produktiv-Service evaluieren** — Pascal-Host läuft bereits, AMD-RDNA3 als Backup-Node denkbar
+1. **ROADMAP Tier 2 Priorisierungs-Entscheidung** von fukuro einholen → dann Solo-Session für gewähltes Item.
+2. **InferenzQuelle Änderungen reviewen** — router/ und shared/ deuten auf neue Architektur, braucht Klärung.
+3. **Trilium-Aufräumen** — Leere Note `Czii4MdFKb3i`, ggf. Momentaufnahme-Verlauf konsolidieren.
