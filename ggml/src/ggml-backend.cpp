@@ -1936,6 +1936,15 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     // to avoid caching intermediate compute results.
                     bool skip_copy = false;
                     const bool is_expert_weight = input->ne[2] >= 8 && ggml_n_dims(input) >= 3;
+                    if (sched->expert_cache_enabled) {
+                        static int dbg4 = 0;
+                        if (dbg4++ < 5) {
+                            fprintf(stderr, "Expert cache: generic path input ne=[%ld,%ld,%ld,%ld] n_dims=%d is_expert=%d nbytes=%zu is_host=%d\n",
+                                    (long)input->ne[0], (long)input->ne[1], (long)input->ne[2], (long)input->ne[3],
+                                    ggml_n_dims(input), is_expert_weight, ggml_nbytes(input),
+                                    input->buffer ? (int)ggml_backend_buffer_is_host(input->buffer) : -1);
+                        }
+                    }
                     if (sched->expert_cache_enabled && input_cpy->buffer && is_expert_weight) {
                         void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
                         auto key = std::make_tuple(input->data, buf_base, sched->cur_copy);
