@@ -203,3 +203,58 @@ Relevante Upstream-Issues/PRs gefunden:
 | `2d81adc50` | 15:06 | TurboQuant FA Support für Vulkan (Workaround entfernt) |
 | `730d4fdd3` | 15:18 | FlashAttention Tests für turbo4 KV-Cache |
 | (uncommitted) | 20:06 | Workaround reaktiviert + Performance-Klippe dokumentiert |
+
+---
+
+## RCA Update (12.07.2026): LXC-Migration enthüllt Root Cause
+
+**Wichtige Korrektur:** Die ursprüngliche Hypothese ("Code-Pfad-Wechsel im Vulkan-Backend") war **falsch**. Die 188k-Klippe ist ein **OOM-Artefakt bei konkurrierenden GPU-Prozessen**, kein Vulkan-Backend-Bug.
+
+### Was passiert ist
+
+Bei der Migration des llama-server vom Mars bare-metal in den LXC 240 (phobos) wurden versehentlich **zwei Server gleichzeitig** betrieben:
+
+- Bare-metal Server: Port 18080, 224k Kontext, ~16 GB GPU-Buffer-Objects (GTT)
+- LXC Server: Port 18082, 224k Kontext, ~16 GB GPU-Buffer-Objects (GTT)
+
+Beide zusammen brauchten ~32 GB GTT, aber Mars hat nur 26 GB GTT (`amdgpu.gttsize=26624`). Der Kernel-Cgroup-OOM-Killer killte den bare-metal Server. Der LXC-Server überlebte, aber seine GPU-Buffer-Objects wurden teilweise **evicted** (auf System-RAM ausgelagert). Jede Inference-Operation musste die Buffer zurück in den GTT kopieren → 0.02-0.10 t/s.
+
+### Verifizierung
+
+| Setup | Kontext | pp (t/s) | tg (t/s) | Status |
+|-------|---------|----------|----------|--------|
+| Bare-metal (solo) | 224k | 32.2 | 28.7 | ✅ |
+| LXC 28GB (solo) | 224k | 32.3 | 28.2 | ✅ |
+| LXC 28GB (solo) | 32k | 39.2 | 27.7 | ✅ |
+| LXC + Bare-metal (konkurrierend) | 224k | 0.10 | 0.02 | ❌ OOM-Eviction |
+
+**Die "188k-Klippe" tritt nicht auf, wenn nur ein Server läuft.** 224k Kontext funktioniert einwandfrei mit 28-32 t/s — identisch zu bare-metal.
+
+### Zusätzlicher Befund: Shader-Kompilierung nach Reboot
+
+Der erste Request nach einem LXC-Reboot (oder bare-metal-Reboot) braucht ~10+ Minuten, weil RADV die Vulkan-Pipelines neu kompiliert. Dies wurde fälschlicherweise als "Performance-Klippe" interpretiert. Der zweite Request ist normal schnell (pp=32, tg=28). Dies ist **kein Bug**, sondern normales RADV-Verhalten (Pipeline-Cache ist leer nach Reboot).
+
+### Korrektur des Widerspruchs zu `zYeLUsss9udM`
+
+Die Trilium-Note `zYeLUsss9udM` (Performance-Regression Analyse) nannte "VRAM-Thrashing" als Ursache — das war **richtig**, wurde aber in §5.8 als "KEIN VRAM-Bandbreiten-Problem" fälschlich verworfen. Die Unterscheidung:
+
+- **VRAM-Bandbreite** (§5.8 war richtig: nicht das Problem — APU nutzt denselben DDR5)
+- **VRAM-Eviction / Thrashing** (`zYeLUsss9udM` war richtig: GPU-Buffer-Objects werden bei GTT-Überlauf auf System-RAM evicted → extrem langsam)
+
+Beide Notes beschrieben denselben Effekt aus unterschiedlichen Blickwinkeln. Die Wahrheit: **Es ist GTT-Overflow bei konkurrierenden Prozessen, kein Vulkan-Code-Pfad-Wechsel.**
+
+### Auswirkung auf den Produktivbetrieb
+
+- Die 180k-Grenze (Workaround) ist **obsolet** — 224k funktioniert mit QAT-Modell
+- Der LXC kann denselben 224k-Kontext wie bare-metal betreiben
+- **Regel:** Niemals zwei llama-server gleichzeitig auf derselben GPU betreiben
+- Der f16-Fallback-Workaround in `src/llama-context.cpp` kann entfernt werden (war nie nötig)
+
+### Trilium-Referenzen
+
+- `SWumEN7WOXBI` §5.8 — Hauptnote, aktualisiert mit RCA Update
+- `zYeLUsss9udM` — Performance-Regression Analyse, Widerspruch aufgelöst
+- `o6jGT8Qwqm4y` — LXC 240: phobos, komplett aktualisiert
+- `6pWFJK57dEDu` — QAT + 224k Produktiv-Standard, Migration ergänzt
+- `IqF1CiABuNV9` — Mars System-Hauptnote, LXC-Migration dokumentiert
+- `TMdG98nlAuwo` — Alter systemd Service, als historisch markiert

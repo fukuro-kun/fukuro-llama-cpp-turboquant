@@ -6,6 +6,15 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-12
+
+### LXC-Migration: llama-server bare-metal → LXC 240 (phobos)
+
+- **feat: llama-server in LXC 240 (phobos) migriert** — Bare-metal systemd-Service auf Mars gestoppt und disabled. llama-server läuft jetzt im LXC 240 (phobos) mit systemd user-Service (loginctl enable-linger). LXC-Konfig: RAM 28GB, swap 8GB, rootfs 16GB, /jade/models read-only bind-mount. Build 7f5097b43 (9234) mit UI-Asset-Workaround (HF UI-Bucket unvollständig, loading.html fehlt). Port 18080. Performance identisch zu bare-metal: pp=41.8 t/s, tg=28.8 t/s (224k Kontext, solo).
+- **fix: 188k-Performance-Klippe Root Cause geklärt** — Die scheinbare "188k-Klippe" war **kein Vulkan-Backend-Bug**, sondern ein **OOM-Artefakt bei konkurrierenden GPU-Prozessen**. Zwei llama-server gleichzeitig → GTT-Overflow (2×16 GB > 26 GB GTT) → OOM-Kill → GPU-Buffer-Eviction → 0.10 t/s. Solo-Betrieb mit 224k Kontext: 28-32 t/s. Die ursprüngliche Hypothese ("Code-Pfad-Wechsel im Vulkan-Backend") war falsch. Widerspruch zwischen Trilium `SWumEN7WOXBI` §5.8 ("KEIN VRAM-Bandbreiten-Problem") und `zYeLUsss9udM` ("VRAM-Thrashing") aufgelöst: Beides richtig aus verschiedenen Blickwinkeln — es ist GTT-Eviction, nicht Bandbreite. **Regel:** Niemals zwei llama-server gleichzeitig auf derselben GPU. 180k-Grenze obsolet. f16-Fallback-Workaround war nie nötig. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` RCA Update.
+- **docs: Trilium-Doku umfassend aktualisiert** — 6 Notes aktualisiert: `SWumEN7WOXBI` §5.8 (RCA Update), `o6jGT8Qwqm4y` (LXC 240 phobos komplett überarbeitet), `6pWFJK57dEDu` (QAT-Standard Migration ergänzt), `IqF1CiABuNV9` (Mars LXC-Migration), `zYeLUsss9udM` (Widerspruch aufgelöst), `TMdG98nlAuwo` (als historisch markiert). Lokale Doku: `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` (RCA Update), `AGENTS.md` (188k-Referenz korrigiert, 180k als obsolet markiert).
+- **feat: Mars-Kontext 224k → 256k (262144) erhöht** — Das "256k OOM-killed" aus der alten Doku war mit IQ4_NL (14.7G) und/oder konkurrierenden Servern. Mit QAT (14.2G) und Solo-LXC-Betrieb funktioniert 256k problemlos. Produktiv-Service umgestellt: `Environment=CTX=262144` und `Environment=PARALLEL=2` im systemd-Service-File → 2 Slots à 128k (vorher 112k). Performance identisch: pp=41.8, tg=28.6. Das Modell-Maximum (262144/256K) ist jetzt voll ausgenutzt. Trilium: `o6jGT8Qwqm4y`, `6pWFJK57dEDu`, `IqF1CiABuNV9`, `SWumEN7WOXBI` aktualisiert.
+
 ## 2026-07-13
 
 ### Solo-Session (Phase 1: E4B+MTP Crash Fix)

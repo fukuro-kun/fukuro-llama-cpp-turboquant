@@ -124,7 +124,7 @@ Falls Treffer → Bereinigen!
     - ✅ **turbo4 KV-Cache funktioniert:** `--cache-type-k turbo4 --cache-type-v turbo4` (~3.8x Kompression)
     - ⚠️ **FlashAttention nur fuer turbo4 aktiv:** turbo3 FA ist DEAKTIVIERT (glslc hängt in infinite optimizer loop bei SPIR-V Generation, `vulkan-shaders-gen.cpp` Zeilen 692-704 auskommentiert). turbo3 fällt auf scalar Attention-Pfad zurück. turbo4 FA aktiv via `flash_attn_cm1.comp`.
     - ✅ **turbo3/turbo4 (mixed) ist die optimale Vulkan-Konfiguration** (Benchmark 2026-07-09, 26B-A4B, pp512-8192 + pp96k-128k): turbo3 K hat geringeren Dequant-Overhead (3.125 bit vs 4.25 bit), turbo4 V hat höhere Präzision (4.25 bit). Bei pp@96k-128k ist turbo3/4 **+31% schneller** als turbo4/4, bei tg gleichauf (±0.5%). Empfehlung: **K=turbo3, V=turbo4**. Siehe `docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`.
-    - ⚠️ **Performance-Klippe bei ~188k Kontext:** Auf AMD APU (shared memory) bricht die Inference-Performance bei ca. 188k Kontext scharf ein (24 t/s → 0.09 t/s, Faktor 243x). Dies ist KEIN VRAM-Bandbreiten-Problem (APU nutzt denselben DDR5), sondern vermutlich ein Code-Pfad-Wechsel im Vulkan-Backend. Workaround: Kontext auf maximal 180k begrenzen. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
+    - ✅ **188k-"Klippe" geklärt (12.07.2026):** Die scharfe Performance-Klippe bei ~188k Kontext war **kein Vulkan-Backend-Bug**, sondern ein **OOM-Artefakt bei konkurrierenden GPU-Prozessen**. Zwei llama-server gleichzeitig → GTT-Overflow (2×16 GB > 26 GB GTT) → OOM-Kill → GPU-Buffer-Eviction → 0.10 t/s. Solo-Betrieb mit 224k Kontext funktioniert einwandfrei (28-32 t/s). **Regel:** Niemals zwei llama-server gleichzeitig auf derselben GPU. Die 180k-Grenze ist obsolet. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` (RCA Update) und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
 
 ### Produktiv-Standard (seit 2026-07-10): QAT + 224k Kontext
 
@@ -138,7 +138,7 @@ Falls Treffer → Bereinigen!
 **Kontextfenster (Modell-Maximum: 256K / 262144 tokens):**
 | System | Altes Limit (IQ4_NL) | Neues Limit (QAT) | Produktiv-ctx | Limit-Grund |
 |--------|---------------------|-------------------|---------------|-------------|
-| Mars (AMD APU) | 180k | 224k (lädt) | **229376 (224k)** | RAM (30GB) — 256k OOM-killed |
+| Mars (AMD APU, LXC phobos) | ~~180k~~ (obsolet) | **256k (lädt)** | **262144 (256k), 2×128k Slots** | RAM (30GB) — voll ausgenutzt, Modell-Maximum erreicht. Altes "256k OOM" war IQ4_NL + konkurrierende Server |
 | Styx (GTX 1070) | 160k | 224k (lädt) | **229376 (224k)** | VRAM (8GB) — CUDA OOM bei 245k |
 
 Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (256K) als Maximum in der GGUF.
@@ -146,7 +146,7 @@ Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (2
 **MTP Q4_0 Draft: AUS** auf beiden Systemen. Q4_0 Draft (48-57% Acceptance) bremst: Mars -2.4%, Styx -14%. Siehe `docs/fork/2026-07-10_QAT_MTP_Q4_0_BENCHMARK.md`.
 
 **Services:**
-- Mars: `scripts/run-gemma4-26b-a4b-mars-server.sh` + `scripts/llama-server-mars-26b-a4b.service`
+- Mars: `scripts/run-gemma4-26b-a4b-mars-server.sh` — läuft **im LXC 240 (phobos)** als `~/.config/systemd/user/llama-server.service` (seit 12.07.2026, bare-metal Service gestoppt)
 - Styx: `scripts/run-gemma4-26b-a4b-styx-server.sh` + `scripts/llama-server-styx-26b-a4b.service`
 
 ### Build-System
