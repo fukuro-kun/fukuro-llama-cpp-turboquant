@@ -1,6 +1,6 @@
 # Momentaufnahme — fukuro-llama-cpp-turboquant + InferenzQuelle
 
-**Datum:** 2026-07-13 | **Branch:** `master` | **Letzter Commit:** `f0654a32f` (2-slot prefetch results)
+**Datum:** 2026-07-13 | **Branch:** `master` | **Letzter Commit:** `21fdf8c88` (ROADMAP updates)
 
 ---
 
@@ -16,6 +16,13 @@
 ---
 
 ## Was zuletzt passiert ist
+
+### 2026-07-13: thecodacus Expert Prefetch 2-Slot + UMA Cached + Research-Sweep #3 (Solo-Session)
+
+- **thecodus Prefetch 2-Slot Sweet-Spot** — `GGML_SCHED_PREFETCH_SLOTS` env var hinzugefügt. Styx: +28.9% pp512, +36.2% pp2048, +36.7% pp8192, +2.1% tg8. Mars: +8.8% pp512, +3.8% tg128. Beide Server-Scripts auf 2-Slot umgestellt. 3-Slot war -35% tg auf Mars.
+- **Vulkan UMA Cached Host Memory (#56)** — PR #23762 portiert. HostCached statt write-combining auf UMA. memory_property_flags Bug fix (actual vs requested). Mars: tg128 +7% auf tg, +11% vs baseline.
+- **Research-Sweep #3** — 4 parallele Subagents, 21 neue ROADMAP-Items (#56-#76). 9 PRs als bereits im Fork identifiziert. M3 abgeschlossen, M6 erweitert.
+- **M3 Meilenstein abgeschlossen** — #37✅ (Prefetch), #15❌ (PipeShard), #56✅ (UMA Cached), #60❌ (RADV), #68✅ (already in fork).
 
 ### 2026-07-13: thecodacus Expert Prefetch repariert + 2-Slot Sweet-Spot (Solo-Session)
 
