@@ -116,6 +116,7 @@ Falls Treffer → Bereinigen!
 - Host-spezifische Pfade, GPU-Architekturen und Build-Besonderheiten stehen in `LOKAL.md` (in `.gitignore`, nicht committet).
 - Agenten muessen `LOKAL.md` lesen, bevor sie Host-spezifische Aktionen durchfuehren.
 - **LAN-Deployment:** Wo der Fork im LAN geklont ist (welcher Host, welcher Commit-Stand, welcher Service) steht in `LOKAL.md` → "Fork-Deployment im LAN" und in Trilium-Note `eiba6WJDfTiq` → Sektion "LAN-Deployment". Agenten muessen diese Info pruefen, bevor sie Remote-Arbeiten auf anderen Hosts durchfuehren.
+- **Kernaufgabe: Remote-Hosts aktuell halten (UNVERHANDELBAR):** Wenn auf einem Remote-Host (Uranus, Styx, Mars, Venus) gearbeitet wird — sei es Debugging, Benchmarking oder Server-Start — muss der Host **vor der Arbeit** auf den aktuellen master-Stand gebracht werden: `git fetch origin && git pull origin master` + `cmake --build build -j$(nproc)`. Ein stale Build fuehrt zu Crashes in bereits gefixtem Code (RCA 2026-07-14: `GGML_ASSERT(n_outputs_max <= cparams.n_outputs_max)` Crash auf Uranus war ein 32h-staler Build, im aktuellen Code bereits behoben). **Nach der Arbeit:** Wenn der Host als Produktiv-Server dient, den Service mit dem frischen Build neu starten. Deployment-Tabelle in `LOKAL.md` nach Sync aktualisieren.
 - GPU-Architektur-Build-Matrix (generisch):
   - **Pascal (GTX 1070):** `-DLLAMA_CUDA=ON`, FP16 nur via emulation, kein FlashAttention
   - **Ampere/Ada (RTX 3070/4060):** Volle Feature-Unterstuetzung, FlashAttention, TurboQuant
