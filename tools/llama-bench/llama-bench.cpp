@@ -1234,8 +1234,97 @@ struct cmd_params_instance {
             patterns.reserve((size_t) n_cpu_moe);
             merged.reserve(merged.size() + (size_t) n_cpu_moe + 1);
 
-            for (int i = 0; i < n_cpu_moe; ++i) {
-                patterns.push_back(llm_ffn_exps_block_regex(i));
+            // Frequency-guided layer selection: if LLAMA_MOE_FREQ_IMPORT is set,
+            // read the JSON frequency data and offload the n_cpu_moe layers with
+            // the highest entropy (least concentrated expert selection → coldest)
+            // instead of the default first-n-layers strategy.
+            std::vector<int> cpu_layer_indices;
+            const char * freq_import = getenv("LLAMA_MOE_FREQ_IMPORT");
+            if (freq_import && freq_import[0] != '\0') {
+                FILE * f = fopen(freq_import, "r");
+                if (f) {
+                    // Read entire file
+                    std::string content;
+                    char buf[4096];
+                    size_t n;
+                    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+                        content.append(buf, n);
+                    }
+                    fclose(f);
+
+                    // Parse n_layer and n_expert from JSON
+                    int j_n_layer = 0, j_n_expert = 0;
+                    const char * p = strstr(content.c_str(), "\"n_layer\":");
+                    if (p) sscanf(p + 9, "%d", &j_n_layer);
+                    p = strstr(content.c_str(), "\"n_expert\":");
+                    if (p) sscanf(p + 10, "%d", &j_n_expert);
+
+                    if (j_n_layer > 0 && j_n_expert > 0) {
+                        // Parse the 2D freq array
+                        std::vector<std::vector<uint64_t>> freq_data(j_n_layer, std::vector<uint64_t>(j_n_expert, 0));
+                        p = strstr(content.c_str(), "\"freq\":[");
+                        if (p) {
+                            p += 8; // skip "freq":[
+                            for (int il = 0; il < j_n_layer && *p; il++) {
+                                if (*p == '[') p++;
+                                for (int e = 0; e < j_n_expert && *p; e++) {
+                                    freq_data[il][e] = strtoull(p, (char**)&p, 10);
+                                    if (*p == ',') p++;
+                                }
+                                while (*p && *p != '[' && *p != ']') p++;
+                                if (*p == ']') p++;
+                            }
+                        }
+
+                        // Compute per-layer entropy and select coldest n_cpu_moe layers
+                        std::vector<std::pair<double, int>> entropy;
+                        for (int il = 0; il < j_n_layer; il++) {
+                            uint64_t total = 0;
+                            for (int e = 0; e < j_n_expert; e++) total += freq_data[il][e];
+                            if (total == 0) {
+                                entropy.push_back({1.0, il}); // max entropy = coldest
+                                continue;
+                            }
+                            double ent = 0.0;
+                            for (int e = 0; e < j_n_expert; e++) {
+                                if (freq_data[il][e] > 0) {
+                                    double prob = (double)freq_data[il][e] / total;
+                                    ent -= prob * log2(prob);
+                                }
+                            }
+                            double max_ent = log2((double)j_n_expert);
+                            entropy.push_back({max_ent > 0 ? ent / max_ent : 0.0, il});
+                        }
+
+                        // Sort by entropy descending (coldest first)
+                        std::sort(entropy.begin(), entropy.end(), [](const auto & a, const auto & b) {
+                            return a.first > b.first;
+                        });
+
+                        int n_to_offload = std::min(n_cpu_moe, (int)entropy.size());
+                        for (int i = 0; i < n_to_offload; i++) {
+                            cpu_layer_indices.push_back(entropy[i].second);
+                        }
+                        std::sort(cpu_layer_indices.begin(), cpu_layer_indices.end());
+
+                        fprintf(stderr, "Frequency-guided MoE offloading (from %s): CPU layers:", freq_import);
+                        for (int il : cpu_layer_indices) fprintf(stderr, " %d", il);
+                        fprintf(stderr, "\n");
+                    }
+                } else {
+                    fprintf(stderr, "Warning: could not open LLAMA_MOE_FREQ_IMPORT=%s: %s\n", freq_import, strerror(errno));
+                }
+            }
+
+            if (cpu_layer_indices.empty()) {
+                // Default: offload first n_cpu_moe layers
+                for (int i = 0; i < n_cpu_moe; ++i) {
+                    cpu_layer_indices.push_back(i);
+                }
+            }
+
+            for (int il : cpu_layer_indices) {
+                patterns.push_back(llm_ffn_exps_block_regex(il));
                 merged.push_back({ patterns.back().c_str(),
                                 ggml_backend_cpu_buffer_type() });
             }
@@ -2482,7 +2571,9 @@ int llama_bench(int argc, char ** argv) {
                 if (n_expert > 0 && n_layer > 0) {
                     fprintf(stderr, "\n=== MoE Expert Frequency Report ===\n");
                     fprintf(stderr, "Layers: %d, Experts/layer: %d, Total samples: %zu\n", n_layer, n_expert, n_data);
-                    // Per-layer summary: top-3 and bottom-3 experts
+
+                    // Per-layer entropy and stats
+                    std::vector<std::pair<double, int>> layer_entropy; // (entropy, layer_idx)
                     for (int il = 0; il < n_layer && il < (int)(n_data / n_expert); il++) {
                         const uint64_t * layer_freq = freq + il * n_expert;
                         uint64_t total = 0;
@@ -2494,7 +2585,19 @@ int llama_bench(int argc, char ** argv) {
                         for (int e = 0; e < n_expert; e++) exps.push_back({layer_freq[e], e});
                         std::sort(exps.begin(), exps.end(), std::greater<>());
 
-                        fprintf(stderr, "Layer %2d (total=%lu): top=[", il, (unsigned long)total);
+                        // Shannon entropy (normalized 0-1)
+                        double entropy = 0.0;
+                        for (int e = 0; e < n_expert; e++) {
+                            if (layer_freq[e] > 0) {
+                                double p = (double)layer_freq[e] / total;
+                                entropy -= p * log2(p);
+                            }
+                        }
+                        double max_entropy = log2((double)n_expert);
+                        double norm_entropy = max_entropy > 0 ? entropy / max_entropy : 0.0;
+                        layer_entropy.push_back({norm_entropy, il});
+
+                        fprintf(stderr, "Layer %2d (total=%lu, entropy=%.3f): top=[", il, (unsigned long)total, norm_entropy);
                         for (int i = 0; i < std::min(3, n_expert); i++) {
                             fprintf(stderr, "%s#%d:%lu(%.1f%%)", i ? "," : "", exps[i].second,
                                     (unsigned long)exps[i].first, 100.0 * exps[i].first / total);
@@ -2507,6 +2610,55 @@ int llama_bench(int argc, char ** argv) {
                         }
                         fprintf(stderr, "]\n");
                     }
+
+                    // Export frequency data as JSON
+                    const char * freq_export = getenv("LLAMA_MOE_FREQ_EXPORT");
+                    if (freq_export && freq_export[0] != '\0') {
+                        FILE * f = fopen(freq_export, "w");
+                        if (f) {
+                            fprintf(f, "{\"n_layer\":%d,\"n_expert\":%d,\"freq\":[", n_layer, n_expert);
+                            for (int il = 0; il < n_layer; il++) {
+                                if (il > 0) fprintf(f, ",");
+                                fprintf(f, "[");
+                                for (int e = 0; e < n_expert; e++) {
+                                    if (e > 0) fprintf(f, ",");
+                                    fprintf(f, "%lu", (unsigned long)freq[il * n_expert + e]);
+                                }
+                                fprintf(f, "]");
+                            }
+                            fprintf(f, "]}\n");
+                            fclose(f);
+                            fprintf(stderr, "Exported MoE frequency data to %s\n", freq_export);
+                        } else {
+                            fprintf(stderr, "Failed to export MoE frequency data to %s: %s\n", freq_export, strerror(errno));
+                        }
+                    }
+
+                    // Frequency-guided offloading recommendation
+                    if (!layer_entropy.empty()) {
+                        // Sort by entropy (ascending = most concentrated = hottest = keep on GPU)
+                        std::sort(layer_entropy.begin(), layer_entropy.end());
+                        int n_cpu = inst.n_cpu_moe;
+                        if (n_cpu > 0 && n_cpu < (int)layer_entropy.size()) {
+                            fprintf(stderr, "\nFrequency-guided offloading (n_cpu_moe=%d):\n", n_cpu);
+                            fprintf(stderr, "  Coldest layers (highest entropy → offload to CPU):");
+                            // Coldest = highest entropy = least concentrated
+                            std::vector<int> cpu_layers;
+                            for (int i = (int)layer_entropy.size() - n_cpu; i < (int)layer_entropy.size(); i++) {
+                                cpu_layers.push_back(layer_entropy[i].second);
+                            }
+                            std::sort(cpu_layers.begin(), cpu_layers.end());
+                            for (int il : cpu_layers) {
+                                fprintf(stderr, " %d", il);
+                            }
+                            fprintf(stderr, "\n  Hottest layers (lowest entropy → keep on GPU):");
+                            for (int i = 0; i < (int)layer_entropy.size() - n_cpu; i++) {
+                                fprintf(stderr, " %d", layer_entropy[i].second);
+                            }
+                            fprintf(stderr, "\n");
+                        }
+                    }
+
                     fprintf(stderr, "=== End MoE Report ===\n\n");
                 }
             }
