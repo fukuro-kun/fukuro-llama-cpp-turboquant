@@ -64,7 +64,6 @@ typedef struct VkPhysicalDeviceCooperativeMatrixDecodeVectorFeaturesNV {
 #include <unordered_map>
 #include <shared_mutex>
 #include <mutex>
-#include <unordered_set>
 #include <future>
 #include <condition_variable>
 #include <thread>
@@ -731,6 +730,7 @@ struct vk_device_struct {
     // Disk-persistent Vulkan pipeline cache (GGML_VK_CACHE_DIR)
     vk::PipelineCache pipeline_cache;
     std::string pipeline_cache_path;
+    bool pipeline_cache_saved = false;  // Guard against double-save (set under device->mutex)
 
     size_t idx;
 
@@ -983,8 +983,12 @@ struct vk_device_struct {
 
         // Save pipeline cache to disk (atomic write via temp file + rename)
         // Also called from ggml_backend_vk_free() to ensure cache is saved before exit.
-        if (pipeline_cache && !pipeline_cache_path.empty()) {
-            ggml_vk_save_pipeline_cache(this);
+        if (pipeline_cache) {
+            if (!pipeline_cache_path.empty()) {
+                ggml_vk_save_pipeline_cache(this);
+            }
+            // Always destroy pipeline_cache — Vulkan requires all child objects
+            // to be destroyed before vkDestroyDevice.
             device.destroyPipelineCache(pipeline_cache);
         }
 
@@ -6342,7 +6346,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
         // Cache is validated against pipelineCacheUUID to discard stale entries on driver updates.
         {
             const char * vk_cache_dir = getenv("GGML_VK_CACHE_DIR");
-            if (vk_cache_dir) {
+            if (vk_cache_dir && vk_cache_dir[0] != '\0') {
                 device->pipeline_cache_path = std::string(vk_cache_dir) + "/vk_pipeline_cache_" + std::to_string(idx) + ".bin";
             }
 
@@ -15117,15 +15121,16 @@ static void ggml_vk_save_pipeline_cache(vk_device_struct * device) {
         return;
     }
 
-    // Only save once per device (multiple backends may share the same device)
-    static std::unordered_set<vk_device_struct *> saved_devices;
-    static std::mutex save_mutex;
+    // Only save once per device (multiple backends may share the same device).
+    // Use device->mutex + bool flag instead of function-local statics to avoid
+    // static destruction order fiasco (function-local statics may be destroyed
+    // before vk_instance, causing UAF in ~vk_device_struct).
     {
-        std::lock_guard<std::mutex> lock(save_mutex);
-        if (saved_devices.count(device)) {
+        std::lock_guard<std::recursive_mutex> lock(device->mutex);
+        if (device->pipeline_cache_saved) {
             return;
         }
-        saved_devices.insert(device);
+        device->pipeline_cache_saved = true;
     }
 
     try {
@@ -15133,19 +15138,23 @@ static void ggml_vk_save_pipeline_cache(vk_device_struct * device) {
         if (!cache_data.empty()) {
             std::string tmp_path = device->pipeline_cache_path + ".tmp";
             if (FILE * f = fopen(tmp_path.c_str(), "wb")) {
-                if (fwrite(cache_data.data(), 1, cache_data.size(), f) == cache_data.size()) {
-                    fclose(f);
-                    if (rename(tmp_path.c_str(), device->pipeline_cache_path.c_str()) != 0) {
-                        remove(tmp_path.c_str());
+                size_t written = fwrite(cache_data.data(), 1, cache_data.size(), f);
+                int fclose_ret = fclose(f);
+                if (written == cache_data.size() && fclose_ret == 0) {
+                    // Atomic rename (POSIX). On Windows, remove target first.
+#ifdef _WIN32
+                    std::remove(device->pipeline_cache_path.c_str());
+#endif
+                    if (std::rename(tmp_path.c_str(), device->pipeline_cache_path.c_str()) != 0) {
+                        std::remove(tmp_path.c_str());
                     }
                 } else {
-                    fclose(f);
-                    remove(tmp_path.c_str());
+                    std::remove(tmp_path.c_str());
                 }
             }
         }
     } catch (const vk::SystemError &) {
-        // Non-fatal
+        // Non-fatal — cache just won't be persisted
     }
 }
 
