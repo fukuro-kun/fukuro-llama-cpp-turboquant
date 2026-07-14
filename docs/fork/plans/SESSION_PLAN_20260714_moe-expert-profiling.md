@@ -1,7 +1,7 @@
 # SESSION_PLAN: #62 MoE Expert Profiling & REAP Pruning
 
 **Erstellt:** 2026-07-14
-**Status:** Implementierung lauft
+**Status:** ✅ Implementiert und verifiziert
 **ROADMAP-Item:** #62 MoE Expert Profiling & REAP Pruning (Tier 2, 1-2 Tage)
 **Quelle:** PR #20454 (srossitto79, OPEN, +1248 Zeilen, 10 Dateien)
 **Paper:** REAP — arXiv:2510.13999 (Cerebras Research)
@@ -38,16 +38,16 @@ REAP(j) = mean_{t : j in topk(t)} [ g_j(t) * ||f_j(t)||_2 ]
 
 | # | Status | Aufgabe | Verifikation |
 |---|--------|---------|--------------|
-| 1 | ☐ | Patch heruntergeladen und analysiert | /tmp/pr20454.patch vorhanden |
-| 2 | ☐ | `tools/expert-profile/` erstellen (CMakeLists.txt + expert-profile.cpp) | Build grun |
-| 3 | ☐ | `tools/moe-pruning/` erstellen (Python-Skripte) | Skripte ausfuhrbar |
-| 4 | ☐ | `tools/CMakeLists.txt` erweitern | `add_subdirectory(expert-profile)` |
-| 5 | ☐ | Build auf Hydra (CPU-only) | `llama-expert-profile` binary vorhanden |
-| 6 | ☐ | Smoke-Test auf Hydra mit kleinem MoE-Modell | JSON-Output mit REAP-Scores |
-| 7 | ☐ | Build auf Styx (CUDA) | Binary vorhanden |
-| 8 | ☐ | Profilierung auf Styx mit 26B QAT | expert_stats.json mit 30 Layern |
-| 9 | ☐ | Code-Review via review-swe/review-kimi | Keine P0/P1 Issues |
-| 10 | ☐ | ROADMAP/CHANGELOG/TTT aktualisieren + commit + push | Dokumentation aktuell |
+| 1 | ✅ | Patch heruntergeladen und analysiert | /tmp/pr20454.patch vorhanden |
+| 2 | ✅ | `tools/expert-profile/` erstellen (CMakeLists.txt + expert-profile.cpp) | Build grun |
+| 3 | ✅ | `tools/moe-pruning/` erstellen (Python-Skripte) | Skripte ausfuhrbar |
+| 4 | ✅ | `tools/CMakeLists.txt` erweitern | `add_subdirectory(expert-profile)` |
+| 5 | ✅ | Build auf Hydra (CPU-only) | `llama-expert-profile` binary vorhanden |
+| 6 | ✅ | Smoke-Test auf Styx mit 26B A4B MoE-Modell | JSON-Output mit REAP-Scores |
+| 7 | ✅ | Build auf Styx (CUDA) | Binary vorhanden |
+| 8 | ✅ | Profilierung auf Styx mit 26B QAT | expert_stats.json mit 30 Layern |
+| 9 | ✅ | Code-Review via review-swe | Keine P0/P1 Issues |
+| 10 | ✅ | ROADMAP/CHANGELOG/TTT aktualisieren + commit + push | Dokumentation aktuell |
 
 ## Verifikations-Strategie
 

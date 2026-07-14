@@ -8,6 +8,12 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-14
 
+### #62: MoE Expert Profiling & REAP Pruning implementiert
+
+- **feat: #62 MoE Expert Profiling & REAP Pruning tools** — Portiert von PR #20454 (srossitto79). `tools/expert-profile/` (C++ Profiler) sammelt REAP-Saliency-Scores via ggml eval callback (ffn_moe_topk/weights/down). `tools/moe-pruning/` (Python GGUF-Pruner + Analyse-Tools). REAP Score = mean(gate_weight * ||expert_output||_2) pro Experte (arXiv:2510.13999, Cerebras Research). Auf Styx verifiziert: 30 MoE layers des 26B A4B QAT erfolgreich profiliert mit korrekten REAP-Scores. Komplementär zu #40 MoE-Freq-Tracking.
+- **fix: #62 remove debug logging from expert-profile callback** — Debug-Output aus wants()/on_tensor() entfernt.
+- **docs: #59 Tensor Prefetching als nicht-viable markiert** — PR #21067 ist DRAFT mit dirty merge state, CUDA-only, erfordert --no-mmap, weniger effektiv für MoE. thecodacus Expert-Prefetch deckt MoE-Prefetch bereits ab.
+
 ### #61: Persistent VRAM Expert Cache implementiert
 
 - **feat: #61 Phase 1 — ggml API + CPU mul_mat_id / scheduler integration** — Portiert von PR #24524 (leloch) Commit 1/3. Backend-agnostische Function-Table (`ggml_moe_cache`, zero-initialized) als Brücke zwischen ggml-cpu und CUDA-Backend. Thread 0 in mul_mat_id partitioniert hits/misses, dispatcht hit-rows als batched GPU launch, andere Threads berechnen miss-rows. SwiGLU glu_hits mask überspringt fused cache rows. Scheduler redirect_offer/finalize hooks für GPU-resident dst handoff. Ohne CUDA-Backend: alle Hooks null-check no-ops.
