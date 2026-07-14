@@ -853,19 +853,6 @@ struct ggml_backend_sched {
     bool prefetch_used[GGML_SCHED_MAX_PREFETCH_SLOTS];
     int prefetch_cur;
 
-    // Expert upload skipping (#37): track which expert slots in input_cpy
-    // are already valid, so we skip re-uploading experts that were already
-    // copied in a previous forward pass. Keyed by (buffer base address, copy index).
-    // Activated via GGML_EXPERT_CACHE=1 env var.
-    bool expert_cache_enabled;
-    uint64_t expert_cache_hits;
-    uint64_t expert_cache_misses;
-    // Map: (buffer_addr, copy_idx) → validity bitset (1 bit per expert slot)
-    std::map<std::pair<void*, int>, std::vector<ggml_bitset_t>> expert_valid;
-    // Tensor-level upload skipping: track (input_data_ptr, buf_base_ptr, copy_idx)
-    // tuples that have already been copied. Used in the generic copy path.
-    std::set<std::tuple<void*, void*, int>> tensor_copied;
-
     int debug;
 
     // used for debugging graph reallocations [GGML_SCHED_DEBUG_REALLOC]
@@ -1837,44 +1824,7 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     // are used but not yet valid in the input_cpy buffer.
                     // This avoids re-uploading experts that were already copied
                     // in a previous forward pass.
-                    std::vector<ggml_bitset_t> * valid_bitset = nullptr;
-                    if (sched->expert_cache_enabled) {
-                        if (input_cpy->buffer) {
-                            void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
-                            auto key = std::make_pair(buf_base, sched->cur_copy);
-                            auto it = sched->expert_valid.find(key);
-                            if (it == sched->expert_valid.end()) {
-                                sched->expert_valid[key] = std::vector<ggml_bitset_t>(ggml_bitset_size(n_expert), 0);
-                                valid_bitset = &sched->expert_valid[key];
-                            } else {
-                                valid_bitset = &it->second;
-                                if (valid_bitset->size() < ggml_bitset_size(n_expert)) {
-                                    valid_bitset->resize(ggml_bitset_size(n_expert), 0);
-                                }
-                            }
-                        }
-                    }
-
-                    // Build need_upload = used AND NOT valid
-                    std::vector<ggml_bitset_t> need_upload;
-                    if (valid_bitset) {
-                        need_upload.resize(ggml_bitset_size(n_expert), 0);
-                        for (size_t i = 0; i < need_upload.size(); i++) {
-                            need_upload[i] = used_ids[i] & ~(*valid_bitset)[i];
-                        }
-                        // Count hits and misses
-                        for (int64_t e = 0; e < n_expert; e++) {
-                            if (ggml_bitset_get(used_ids.data(), e)) {
-                                if (ggml_bitset_get(valid_bitset->data(), e)) {
-                                    sched->expert_cache_hits++;
-                                } else {
-                                    sched->expert_cache_misses++;
-                                }
-                            }
-                        }
-                    }
-
-                    const std::vector<ggml_bitset_t> & upload_ids = valid_bitset ? need_upload : used_ids;
+                    const std::vector<ggml_bitset_t> & upload_ids = used_ids;
 
                     int id = 0;
                     while (id < n_expert && !ggml_bitset_get(upload_ids.data(), id)) {
@@ -1900,15 +1850,6 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                             last_id = id;
                         }
                         copy_experts(first_id, last_id);
-
-                        // Mark uploaded experts as valid
-                        if (valid_bitset) {
-                            for (int64_t e = 0; e < n_expert; e++) {
-                                if (ggml_bitset_get(upload_ids.data(), e)) {
-                                    ggml_bitset_set(valid_bitset->data(), e);
-                                }
-                            }
-                        }
                     }
                 } else {
                     // MoE expert cache dst handoff: if the cache populated this
@@ -1920,43 +1861,16 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                         continue;
                     }
 
-                    // Tensor-level upload skipping (#37): if this exact tensor
-                    // has already been copied to this GPU buffer in a previous
-                    // forward pass, skip the copy entirely. This is safe for MoE
-                    // expert weights which don't change during inference.
-                    // Only cache 3D tensors with multiple experts (ne[2] >= 8)
-                    // to avoid caching intermediate compute results.
-                    bool skip_copy = false;
-                    const bool is_expert_weight = input->ne[2] >= 8 && ggml_n_dims(input) >= 3;
-                    if (sched->expert_cache_enabled && input_cpy->buffer && is_expert_weight) {
-                        void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
-                        auto key = std::make_tuple(input->data, buf_base, sched->cur_copy);
-                        if (sched->tensor_copied.count(key)) {
-                            skip_copy = true;
-                            sched->expert_cache_hits++;
+                    // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events
+                    // TODO: add public function to facilitate this, since applications do not have direct access to the backend interface
+                    if (!split_backend->iface.cpy_tensor_async || !split_backend->iface.cpy_tensor_async(input_backend, split_backend, input, input_cpy)) {
+                        ggml_backend_synchronize(input_backend);
+                        if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
+                            ggml_backend_event_synchronize(sched->events[split_backend_id][sched->cur_copy]);
                         } else {
-                            sched->expert_cache_misses++;
+                            ggml_backend_synchronize(split_backend);
                         }
-                    }
-
-                    if (!skip_copy) {
-                        // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events
-                        // TODO: add public function to facilitate this, since applications do not have direct access to the backend interface
-                        if (!split_backend->iface.cpy_tensor_async || !split_backend->iface.cpy_tensor_async(input_backend, split_backend, input, input_cpy)) {
-                            ggml_backend_synchronize(input_backend);
-                            if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
-                                ggml_backend_event_synchronize(sched->events[split_backend_id][sched->cur_copy]);
-                            } else {
-                                ggml_backend_synchronize(split_backend);
-                            }
-                            ggml_backend_tensor_copy(input, input_cpy);
-                        }
-                        // Mark as copied for future forward passes (only for expert weights)
-                        if (sched->expert_cache_enabled && input_cpy->buffer && is_expert_weight) {
-                            void * buf_base = ggml_backend_buffer_get_base(input_cpy->buffer);
-                            auto key = std::make_tuple(input->data, buf_base, sched->cur_copy);
-                            sched->tensor_copied.insert(key);
-                        }
+                        ggml_backend_tensor_copy(input, input_cpy);
                     }
                 }
             }
@@ -2136,16 +2050,6 @@ ggml_backend_sched_t ggml_backend_sched_new(
         sched->prefetch_n_slots = prefetch_n_slots <= 1 ? 3 : std::min(prefetch_n_slots, GGML_SCHED_MAX_PREFETCH_SLOTS);
     }
 
-    // Expert upload skipping (#37): avoid re-uploading experts that are already
-    // valid in the input_cpy buffer from a previous forward pass.
-    const char * GGML_EXPERT_CACHE = getenv("GGML_EXPERT_CACHE");
-    sched->expert_cache_enabled = op_offload && GGML_EXPERT_CACHE && atoi(GGML_EXPERT_CACHE) != 0;
-    sched->expert_cache_hits = 0;
-    sched->expert_cache_misses = 0;
-    if (sched->expert_cache_enabled) {
-        fprintf(stderr, "Expert cache: enabled (op_offload=%d, n_slots will be allocated on demand)\n", op_offload);
-    }
-
     ggml_backend_sched_reset(sched);
 
     return sched;
@@ -2176,12 +2080,6 @@ void ggml_backend_sched_free(ggml_backend_sched_t sched) {
     free(sched->splits);
     free(sched->hv_tensor_backend_ids);
     free(sched->hv_tensor_copies);
-    // Print expert cache statistics on shutdown
-    if (sched->expert_cache_enabled && (sched->expert_cache_hits + sched->expert_cache_misses) > 0) {
-        double hit_rate = 100.0 * sched->expert_cache_hits / (sched->expert_cache_hits + sched->expert_cache_misses);
-        fprintf(stderr, "Expert cache stats: hits=%lu, misses=%lu, hit rate=%.1f%%\n",
-                (unsigned long)sched->expert_cache_hits, (unsigned long)sched->expert_cache_misses, hit_rate);
-    }
 
     free(sched->node_backend_ids);
     free(sched->leaf_backend_ids);
