@@ -1,7 +1,7 @@
 # SESSION_PLAN: Buffer-Usage Fix für MoE Expert-Weights
 
 **Datum:** 2026-07-13
-**Status:** ☐ offen
+**Status:** ✅ Abgeschlossen (Root Cause geklärt, thecodacus Prefetch +28-31% PP, Expert-Cache via #61 abgedeckt)
 **Roadmap-Item:** #37 (Voraussetzung), #13, #14 (freigeschaltet)
 **Meilenstein:** M3 (MoE-Offloading v2)
 

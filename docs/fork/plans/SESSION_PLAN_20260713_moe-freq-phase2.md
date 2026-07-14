@@ -1,7 +1,7 @@
 # SESSION_PLAN: MoE Expert Frequency Phase 2 — Frequency-Guided Offloading
 
 **Erstellt:** 2026-07-13 (Solo-Session)
-**Status:** In Arbeit
+**Status:** ❌ Abgeschlossen mit negativem Ergebnis — frequency-guided offloading -7% tg (Root Cause: kälteste Layer sind späte Layer, die auf GPU sein müssen)
 
 ## Session-Ziel
 

@@ -1,7 +1,7 @@
 # SESSION_PLAN: LFRU Expert Caching (#37)
 
 **Erstellt:** 2026-07-13 (Solo-Session)
-**Status:** In Arbeit
+**Status:** ⏭️ Postponed — #61 (Persistent VRAM Expert Cache) hat diesen Ansatz ersetzt
 **ROADMAP-Item:** #37 LFRU Expert Caching (Tier 2, 2-4 Wochen)
 
 ## Session-Ziel
