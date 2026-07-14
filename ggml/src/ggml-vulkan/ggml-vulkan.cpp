@@ -5652,6 +5652,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
         vk::PhysicalDeviceSubgroupSizeControlPropertiesEXT subgroup_size_control_props;
         vk::PhysicalDeviceShaderIntegerDotProductPropertiesKHR shader_integer_dot_product_props;
         vk::PhysicalDeviceExternalMemoryHostPropertiesEXT external_memory_host_props;
+        vk::PhysicalDevicePushDescriptorPropertiesKHR push_descriptor_props;
 
         props2.pNext = &props3;
         props3.pNext = &subgroup_props;
@@ -5694,6 +5695,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
         if (device->external_memory_host) {
             last_struct->pNext = (VkBaseOutStructure *)&external_memory_host_props;
             last_struct = (VkBaseOutStructure *)&external_memory_host_props;
+        }
+
+        if (device->push_descriptor_supported) {
+            last_struct->pNext = (VkBaseOutStructure *)&push_descriptor_props;
+            last_struct = (VkBaseOutStructure *)&push_descriptor_props;
         }
 
         device->physical_device.getProperties2(&props2);
@@ -5957,10 +5963,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
         // instead of allocating/binding descriptor sets. Reduces CPU overhead per dispatch.
         if (device->push_descriptor_supported) {
             device_extensions.push_back("VK_KHR_push_descriptor");
-            // maxPushDescriptors is in VkPhysicalDeviceVulkan12Properties (queried below)
             // Only enable if we have enough push descriptor slots for our pipelines
-            if (vk12_props.maxPushDescriptors >= MAX_PARAMETER_COUNT) {
-                device->max_push_descriptors = vk12_props.maxPushDescriptors;
+            if (push_descriptor_props.maxPushDescriptors >= MAX_PARAMETER_COUNT) {
+                device->max_push_descriptors = push_descriptor_props.maxPushDescriptors;
             } else {
                 // Not enough slots — disable push descriptors
                 device->push_descriptor_supported = false;
