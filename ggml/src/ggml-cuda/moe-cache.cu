@@ -637,12 +637,14 @@ static int moe_cache_begin(const char * name, const void * host_base, size_t exp
     // a second thread (concurrent llama_context) gets a clean refusal instead
     // of corrupted planning state
     {
-        const uint64_t self = (uint64_t)(uintptr_t)&self;   // stack addr as cheap thread tag
-        GGML_UNUSED(self);
-        static std::atomic<int64_t> owner{-1};
         // note: ggml threadpools reuse thread 0 across graphs; identify by
         // thread id, claimed lazily and never released (single decode thread
-        // is the rule; a true second decoder simply never engages)
+        // is the rule; a true second decoder simply never engages).  If the
+        // threadpool is recreated (model unload + reload in the same process)
+        // a new thread 0 cannot claim the lock — invalidate() does NOT reset
+        // this; the cache stays disabled for the second model.  Acceptable
+        // trade-off: the common case (one model per process) is unaffected.
+        static std::atomic<int64_t> owner{-1};
         static thread_local bool is_owner_thread = false;
         if (!is_owner_thread) {
             int64_t expect = -1;
@@ -1532,10 +1534,49 @@ static void moe_cache_invalidate(const void * base, size_t size) {
         }
         return true;
     });
+
+    // clear ALL per-blk tensor-base pointers that point into the freed range.
+    // Leaving blk_down_base / blk_pair_pool / blk_down_pool stale would let
+    // moe_cache_backfill_next() build jobs reading from freed host memory
+    // (use-after-free).  Reset the full bookkeeping for affected blocks.
     for (int b = 0; b < 1024; b++) {
-        if (in_range(g.role_base[0][b])) g.role_base[0][b] = nullptr;
-        if (in_range(g.role_base[1][b])) g.role_base[1][b] = nullptr;
+        const bool hit_role0 = in_range(g.role_base[0][b]);
+        const bool hit_role1 = in_range(g.role_base[1][b]);
+        const bool hit_down  = in_range(g.blk_down_base[b]);
+        if (hit_role0) g.role_base[0][b]  = nullptr;
+        if (hit_role1) g.role_base[1][b]  = nullptr;
+        if (hit_down) {
+            g.blk_down_base[b] = nullptr;
+            g.blk_down_kb[b]   = 0;
+        }
+        if (hit_role0 || hit_role1 || hit_down) {
+            g.blk_pair_pool[b] = -1;
+            g.blk_down_pool[b] = -1;
+            g.safe_fuse_blk[b] = false;
+        }
+        if (in_range(g.learn_gate_dst[b])) g.learn_gate_dst[b] = nullptr;
+        if (in_range(g.learn_up_dst[b]))   g.learn_up_dst[b]   = nullptr;
     }
+
+    // clear maps whose keys/values may point into the freed range — a later
+    // allocation at the same address would otherwise be mistaken for a valid
+    // learned entry (redirect, glu_learn) or produce stale pool decisions
+    // (discovery census from the previous model).
+    g.glu_learn.clear();
+    g.redirect.clear();
+    g_disc.seen.clear();
+    g_disc.any_repeat   = false;
+    g_disc.stable_count = 0;
+    for (int di = 0; di < MOE_CACHE_MAX_DEV; di++) g_disc.pending[di].clear();
+
+    // reset the backfill cursor: a new model (or reload) must rediscover its
+    // block/expert layout from scratch rather than resume a stale sweep.
+    g.backfill.phase  = 0;
+    g.backfill.blk    = 0;
+    g.backfill.eid    = 0;
+    g.backfill.done   = false;
+    g.backfill.active = false;
+    g.hot_loaded      = false;
 }
 
 // ---- API: node wall-time samples (bail-out) ---------------------------------------------
