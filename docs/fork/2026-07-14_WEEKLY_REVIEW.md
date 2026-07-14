@@ -19,8 +19,8 @@ Beide Produktiv-Server bestätigen die dokumentierten Werte innerhalb der Messun
 
 | System | Metrik | Vorher (Woche Anfang) | Nachher (Woche Ende) | Delta | Quelle |
 |--------|--------|----------------------|----------------------|-------|--------|
-| **Styx** 26B A4B | tg t/s | 12.7 (IQ4_NL, kein Pinning) | 16.6 (QAT+Pinning+Prefetch) | **+31%** | thecodacus 08.07. |
-| **Styx** 26B A4B | tg t/s mit MTP | 12.7 | 31.9 | **+150%** | thecodacus 08.07. |
+| **Styx** 26B A4B | tg t/s | 12.7 (IQ4_NL, kein Pinning) | 25.7 (QAT+Pinning+Prefetch, verifiziert 14.07.) | **+102%** | thecodacus 08.07. + QAT 10.07. |
+| **Styx** 26B A4B | tg t/s mit MTP (IQ4_NL) | 21.3 (Config B Baseline) | 31.9 (Kurztest, 11 tok) | **+50%** (nur IQ4_NL) | thecodacus 08.07. — **nicht auf QAT übertragbar** (siehe MTP-Benchmark 14.07.) |
 | **Styx** 26B A4B | Kontext | 160k | 224k | **+64k** | QAT 10.07. |
 | **Styx** E2B | tg t/s | 65.1 | 70.9 | **+8.9%** | #3 Pascal MMVQ 11.07. |
 | **Mars** 26B A4B | tg t/s | (IQ4_NL baseline) | +16.6% via QAT | **+16.6%** | QAT 10.07. |
@@ -30,7 +30,9 @@ Beide Produktiv-Server bestätigen die dokumentierten Werte innerhalb der Messun
 | **xtts-api** LAN | Durchsatz | 59.3 chars/s (331s/19.9K) | 184.2 chars/s (108.3s) | **+211% (3.20x)** | P8.6 11.07. |
 | **Uranus** InferenzQuelle | System-Prompt Latenz | 7395ms | 429ms | **17x** | Cache-RAM 13.07. |
 
-**Größter einzelner Win:** thecodacus Pinning+Prefetch auf Styx mit MTP — **+150% tg** (12.7 → 31.9 t/s), direkt produktivwirksam.
+**Größter einzelner Win:** thecodacus Pinning+Prefetch auf Styx — **tg +102%** über die Woche (12.7 → 25.7 t/s, IQ4_NL-ohne-Pinning → QAT-mit-Pinning+Prefetch), direkt produktivwirksam.
+
+**MTP-Korrektur (14.07.):** Der ursprünglich als "+150%" dokumentierte MTP-Boost verglich Config A (alle Experten CPU, kein Pinning) mit Config B + MTP (mit Pinning) — irreführend. Der korrekte MTP-Boost ist +50% (21.3→31.9 t/s), bezogen auf die gleiche Config B, und gilt nur für IQ4_NL. Mit QAT ist MTP ein Netto-Nachteil (-9% bis -21%), siehe `docs/fork/2026-07-14_MTP_DRAFT_COMPARISON.md`.
 
 ---
 
@@ -38,7 +40,7 @@ Beide Produktiv-Server bestätigen die dokumentierten Werte innerhalb der Messun
 
 | # | Optimierung | System | Gain | Datum |
 |---|-------------|--------|------|-------|
-| thecodacus | MoE Pinning+Prefetch (`GGML_CUDA_REGISTER_HOST=1`, `GGML_SCHED_PREFETCH_EXPERTS=1`) | Styx (Pascal) | **pp +72–106%, tg +31%, mit MTP +150%** | 08.07. |
+| thecodacus | MoE Pinning+Prefetch (`GGML_CUDA_REGISTER_HOST=1`, `GGML_SCHED_PREFETCH_EXPERTS=1`) | Styx (Pascal) | **pp +72–106%, tg +31%** (IQ4_NL Config A→B); MTP +50% nur IQ4_NL, mit QAT -9% bis -21% | 08.07. |
 | #3 | Pascal MMVQ (DP4A, PR #25479 portiert) | Styx | **tg +8.9%** (E2B) | 11.07. |
 | QAT-Standard | QAT-Modell statt IQ4_NL | Mars | **pp +10%, tg +16.6%, +76k Kontext** | 10.07. |
 | QAT-Standard | QAT-Modell statt IQ4_NL | Styx | tg ±0%, **+64k Kontext** | 10.07. |
@@ -101,3 +103,4 @@ Beide Produktiv-Server bestätigen die dokumentierten Werte innerhalb der Messun
 - **Mars LXC-Migration (12.07.):** Bare-metal → LXC 240 (phobos), 256k Kontext (Modell-Maximum), 2×128k Slots. Performance identisch zu bare-metal.
 - **Styx Btrfs-Migration (09.07.):** Pinning-Feature wieder nutzbar (vorher durch Kernel-Bug lahmgelegt), 24.6 t/s bestätigt.
 - **Styx Crash-Loop (14.07. 16:18–16:25):** Zwei festgefahrene `llama-cli`-Test-Prozesse (seit 06:15/06:28, `-ngl 0` auf 26B-Pruned) blockierten 2880 MiB VRAM → Produktiv-Service OOM-Crash-Loop (2765 Restarts). Gefixt durch Kill der Test-Prozesse + Service-Neustart. **Lehre:** Test-Prozesse mit `-ngl 0` auf 26B-Modellen können festfahren und müssen explizit beendet werden; `timeout`-Wrapper empfohlen.
+- **MTP-Draft-Vergleich (14.07.):** Benchmark mit QAT + Q4_K_M und Q4_0 Drafts auf Styx. Ergebnis: MTP ist mit QAT ein Netto-Nachteil (Q4_0: -9%, Q4_K_M: -21%). Q4_0 ist der bessere Draft (höhere Akzeptanz, geringerer Overhead). Der 08.07. Wert von 31.9 t/s gilt nur für IQ4_NL Config B und ist nicht auf QAT übertragbar. Siehe `docs/fork/2026-07-14_MTP_DRAFT_COMPARISON.md`.
