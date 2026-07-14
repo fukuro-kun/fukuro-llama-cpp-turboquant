@@ -132,10 +132,6 @@ struct ExpertCollector {
     bool wants(struct ggml_tensor * t) {
         if (!t->name[0]) return false;
         const std::string n = clean_name(t->name);
-        if (n.find("moe") != std::string::npos) {
-            fprintf(stderr, "[debug] wants: name='%s' clean='%s' ne[0]=%lld ne[1]=%lld\n",
-                    t->name, n.c_str(), (long long)t->ne[0], (long long)t->ne[1]);
-        }
         return (n.compare(0, 13, "ffn_moe_topk-")    == 0 ||
                 n.compare(0, 16, "ffn_moe_weights-") == 0 ||
                 n.compare(0, 13, "ffn_moe_down-")    == 0);
