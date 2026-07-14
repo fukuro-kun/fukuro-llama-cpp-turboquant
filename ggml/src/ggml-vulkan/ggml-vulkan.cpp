@@ -6383,10 +6383,6 @@ static vk_device ggml_vk_get_device(size_t idx) {
             }
             try {
                 device->pipeline_cache = device->device.createPipelineCache(cache_info);
-                if (!device->pipeline_cache_path.empty()) {
-                    std::cerr << "ggml_vulkan: pipeline cache enabled, path=" << device->pipeline_cache_path
-                              << " initial_data=" << cache_data.size() << " bytes" << std::endl;
-                }
             } catch (const vk::SystemError & e) {
                 std::cerr << "ggml_vulkan: Pipeline cache creation failed: " << e.what() << std::endl;
                 // Non-fatal — continue without cache
