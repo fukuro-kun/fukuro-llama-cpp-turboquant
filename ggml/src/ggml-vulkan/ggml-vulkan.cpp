@@ -751,6 +751,9 @@ struct vk_device_struct {
     bool mul_mat_id_s_int[GGML_TYPE_COUNT];
 
     vk::DescriptorSetLayout dsl;
+    vk::DescriptorSetLayout dsl_push;  // Push-descriptor layout (VK_KHR_push_descriptor)
+    bool push_descriptor_supported = false;  // Device supports VK_KHR_push_descriptor
+    uint32_t max_push_descriptors = 0;       // maxPushDescriptors from device limits
 
     vk_matmul_pipeline pipeline_matmul_f32 {};
     vk_matmul_pipeline pipeline_matmul_f32_f16 {};
@@ -980,6 +983,9 @@ struct vk_device_struct {
         all_pipelines.clear();
 
         device.destroyDescriptorSetLayout(dsl);
+        if (push_descriptor_supported) {
+            device.destroyDescriptorSetLayout(dsl_push);
+        }
 
         // Save pipeline cache to disk (atomic write via temp file + rename)
         // Also called from ggml_backend_vk_free() to ensure cache is saved before exit.
@@ -2493,7 +2499,9 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         pipeline->push_constant_size
     );
 
-    vk::PipelineLayoutCreateInfo pipeline_layout_create_info(vk::PipelineLayoutCreateFlags(), device->dsl, pcr);
+    // Use push-descriptor layout when supported — eliminates descriptor set allocation/binding
+    vk::DescriptorSetLayout& effective_dsl = device->push_descriptor_supported ? device->dsl_push : device->dsl;
+    vk::PipelineLayoutCreateInfo pipeline_layout_create_info(vk::PipelineLayoutCreateFlags(), effective_dsl, pcr);
     pipeline->layout = device->device.createPipelineLayout(pipeline_layout_create_info);
 
     std::vector<vk::SpecializationMapEntry> specialization_entries(specialization_constants.size());
@@ -2642,6 +2650,12 @@ static void ggml_pipeline_request_descriptor_sets(ggml_backend_vk_context *ctx, 
 }
 
 static void ggml_pipeline_allocate_descriptor_sets(ggml_backend_vk_context * ctx) {
+
+    // Skip allocation entirely when push descriptors are supported —
+    // descriptors are written directly into the command buffer.
+    if (ctx->device->push_descriptor_supported) {
+        return;
+    }
 
     if (ctx->descriptor_sets.size() >= ctx->pipeline_descriptor_set_requirements) {
         // Enough descriptors are available
@@ -5616,6 +5630,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
                 device->memory_priority = true;
             } else if (strcmp("VK_EXT_external_memory_host", properties.extensionName) == 0) {
                 device->external_memory_host = true;
+            } else if (strcmp("VK_KHR_push_descriptor", properties.extensionName) == 0 &&
+                       !getenv("GGML_VK_DISABLE_PUSH_DESCRIPTOR")) {
+                device->push_descriptor_supported = true;
 #if defined(VK_EXT_shader_64bit_indexing)
             } else if (strcmp("VK_EXT_shader_64bit_indexing", properties.extensionName) == 0) {
                 device->shader_64b_indexing = true;
@@ -5934,6 +5951,20 @@ static vk_device ggml_vk_get_device(size_t idx) {
 
         if (device->external_memory_host) {
             device_extensions.push_back("VK_EXT_external_memory_host");
+        }
+
+        // VK_KHR_push_descriptor — write descriptors directly into command buffer
+        // instead of allocating/binding descriptor sets. Reduces CPU overhead per dispatch.
+        if (device->push_descriptor_supported) {
+            device_extensions.push_back("VK_KHR_push_descriptor");
+            // maxPushDescriptors is in VkPhysicalDeviceVulkan12Properties (queried below)
+            // Only enable if we have enough push descriptor slots for our pipelines
+            if (vk12_props.maxPushDescriptors >= MAX_PARAMETER_COUNT) {
+                device->max_push_descriptors = vk12_props.maxPushDescriptors;
+            } else {
+                // Not enough slots — disable push descriptors
+                device->push_descriptor_supported = false;
+            }
         }
 
 #if defined(VK_EXT_shader_64bit_indexing)
@@ -6311,6 +6342,15 @@ static vk_device ggml_vk_get_device(size_t idx) {
         descriptor_set_layout_create_info.setPNext(&dslbfci);
         device->dsl = device->device.createDescriptorSetLayout(descriptor_set_layout_create_info);
 
+        // Create push-descriptor layout (same bindings, but with PUSH_DESCRIPTOR flag)
+        if (device->push_descriptor_supported) {
+            vk::DescriptorSetLayoutCreateInfo push_dsl_create_info(
+                vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR,
+                dsl_binding);
+            push_dsl_create_info.setPNext(&dslbfci);
+            device->dsl_push = device->device.createDescriptorSetLayout(push_dsl_create_info);
+        }
+
         ggml_vk_load_shaders(device);
 
         // Prefer a dedicated transfer queue on AMD dGPUs (non-GCN) when graphics queue use is disabled.
@@ -6619,9 +6659,10 @@ static void ggml_vk_print_gpu_info(size_t idx) {
     const char *fp16_str = fp16 ? (dot2_f16 ? "dot2" : "1") : "0";
 
     std::string device_name = props2.properties.deviceName.data();
-    GGML_LOG_DEBUG("ggml_vulkan: %zu = %s (%s) | uma: %d | fp16: %s | bf16: %d | warp size: %zu | shared memory: %d | int dot: %d | matrix cores: %s\n",
+    GGML_LOG_DEBUG("ggml_vulkan: %zu = %s (%s) | uma: %d | fp16: %s | bf16: %d | warp size: %zu | shared memory: %d | int dot: %d | matrix cores: %s | push_desc: %d\n",
               idx, device_name.c_str(), driver_props.driverName.data(), uma, fp16_str, bf16, subgroup_size,
-              props2.properties.limits.maxComputeSharedMemorySize, integer_dot_product, matrix_cores.c_str());
+              props2.properties.limits.maxComputeSharedMemorySize, integer_dot_product, matrix_cores.c_str(),
+              device->push_descriptor_supported ? 1 : 0);
 
     if (props2.properties.deviceType == vk::PhysicalDeviceType::eCpu) {
         GGML_LOG_DEBUG("ggml_vulkan: Warning: Device type is CPU. This is probably not the device you want.\n");
@@ -7443,22 +7484,28 @@ static void ggml_vk_dispatch_pipeline(ggml_backend_vk_context* ctx, vk_context& 
     GGML_ASSERT(wg0 <= ctx->device->properties.limits.maxComputeWorkGroupCount[0] &&
                 wg1 <= ctx->device->properties.limits.maxComputeWorkGroupCount[1] &&
                 wg2 <= ctx->device->properties.limits.maxComputeWorkGroupCount[2]);
-    GGML_ASSERT(ctx->descriptor_set_idx < ctx->descriptor_sets.size());
     GGML_ASSERT(descriptor_buffer_infos.size() <= MAX_PARAMETER_COUNT);
     GGML_ASSERT(pipeline->parameter_count == descriptor_buffer_infos.size());
     GGML_ASSERT(pipeline->push_constant_size == push_constant_size(push_constants));
 
-    vk::DescriptorSet& descriptor_set = ctx->descriptor_sets[ctx->descriptor_set_idx++];
-    vk::WriteDescriptorSet write_descriptor_set{ descriptor_set, 0, 0, pipeline->parameter_count, vk::DescriptorType::eStorageBuffer, nullptr, descriptor_buffer_infos.begin() };
-    ctx->device->device.updateDescriptorSets({ write_descriptor_set }, {});
-
     subctx->s->buffer->buf.pushConstants(pipeline->layout, vk::ShaderStageFlagBits::eCompute, 0, push_constant_size(push_constants), push_constant_data(push_constants));
     subctx->s->buffer->buf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline->pipeline);
-    subctx->s->buffer->buf.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                                pipeline->layout,
-                                0,
-                                { descriptor_set },
-                                {});
+
+    if (ctx->device->push_descriptor_supported) {
+        // Push descriptors directly into command buffer — no descriptor set allocation/binding
+        vk::WriteDescriptorSet write_descriptor_set{ {}, 0, 0, pipeline->parameter_count, vk::DescriptorType::eStorageBuffer, nullptr, descriptor_buffer_infos.begin() };
+        subctx->s->buffer->buf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, pipeline->layout, 0, { write_descriptor_set });
+    } else {
+        GGML_ASSERT(ctx->descriptor_set_idx < ctx->descriptor_sets.size());
+        vk::DescriptorSet& descriptor_set = ctx->descriptor_sets[ctx->descriptor_set_idx++];
+        vk::WriteDescriptorSet write_descriptor_set{ descriptor_set, 0, 0, pipeline->parameter_count, vk::DescriptorType::eStorageBuffer, nullptr, descriptor_buffer_infos.begin() };
+        ctx->device->device.updateDescriptorSets({ write_descriptor_set }, {});
+        subctx->s->buffer->buf.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                                    pipeline->layout,
+                                    0,
+                                    { descriptor_set },
+                                    {});
+    }
     subctx->s->buffer->buf.dispatch(wg0, wg1, wg2);
 }
 
