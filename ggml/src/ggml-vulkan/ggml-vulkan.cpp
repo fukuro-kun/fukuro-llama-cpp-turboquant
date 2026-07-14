@@ -753,7 +753,6 @@ struct vk_device_struct {
     vk::DescriptorSetLayout dsl;
     vk::DescriptorSetLayout dsl_push;  // Push-descriptor layout (VK_KHR_push_descriptor)
     bool push_descriptor_supported = false;  // Device supports VK_KHR_push_descriptor
-    uint32_t max_push_descriptors = 0;       // maxPushDescriptors from device limits
 
     vk_matmul_pipeline pipeline_matmul_f32 {};
     vk_matmul_pipeline pipeline_matmul_f32_f16 {};
@@ -5962,10 +5961,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
         // VK_KHR_push_descriptor — write descriptors directly into command buffer
         // instead of allocating/binding descriptor sets. Reduces CPU overhead per dispatch.
         if (device->push_descriptor_supported) {
-            device_extensions.push_back("VK_KHR_push_descriptor");
             // Only enable if we have enough push descriptor slots for our pipelines
             if (push_descriptor_props.maxPushDescriptors >= MAX_PARAMETER_COUNT) {
-                device->max_push_descriptors = push_descriptor_props.maxPushDescriptors;
+                device_extensions.push_back("VK_KHR_push_descriptor");
             } else {
                 // Not enough slots — disable push descriptors
                 device->push_descriptor_supported = false;
