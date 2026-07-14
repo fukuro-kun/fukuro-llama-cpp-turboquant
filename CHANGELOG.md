@@ -6,6 +6,15 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-14
+
+### #61: Persistent VRAM Expert Cache implementiert
+
+- **feat: #61 Phase 1 — ggml API + CPU mul_mat_id / scheduler integration** — Portiert von PR #24524 (leloch) Commit 1/3. Backend-agnostische Function-Table (`ggml_moe_cache`, zero-initialized) als Brücke zwischen ggml-cpu und CUDA-Backend. Thread 0 in mul_mat_id partitioniert hits/misses, dispatcht hit-rows als batched GPU launch, andere Threads berechnen miss-rows. SwiGLU glu_hits mask überspringt fused cache rows. Scheduler redirect_offer/finalize hooks für GPU-resident dst handoff. Ohne CUDA-Backend: alle Hooks null-check no-ops.
+- **feat: #61 Phase 2 — CUDA MoE expert cache implementation** — Portiert von PR #24524 Commit 2/3. Vollständige CUDA-Implementierung (1771 Zeilen): Per-(expert_size,type) slot pools mit LRU-Eviction, async pinned-staging insert workers, idle-time prefetch backfill, hot-set persistence across runs. Paired gate+up pools mit fused gate+up+SwiGLU batched matvec. GPU-resident dst handoff für down projections. Decode-only fill, stable shape census, role-group budgeting. Baseline-sampled bail-out judge. CUDA errors degradieren zu CPU path. Aktiviert via GGML_CUDA_MOE_CACHE=1.
+- **feat: #61 Phase 3 — CLI option + fit placement + LFRU cache removal** — Portiert von PR #24524 Commit 3/3 + Fork-Cleanup. `--moe-cache N` CLI flag (0=off, N=VRAM budget MiB, absent=auto). MoE-cache-aware fit placement bei heavily-spilling Modellen. LFRU Expert Cache dead code entfernt (expert_valid, tensor_copied, GGML_EXPERT_CACHE — 0% hit-rate). thecodacus Prefetch bleibt unangetastet.
+- **bench: #61 Styx Benchmark** — GTX 1070 Pascal 8GB, Gemma-4 26B-A4B QAT, -ngl 999 --n-cpu-moe 20. Baseline: pp512=385 t/s, tg128=28.3 t/s. Mit Cache (512MB budget, 256MB reserve): 37.8% hit-rate, aber bail-out judge deaktivierte Cache korrekt (589us vs 512us pure-CPU per node — Pascal GPU zu langsam für kleine Expert-Matvecs). Cache designed für Ampere+ GPUs. Safety rails funktionieren wie designed: kein Crash, keine falschen Ergebnisse, korrekte Selbst-Deaktivierung.
+
 ## 2026-07-12
 
 ### LXC-Migration: llama-server bare-metal → LXC 240 (phobos)
