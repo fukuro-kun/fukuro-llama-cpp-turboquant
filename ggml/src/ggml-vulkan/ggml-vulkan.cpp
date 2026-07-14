@@ -64,6 +64,7 @@ typedef struct VkPhysicalDeviceCooperativeMatrixDecodeVectorFeaturesNV {
 #include <unordered_map>
 #include <shared_mutex>
 #include <mutex>
+#include <unordered_set>
 #include <future>
 #include <condition_variable>
 #include <thread>
@@ -219,6 +220,9 @@ struct vk_matmul_pipeline2 {
 struct vk_device_struct;
 typedef std::shared_ptr<vk_device_struct> vk_device;
 typedef std::weak_ptr<vk_device_struct> vk_device_ref;
+
+// Forward declaration — defined later, called from ~vk_device_struct()
+static void ggml_vk_save_pipeline_cache(vk_device_struct * device);
 
 struct vk_buffer_struct;
 typedef std::shared_ptr<vk_buffer_struct> vk_buffer;
@@ -978,39 +982,10 @@ struct vk_device_struct {
         device.destroyDescriptorSetLayout(dsl);
 
         // Save pipeline cache to disk (atomic write via temp file + rename)
+        // Also called from ggml_backend_vk_free() to ensure cache is saved before exit.
         if (pipeline_cache && !pipeline_cache_path.empty()) {
-            std::cerr << "ggml_vulkan: saving pipeline cache to " << pipeline_cache_path << std::endl;
-            try {
-                auto cache_data = device.getPipelineCacheData(pipeline_cache);
-                std::cerr << "ggml_vulkan: cache data size=" << cache_data.size() << std::endl;
-                if (!cache_data.empty()) {
-                    std::string tmp_path = pipeline_cache_path + ".tmp";
-                    if (FILE * f = fopen(tmp_path.c_str(), "wb")) {
-                        if (fwrite(cache_data.data(), 1, cache_data.size(), f) == cache_data.size()) {
-                            fclose(f);
-                            // Atomic rename
-                            if (rename(tmp_path.c_str(), pipeline_cache_path.c_str()) != 0) {
-                                // Rename failed — remove temp file
-                                std::cerr << "ggml_vulkan: WARNING: rename failed for pipeline cache" << std::endl;
-                                remove(tmp_path.c_str());
-                            } else {
-                                std::cerr << "ggml_vulkan: pipeline cache saved successfully" << std::endl;
-                            }
-                        } else {
-                            fclose(f);
-                            remove(tmp_path.c_str());
-                        }
-                    } else {
-                        std::cerr << "ggml_vulkan: WARNING: fopen failed for " << tmp_path << std::endl;
-                    }
-                }
-            } catch (const vk::SystemError & e) {
-                std::cerr << "ggml_vulkan: WARNING: getPipelineCacheData failed: " << e.what() << std::endl;
-            }
+            ggml_vk_save_pipeline_cache(this);
             device.destroyPipelineCache(pipeline_cache);
-        } else {
-            std::cerr << "ggml_vulkan: pipeline cache not saved (pipeline_cache=" << (bool)pipeline_cache
-                      << " path_empty=" << pipeline_cache_path.empty() << ")" << std::endl;
         }
 
         device.destroy();
@@ -15141,9 +15116,49 @@ static const char * ggml_backend_vk_name(ggml_backend_t backend) {
     return ctx->name.c_str();
 }
 
+static void ggml_vk_save_pipeline_cache(vk_device_struct * device) {
+    if (!device->pipeline_cache || device->pipeline_cache_path.empty()) {
+        return;
+    }
+
+    // Only save once per device (multiple backends may share the same device)
+    static std::unordered_set<vk_device_struct *> saved_devices;
+    static std::mutex save_mutex;
+    {
+        std::lock_guard<std::mutex> lock(save_mutex);
+        if (saved_devices.count(device)) {
+            return;
+        }
+        saved_devices.insert(device);
+    }
+
+    try {
+        auto cache_data = device->device.getPipelineCacheData(device->pipeline_cache);
+        if (!cache_data.empty()) {
+            std::string tmp_path = device->pipeline_cache_path + ".tmp";
+            if (FILE * f = fopen(tmp_path.c_str(), "wb")) {
+                if (fwrite(cache_data.data(), 1, cache_data.size(), f) == cache_data.size()) {
+                    fclose(f);
+                    if (rename(tmp_path.c_str(), device->pipeline_cache_path.c_str()) != 0) {
+                        remove(tmp_path.c_str());
+                    }
+                } else {
+                    fclose(f);
+                    remove(tmp_path.c_str());
+                }
+            }
+        }
+    } catch (const vk::SystemError &) {
+        // Non-fatal
+    }
+}
+
 static void ggml_backend_vk_free(ggml_backend_t backend) {
     ggml_backend_vk_context * ctx = (ggml_backend_vk_context *)backend->context;
     VK_LOG_DEBUG("ggml_backend_vk_free(" << ctx->name << ")");
+
+    // Save pipeline cache before cleanup (device may be shared across backends)
+    ggml_vk_save_pipeline_cache(ctx->device.get());
 
     ggml_vk_cleanup(ctx);
 
