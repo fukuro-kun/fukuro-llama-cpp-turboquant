@@ -1,4 +1,3 @@
-++ b/tools/moe-pruning/gguf_prune.py
 """
 gguf-prune: REAP-based expert pruning directly on a GGUF file.
 
@@ -49,6 +48,8 @@ from gguf import GGUFReader, GGUFWriter, GGMLQuantizationType, GGUFValueType
 EXPERT_BASE_SUFFIXES = {
     "ffn_up_exps",
     "ffn_down_exps",
+    "ffn_gate_exps",
+    "ffn_gate_up_exps",
     "ffn_gate_inp",
 }
 

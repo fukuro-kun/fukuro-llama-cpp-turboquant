@@ -1,4 +1,3 @@
-++ b/tools/moe-pruning/nemotron_reap.py
 """
 NemotronH Expert Activation Profiler + Pruner
 Two-phase: profile with 4-bit on GPU, prune bf16 on CPU.

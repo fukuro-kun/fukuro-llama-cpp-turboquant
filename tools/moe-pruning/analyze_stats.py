@@ -1,4 +1,3 @@
-++ b/tools/moe-pruning/analyze_stats.py
 #!/usr/bin/env python3
 """
 analyze_stats.py  --  Summarize expert_stats.json and model size projections.

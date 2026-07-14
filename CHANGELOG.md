@@ -10,8 +10,11 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ### #62: MoE Expert Profiling & REAP Pruning implementiert
 
-- **feat: #62 MoE Expert Profiling & REAP Pruning tools** — Portiert von PR #20454 (srossitto79). `tools/expert-profile/` (C++ Profiler) sammelt REAP-Saliency-Scores via ggml eval callback (ffn_moe_topk/weights/down). `tools/moe-pruning/` (Python GGUF-Pruner + Analyse-Tools). REAP Score = mean(gate_weight * ||expert_output||_2) pro Experte (arXiv:2510.13999, Cerebras Research). Auf Styx verifiziert: 30 MoE layers des 26B A4B QAT erfolgreich profiliert mit korrekten REAP-Scores. Komplementär zu #40 MoE-Freq-Tracking.
+- **feat: #62 MoE Expert Profiling & REAP Pruning tools** — Portiert von PR #20454 (srossitto79). `tools/expert-profile/` (C++ Profiler) sammelt REAP-Saliency-Scores via ggml eval callback (ffn_moe_topk/weights/down). `tools/moe-pruning/` (Python GGUF-Pruner + Analyse-Tools). REAP Score = mean(gate_weight * ||expert_output||_2) pro Experte (arXiv:2510.13999, Cerebras Research). Auf Styx verifiziert: 30 MoE layers des 26B A4B QAT erfolgreich profiliert. Komplementär zu #40 MoE-Freq-Tracking.
 - **fix: #62 remove debug logging from expert-profile callback** — Debug-Output aus wants()/on_tensor() entfernt.
+- **fix: #62 diff-artefakte `++ b/` in `tools/moe-pruning/*` entfernt** — Die Python-Skripte, README und requirements.txt enthielten `diff`-Header als erste Zeile und waren nicht ausführbar; `python3 -m py_compile tools/moe-pruning/*.py` läuft jetzt sauber durch.
+- **fix: #62 expert-profile: strided `ffn_moe_topk`-Kopierung korrigiert und restliche Debug-Ausgabe entfernt** — `ffn_moe_topk` ist ein `ggml_view_4d` des `ggml_argsort`-Outputs mit `nb[1] = n_expert*4`, nicht zusammenhängend. Der vorherige `memcpy` von `ggml_backend_tensor_get` war für `n_tokens > 1` fehlerhaft und hat falsche Expert-IDs geliefert. Jetzt wird `ggml_backend_tensor_get_2d` verwendet. Außerdem wurde die verbliebene `[debug-cb]` Ausgabe in `expert_eval_callback` entfernt.
+- **fix: #62 gguf_prune.py: fehlende `ffn_gate_exps` und `ffn_gate_up_exps` Suffixe ergänzt** — Der Pruner erkannte Experten-Gate-Gewichte (separat oder fused) nicht und ließ sie ungeschnitten, was bei gemma4-ähnlichen MoE-Architekturen zu unvollständigem Pruning und Dateigrößen führen würde.
 - **docs: #59 Tensor Prefetching als nicht-viable markiert** — PR #21067 ist DRAFT mit dirty merge state, CUDA-only, erfordert --no-mmap, weniger effektiv für MoE. thecodacus Expert-Prefetch deckt MoE-Prefetch bereits ab.
 
 ### #61: Persistent VRAM Expert Cache implementiert

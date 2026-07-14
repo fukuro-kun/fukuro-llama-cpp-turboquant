@@ -1,4 +1,3 @@
-++ b/tools/moe-pruning/README.md
 # MoE Expert Pruning Tools for NemotronH
 
 REAP-style expert pruning for `NVIDIA-Nemotron-3-Nano-30B-A3B` (and other

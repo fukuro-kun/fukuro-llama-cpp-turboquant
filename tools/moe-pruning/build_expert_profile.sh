@@ -1,4 +1,3 @@
-++ b/tools/moe-pruning/build_expert_profile.sh
 #!/usr/bin/env bash
 # build_expert_profile.sh
 # Builds llama.cpp with the expert-profile tool in WSL2 with CUDA.

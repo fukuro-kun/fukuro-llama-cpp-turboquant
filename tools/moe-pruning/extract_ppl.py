@@ -1,4 +1,3 @@
-++ b/tools/moe-pruning/extract_ppl.py
 import json, os
 
 base = os.path.dirname(os.path.abspath(__file__))

@@ -106,15 +106,19 @@ struct ExpertCollector {
     std::mutex                mtx;
 
     // We need all three tensors before we can compute REAP.
-    // They arrive in order: topk → weights → down (per the graph build order).
-    // Store pending topk+weights until down arrives.
+    // They arrive in order: topk → weights → [weights_norm] → ... → down → [down_scaled]
+    // We defer REAP computation until the batch is "complete" (next topk or flush).
+    // This ensures we use the FINAL weights/down variants (norm/scaled if present).
     struct PendingBatch {
         int64_t              n_expert_used = 0;
         int64_t              n_tokens      = 0;
         std::vector<int32_t> expert_ids;    // [n_expert_used * n_tokens]
         std::vector<float>   gate_weights;  // [n_expert_used * n_tokens]
+        std::vector<float>   expert_outs;   // [n_embd * n_expert_used * n_tokens]
+        int64_t              n_embd         = 0;
         bool                 has_topk    = false;
         bool                 has_weights = false;
+        bool                 has_down    = false;
     };
     std::map<int, PendingBatch> pending; // layer_idx → pending
 
@@ -132,9 +136,16 @@ struct ExpertCollector {
     bool wants(struct ggml_tensor * t) {
         if (!t->name[0]) return false;
         const std::string n = clean_name(t->name);
-        return (n.compare(0, 13, "ffn_moe_topk-")    == 0 ||
-                n.compare(0, 16, "ffn_moe_weights-") == 0 ||
-                n.compare(0, 13, "ffn_moe_down-")    == 0);
+        // Intercept topk, weights (and normalized/scaled variants), down (and scaled variant)
+        // For REAP correctness we need the FINAL gate weight and expert output:
+        //   - ffn_moe_weights_norm (if norm_w=true) > ffn_moe_weights_softmax > ffn_moe_weights
+        //   - ffn_moe_down_scaled (if exps_s exists) > ffn_moe_down
+        return (n.compare(0, 13, "ffn_moe_topk-")           == 0 ||
+                n.compare(0, 16, "ffn_moe_weights-")        == 0 ||
+                n.compare(0, 22, "ffn_moe_weights_norm-")   == 0 ||
+                n.compare(0, 25, "ffn_moe_weights_softmax-") == 0 ||
+                n.compare(0, 13, "ffn_moe_down-")           == 0 ||
+                n.compare(0, 20, "ffn_moe_down_scaled-")    == 0);
     }
 
     bool on_tensor(struct ggml_tensor * t) {
@@ -146,39 +157,68 @@ struct ExpertCollector {
         bool is_weights = false;
         bool is_down    = false;
 
-        if      (name.compare(0, 13, "ffn_moe_topk-")    == 0) { il = atoi(name.c_str() + 13); is_topk    = true; }
-        else if (name.compare(0, 16, "ffn_moe_weights-") == 0) { il = atoi(name.c_str() + 16); is_weights = true; }
-        else if (name.compare(0, 13, "ffn_moe_down-")    == 0) { il = atoi(name.c_str() + 13); is_down    = true; }
+        if      (name.compare(0, 13, "ffn_moe_topk-")           == 0) { il = atoi(name.c_str() + 13); is_topk    = true; }
+        else if (name.compare(0, 22, "ffn_moe_weights_norm-")   == 0) { il = atoi(name.c_str() + 22); is_weights = true; }
+        else if (name.compare(0, 25, "ffn_moe_weights_softmax-")== 0) { il = atoi(name.c_str() + 25); is_weights = true; }
+        else if (name.compare(0, 20, "ffn_moe_down_scaled-")    == 0) { il = atoi(name.c_str() + 20); is_down    = true; }
+        else if (name.compare(0, 16, "ffn_moe_weights-")        == 0) { il = atoi(name.c_str() + 16); is_weights = true; }
+        else if (name.compare(0, 13, "ffn_moe_down-")           == 0) { il = atoi(name.c_str() + 13); is_down    = true; }
         else return true;
 
         if (il < 0) return true;
 
-        // Copy tensor data from (possibly GPU) buffer to host
-        const size_t nbytes = ggml_nbytes(t);
-        std::vector<char> buf(nbytes);
-        ggml_backend_tensor_get(t, buf.data(), 0, nbytes);
-
-        std::lock_guard<std::mutex> lk(mtx);
-        PendingBatch & pb = pending[il];
-
         if (is_topk) {
-            // [n_expert_used, n_tokens] I32
+            // ffn_moe_topk is a ggml_view_4d of ggml_argsort output and is NOT
+            // contiguous: each token row has length n_expert_used, but the row
+            // stride is n_expert*4. Use get_2d to copy each row into a flat
+            // contiguous buffer.
+            std::lock_guard<std::mutex> lk(mtx);
+            PendingBatch & pb = pending[il];
+
+            // Flush previous batch if complete (new topk = new batch for this layer)
+            if (pb.has_topk && pb.has_weights && pb.has_down) {
+                flush_batch(il, pb);
+            }
+
+            pb = PendingBatch{}; // reset
             pb.n_expert_used = t->ne[0];
             pb.n_tokens      = t->ne[1];
             pb.expert_ids.resize(pb.n_expert_used * pb.n_tokens);
-            memcpy(pb.expert_ids.data(), buf.data(), pb.n_expert_used * pb.n_tokens * sizeof(int32_t));
-            pb.has_topk    = true;
-            pb.has_weights = false; // reset in case of re-use
+            ggml_backend_tensor_get_2d(
+                t,
+                pb.expert_ids.data(),
+                0,
+                pb.n_expert_used * sizeof(int32_t),
+                pb.n_tokens,
+                t->nb[1],
+                pb.n_expert_used * sizeof(int32_t));
+            pb.has_topk = true;
 
         } else if (is_weights) {
-            // [1, n_expert_used, n_tokens] F32 — flat layout same as topk
+            // [1, n_expert_used, n_tokens] F32 — contiguous flat layout
+            // Multiple variants may arrive (weights → weights_softmax → weights_norm)
+            // Last writer wins (norm/softmax arrive after raw weights)
+            const size_t nbytes = ggml_nbytes(t);
+            std::vector<char> buf(nbytes);
+            ggml_backend_tensor_get(t, buf.data(), 0, nbytes);
+
+            std::lock_guard<std::mutex> lk(mtx);
+            PendingBatch & pb = pending[il];
             if (!pb.has_topk) return true; // shouldn't happen
             pb.gate_weights.resize(pb.n_expert_used * pb.n_tokens);
             memcpy(pb.gate_weights.data(), buf.data(), pb.n_expert_used * pb.n_tokens * sizeof(float));
             pb.has_weights = true;
 
         } else if (is_down) {
-            // [n_embd, n_expert_used, n_tokens] F32
+            // [n_embd, n_expert_used, n_tokens] F32 — contiguous
+            // Multiple variants may arrive (down → down_scaled)
+            // Store data but don't compute yet — flush on next topk or at save
+            const size_t nbytes = ggml_nbytes(t);
+            std::vector<char> buf(nbytes);
+            ggml_backend_tensor_get(t, buf.data(), 0, nbytes);
+
+            std::lock_guard<std::mutex> lk(mtx);
+            PendingBatch & pb = pending[il];
             if (!pb.has_topk || !pb.has_weights) return true;
 
             const int64_t n_embd        = t->ne[0];
@@ -192,19 +232,34 @@ struct ExpertCollector {
                 return true;
             }
 
-            // Ensure layer stats initialised
-            auto & ls = layer_stats[il];
-            if (ls.n_experts == 0) ls.init(n_experts);
-
-            const float * expert_outs = reinterpret_cast<const float *>(buf.data());
-            ls.add_batch(pb.expert_ids.data(), pb.gate_weights.data(),
-                         expert_outs, n_expert_used, n_tokens, n_embd);
-
-            // Done with this batch for this layer
-            pending.erase(il);
+            pb.n_embd = n_embd;
+            pb.expert_outs.resize(n_embd * n_expert_used * n_tokens);
+            memcpy(pb.expert_outs.data(), buf.data(), nbytes);
+            pb.has_down = true;
+            // Don't compute yet — wait for down_scaled or next topk
         }
 
         return true;
+    }
+
+    // Flush a completed pending batch into layer stats
+    void flush_batch(int il, PendingBatch & pb) {
+        if (!pb.has_topk || !pb.has_weights || !pb.has_down) return;
+
+        auto & ls = layer_stats[il];
+        if (ls.n_experts == 0) ls.init(n_experts);
+
+        ls.add_batch(pb.expert_ids.data(), pb.gate_weights.data(),
+                     pb.expert_outs.data(), pb.n_expert_used, pb.n_tokens, pb.n_embd);
+    }
+
+    // Flush all pending batches (call before saving)
+    void flush_all() {
+        std::lock_guard<std::mutex> lk(mtx);
+        for (auto & [il, pb] : pending) {
+            flush_batch(il, pb);
+        }
+        pending.clear();
     }
 };
 
@@ -214,17 +269,6 @@ static ExpertCollector g_collector;
 
 static bool expert_eval_callback(struct ggml_tensor * t, bool ask, void * /*user_data*/) {
     if (ask) {
-        static int debug_count = 0;
-        if (debug_count < 500 && t->name[0]) {
-            const std::string n = ExpertCollector::clean_name(t->name);
-            if (n.find("moe") != std::string::npos) {
-                fprintf(stderr, "[debug-cb] MOE: name='%s' clean='%s' type=%d ne=[%lld,%lld,%lld,%lld]\n",
-                        t->name, n.c_str(), (int)t->type,
-                        (long long)t->ne[0], (long long)t->ne[1],
-                        (long long)t->ne[2], (long long)t->ne[3]);
-            }
-            debug_count++;
-        }
         return g_collector.wants(t);
     }
     return g_collector.on_tensor(t);
@@ -233,6 +277,9 @@ static bool expert_eval_callback(struct ggml_tensor * t, bool ask, void * /*user
 // ─── JSON output ──────────────────────────────────────────────────────────────
 
 static void save_stats(const std::string & path) {
+    // Flush any pending batches before saving
+    g_collector.flush_all();
+
     std::ofstream f(path);
     if (!f) {
         LOG_ERR("expert-profile: failed to open output file '%s'\n", path.c_str());

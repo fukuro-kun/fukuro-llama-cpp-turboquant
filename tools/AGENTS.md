@@ -39,12 +39,15 @@
 | `rpc/` | RPC-Backend-Server fuer verteilte Inferenz |
 | `tts/` | Text-to-Speech Werkzeug |
 | `diffusion-cli/` | DiffusionGemma CLI (Diffusion-Generierung) |
+| `expert-profile/` | C++ MoE-Expert-Profiler fuer REAP-Saliency-Scores |
+| `moe-pruning/` | Python-Skripte zum REAP-basierten Prunen von MoE-GGUF/HF-Checkpoints |
 | `ui/` | Web-UI fuer llama-server (eingebettet in Server-Binary) |
 
 ### Build
 
-- Jedes Werkzeug ist ein eigenes CMake-Target: `llama-server`, `llama-cli`, `llama-bench`, etc.
-- Alle bauen automatisch mit `cmake --build build -j$(nproc)`.
+- C++-Werkzeuge sind eigene CMake-Targets: `llama-server`, `llama-cli`, `llama-bench`, etc.
+- C++-Werkzeuge bauen automatisch mit `cmake --build build -j$(nproc)`.
+- Python-Werkzeuge (z. B. `moe-pruning/`) haben keine CMake-Targets; Abhängigkeiten via `requirements.txt` installieren.
 - Keine zusaetzlichen Abhaengigkeiten fuer die meisten Werkzeuge; `server/` bindet `common/` und `mtmd/` ein.
 
 ---
