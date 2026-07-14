@@ -8,6 +8,20 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-14
 
+### #85: Vulkan Push Descriptors implementiert
+
+- **feat: #85 Vulkan Push Descriptors (VK_KHR_push_descriptor)** — Deskriptoren werden direkt in den Command Buffer geschrieben statt Deskriptor-Sets zu allokieren und zu binden. Eliminiert `vkAllocateDescriptorSets`, `vkUpdateDescriptorSets`, `vkCmdBindDescriptorSets` pro Dispatch. Implementierung: Extension-Check in Device-Init (`GGML_VK_DISABLE_PUSH_DESCRIPTOR` zum Deaktivieren), `dsl_push` Layout mit `PUSH_DESCRIPTOR_BIT`, Pipeline-Layouts verwenden `dsl_push` wenn supported, `pushDescriptorSetKHR` in dispatch, Descriptor-Set-Allokation übersprungen. Mars bestätigt `push_desc: 1`. Benchmark 1B Q4_K_M: pp512 ±0.1%, tg128 ±0.2%, pp4096 ±0.3% — **kein messbarer Speedup** (RADV descriptor set allocation ist bereits sehr effizient mit pre-allocated pools).
+
+### #78: Vulkan Pipeline Cache Disk Persistence — Code-Review Fixes
+
+- **fix: #78 P0+P1 Code-Review Fixes** — (P0.1) `pipeline_cache` wird jetzt immer im Destructor zerstört, nicht nur wenn `pipeline_cache_path` gesetzt — sonst Resource-Leak wenn `GGML_VK_CACHE_DIR` unset (Vulkan verlangt destroy aller child objects vor `vkDestroyDevice`). (P0.2) Function-local statics (`unordered_set` + `mutex`) durch `device->mutex` + `bool pipeline_cache_saved` Flag ersetzt — static destruction order fiasco: statics wurden vor `vk_instance` zerstört → UAF in `~vk_device_struct()`. (P1.3) `fclose` return value prüfen, Windows `rename`-Fix (remove target first). (P1.5) Leerer `GGML_VK_CACHE_DIR` string abgefangen. Verifikation Mars: kein Crash, kein Leak, keine UAF.
+
+### #77/#84: ROADMAP Items evaluiert und geschlossen
+
+- **docs: #77 ❌ K-Quant MMVQ Path Fix** — Issue #21151 (10-15x Langsamkeit für Q4_K/Q5_K auf RDNA3) auf Mars nicht reproduzierbar. Benchmark: pp64 MMVQ 1168 t/s vs non-MMVQ 1174 t/s (±0.5%), tg1 MMVQ 67.84 t/s vs non-MMVQ 65.91 t/s (MMVQ 3% schneller). Vermutlich auf älteren RADV-Versionen behoben.
+- **docs: #84 ❌ Wave32/Wave64 Subgroup Size Tuning** — PR #12087 merged (2025-03-17). Fork hat AMD_RDNA3 Architektur-Erkennung aber keine RDNA3-Pipeline-Konfiguration — fällt auf Wave64-Default zurück. Wave32 bricht Coopmat-Shader auf RDNA3. Vulkan Wave64 ist 20-22% schneller als ROCm Wave32 (Issue #20934). Aktuelle Konfiguration optimal.
+- **docs: #80/#82 ⏭️ SPÄTER** — GEAR (KV-Cache Quant+LowRank+Sparse): TurboQuant (3-5x) ist bereits stärker als GEAR (2.29x), 6-8 Wochen Portierung. Fiddler (CPU-GPU MoE Orchestration): Lizenz unklar, AVX512_BF16 fehlt im Release, Mars (UMA) profitiert nicht, 4-6 Wochen Portierung.
+
 ### #78: Vulkan Pipeline Cache Disk Persistence implementiert
 
 - **feat: #78 Vulkan Pipeline Cache Disk Persistence** — `GGML_VK_CACHE_DIR` env var steuert Cache-Verzeichnis. Pro-Device Cache-Dateien (`vk_pipeline_cache_{idx}.bin`) mit `pipelineCacheUUID`-Validierung (verwirft stale Cache bei Driver/GPU-Wechsel). Atomares Schreiben via temp+rename. Cache-Saving in `ggml_backend_vk_free()` mit once-per-device guard (`unordered_set` + mutex), da der `~vk_device_struct()` Destructor bei `exit()` nicht zuverlässig aufgerufen wird. Quelle: Perinban/llama.cpp commit 1b7250c. Benchmark Mars (llama-3.2-1b Q4_K_M, pp64): Kalt 1.161s → Warm 0.781s = **33% Startup-Speedup** (-380ms). Bei 26B MoE dominiert Modell-Laden (~11min), Cache-Effekt marginal.
