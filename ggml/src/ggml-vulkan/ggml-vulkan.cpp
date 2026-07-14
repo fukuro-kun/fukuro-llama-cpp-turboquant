@@ -979,8 +979,10 @@ struct vk_device_struct {
 
         // Save pipeline cache to disk (atomic write via temp file + rename)
         if (pipeline_cache && !pipeline_cache_path.empty()) {
+            std::cerr << "ggml_vulkan: saving pipeline cache to " << pipeline_cache_path << std::endl;
             try {
                 auto cache_data = device.getPipelineCacheData(pipeline_cache);
+                std::cerr << "ggml_vulkan: cache data size=" << cache_data.size() << std::endl;
                 if (!cache_data.empty()) {
                     std::string tmp_path = pipeline_cache_path + ".tmp";
                     if (FILE * f = fopen(tmp_path.c_str(), "wb")) {
@@ -989,18 +991,26 @@ struct vk_device_struct {
                             // Atomic rename
                             if (rename(tmp_path.c_str(), pipeline_cache_path.c_str()) != 0) {
                                 // Rename failed — remove temp file
+                                std::cerr << "ggml_vulkan: WARNING: rename failed for pipeline cache" << std::endl;
                                 remove(tmp_path.c_str());
+                            } else {
+                                std::cerr << "ggml_vulkan: pipeline cache saved successfully" << std::endl;
                             }
                         } else {
                             fclose(f);
                             remove(tmp_path.c_str());
                         }
+                    } else {
+                        std::cerr << "ggml_vulkan: WARNING: fopen failed for " << tmp_path << std::endl;
                     }
                 }
             } catch (const vk::SystemError & e) {
-                // Non-fatal — cache just won't be persisted
+                std::cerr << "ggml_vulkan: WARNING: getPipelineCacheData failed: " << e.what() << std::endl;
             }
             device.destroyPipelineCache(pipeline_cache);
+        } else {
+            std::cerr << "ggml_vulkan: pipeline cache not saved (pipeline_cache=" << (bool)pipeline_cache
+                      << " path_empty=" << pipeline_cache_path.empty() << ")" << std::endl;
         }
 
         device.destroy();
@@ -6398,6 +6408,10 @@ static vk_device ggml_vk_get_device(size_t idx) {
             }
             try {
                 device->pipeline_cache = device->device.createPipelineCache(cache_info);
+                if (!device->pipeline_cache_path.empty()) {
+                    std::cerr << "ggml_vulkan: pipeline cache enabled, path=" << device->pipeline_cache_path
+                              << " initial_data=" << cache_data.size() << " bytes" << std::endl;
+                }
             } catch (const vk::SystemError & e) {
                 std::cerr << "ggml_vulkan: Pipeline cache creation failed: " << e.what() << std::endl;
                 // Non-fatal — continue without cache
