@@ -8,6 +8,10 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-14
 
+### #78: Vulkan Pipeline Cache Disk Persistence implementiert
+
+- **feat: #78 Vulkan Pipeline Cache Disk Persistence** — `GGML_VK_CACHE_DIR` env var steuert Cache-Verzeichnis. Pro-Device Cache-Dateien (`vk_pipeline_cache_{idx}.bin`) mit `pipelineCacheUUID`-Validierung (verwirft stale Cache bei Driver/GPU-Wechsel). Atomares Schreiben via temp+rename. Cache-Saving in `ggml_backend_vk_free()` mit once-per-device guard (`unordered_set` + mutex), da der `~vk_device_struct()` Destructor bei `exit()` nicht zuverlässig aufgerufen wird. Quelle: Perinban/llama.cpp commit 1b7250c. Benchmark Mars (llama-3.2-1b Q4_K_M, pp64): Kalt 1.161s → Warm 0.781s = **33% Startup-Speedup** (-380ms). Bei 26B MoE dominiert Modell-Laden (~11min), Cache-Effekt marginal.
+
 ### #62: MoE Expert Profiling & REAP Pruning implementiert
 
 - **feat: #62 MoE Expert Profiling & REAP Pruning tools** — Portiert von PR #20454 (srossitto79). `tools/expert-profile/` (C++ Profiler) sammelt REAP-Saliency-Scores via ggml eval callback (ffn_moe_topk/weights/down). `tools/moe-pruning/` (Python GGUF-Pruner + Analyse-Tools). REAP Score = mean(gate_weight * ||expert_output||_2) pro Experte (arXiv:2510.13999, Cerebras Research). Auf Styx verifiziert: 30 MoE layers des 26B A4B QAT erfolgreich profiliert. Komplementär zu #40 MoE-Freq-Tracking.
