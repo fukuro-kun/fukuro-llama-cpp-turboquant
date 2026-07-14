@@ -8,6 +8,10 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-14
 
+### Wochenrückschau 7.–14. Juli 2026
+
+- **docs: Wochenrückschau — messbare Optimierungsergebnisse** — Vollständige Auswertung der Forschungswoche in `docs/fork/2026-07-14_WEEKLY_REVIEW.md`. Quellen: git-log (161 Commits), CHANGELOG, ROADMAP, SNAPSHOT, Solo-Session-Reports, Trilium-TTT (Tagesnotizen 07.–14.07.). **Live-Verifikation 14.07. 16:25 UTC:** Mars/phobos 25.74 t/s tg (TTT: 25.85, -0.4%), Styx 25.70 t/s tg (TTT: 26.02, -1.2%) — beide im Rauschen. **Netto-Wins der Woche:** Styx tg +31% (12.7→16.6 t/s) via thecodacus Pinning+Prefetch, mit MTP +150% (12.7→31.9 t/s); Styx +64k Kontext (160k→224k) via QAT; Mars tg +16.6%, pp +10%, +76k Kontext (180k→256k) via QAT; E4B FA Crash-Fix (Uranus: Crash→103-112 t/s); xtts-api 3.20x Speedup (331s→108.3s). **Verworfen mit Messung:** #57 (-99.6% pp), #45 (-10.7% tg), #32 (-0.5%), #77 (±0.5%), #61 (-8.5% tg), MTP Q4_0 (-2.4%/-14%), #40 Phase 2 (-7% tg). **ROADMAP:** 22✅→25✅, 14❌→16❌, 7⏭️→10⏭️, 53☐→46☐. **Styx Crash-Loop behoben:** Zwei festgefahrene `llama-cli`-Test-Prozesse blockierten VRAM → Produktiv-Service OOM → gekillt + Neustart.
+
 ### #85: Vulkan Push Descriptors implementiert
 
 - **feat: #85 Vulkan Push Descriptors (VK_KHR_push_descriptor)** — Deskriptoren werden direkt in den Command Buffer geschrieben statt Deskriptor-Sets zu allokieren und zu binden. Eliminiert `vkAllocateDescriptorSets`, `vkUpdateDescriptorSets`, `vkCmdBindDescriptorSets` pro Dispatch. Implementierung: Extension-Check in Device-Init (`GGML_VK_DISABLE_PUSH_DESCRIPTOR` zum Deaktivieren), `dsl_push` Layout mit `PUSH_DESCRIPTOR_BIT`, Pipeline-Layouts verwenden `dsl_push` wenn supported, `pushDescriptorSetKHR` in dispatch, Descriptor-Set-Allokation übersprungen. Mars bestätigt `push_desc: 1`. Benchmark 1B Q4_K_M: pp512 ±0.1%, tg128 ±0.2%, pp4096 ±0.3% — **kein messbarer Speedup** (RADV descriptor set allocation ist bereits sehr effizient mit pre-allocated pools).
