@@ -58,7 +58,15 @@ def is_expert_suffix(suffix: str) -> bool:
     """Return True if a tensor suffix is one of the MoE expert tensors to prune."""
     if suffix in ("ffn_exp_probs_b", "exp_probs_b", "exp_probs_b.bias"):
         return True
-    return any(suffix == base or suffix.startswith(base + ".") for base in EXPERT_BASE_SUFFIXES)
+    # ffn_gate_inp is the router: [n_embd, n_expert]. Only .weight carries the
+    # expert dim; .scale/.input_scale are per-input quantization scales ([n_embd]),
+    # NOT per-expert — must not be sliced.
+    if suffix == "ffn_gate_inp" or suffix == "ffn_gate_inp.weight":
+        return True
+    if suffix.startswith("ffn_gate_inp."):
+        return False  # .scale, .input_scale etc. are per-input, not per-expert
+    # stacked expert tensors: .weight, .scale, .input_scale all carry expert dim
+    return any(suffix == base or suffix.startswith(base + ".") for base in EXPERT_BASE_SUFFIXES if base != "ffn_gate_inp")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
