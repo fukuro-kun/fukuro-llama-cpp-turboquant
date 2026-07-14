@@ -1,7 +1,7 @@
 # ROADMAP — Fork-Beschleunigung
 
 **Erstellt:** 2026-07-11
-**Aktualisiert:** 2026-07-13 (Research-Sweep #3, 2-Slot Prefetch Sweet-Spot, M3 abgeschlossen)
+**Aktualisiert:** 2026-07-14 (Research-Sweep #4, #62 MoE REAP Profiling abgeschlossen, 8 neue Items #77-#87)
 **Quelle:** [Optimierungs-Recherche 2026-07-11](2026-07-11_OPTIMIZATION_RESEARCH.md) + [Recherche 2026-07-12](2026-07-12_OPTIMIZATION_RESEARCH.md) (Web + arXiv, 4 parallele Subagents pro Sweep)
 **Hardware:** Mars (RDNA3/Vulkan/30GB), Styx (Pascal/CUDA/8GB), Hydra (Ampere/CUDA/8GB), Uranus (2x Ada/CUDA/32GB), Venus (GCN/Vulkan)
 **Ausschluss:** Treiber-Neuimplementierung, Kernel-Rekompilierung, Hopper-spezifische Features
@@ -30,7 +30,7 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ✅ abgeschlossen (#3✅, #6✅, #13❌, #14⏭️, #15❌, #37✅, #40⏭️) |
 | **M4** | Speculative Decoding v2 | #11, #28 | ✅ abgeschlossen (#11✅ bereits integriert, #28✅ eigene Implementierung) |
 | **M5** | Coopmat2 + Multi-GPU | #12, #20, #21 | ⏳ teilweise (#12✅ bereits integriert, #20✅ bereits integriert, #21 offen) |
-| **M6** | Forschung | #17, #18, #19, #25, #26, #27, #29, #30, #39, #41-#55, #69-#76 | ☐ offen (Research-Sweep #3: 2026-07-13) |
+| **M6** | Forschung | #17, #18, #19, #25, #26, #27, #29, #30, #39, #41-#55, #69-#87 | ☐ offen (Research-Sweep #4: 2026-07-14) |
 
 **Regel:** Solo-Pläne werden nur für den **aktuellen und nächsten Meilenstein** erstellt. Tier 3-4 Pläne entstehen wenn der Meilenstein näher rückt (verhindert veraltete Pläne).
 
@@ -57,6 +57,9 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 58 | ⏭️ | KV Cache Size Limiting + Demand Paging | Alle | 1-2 Wochen | PR #18747 (open) | — | Reduziert KV-Memory bei langen Contexts — **Recherche 2026-07-13 (Update 2026-07-13 Tiefen-Recherche): PR #18747 ist noch OPEN (nicht gemerged, 17 Commits, +1397/-32 Zeilen, 15 Dateien). Liefert: (1) --kv-cache-tokens N limitiert KV-Allokation, (2) --kv-cache-demand-paged nutzt mmap(MAP_NORESERVE) für lazy allocation, (3) Block-Tracking-Infrastruktur (llama-kv-block.h, +263 Zeilen) als Foundation für zukünftiges PagedAttention. Was der PR NICHT tut: keine per-token KV memory reduction, kein memory sharing zwischen Sequenzen, kein dynamisches grow/shrink. Komplementär zu TurboQuant (wir haben schon!) — TurboQuant komprimiert KV-Daten (3-4 bit), PR #18747 managed Allokation. Für Styx (8GB, 224k): TurboQuant hat höhere Immediate-Priorität (bereits vorhanden), PR #18747 kann später übernommen werden wenn gemerged. PagedAttention-Paper (arXiv:2309.06180, vLLM) bestätigt Architektur-Ansatz. Verschoben bis PR merged oder bis TurboQuant allein nicht ausreicht.** |
 | 59 | ❌ | Tensor Prefetching (--prefetch-weights) | Styx, Hydra, Uranus | 1-2 Tage | PR #21067 (draft) | — | Layer-level Prefetch via async copy — **Recherche 2026-07-14 (Tiefen-Analyse): PR #21067 ist DRAFT mit dirty merge state und bekannten event sync bugs (Reviewer-Feedback). CUDA-only, erfordert zwingend --no-mmap (bricht unsere Server-Configs die mmap für schnelles Laden nutzen). "Weniger effektiv für große MoE-Modelle" (PR-Beschreibung) — unser Hauptfall ist 26B A4B MoE. thecodacus Expert-Prefetch deckt MoE-Prefetch bereits ab (+28.9% pp512 auf Styx mit 2-Slot Sweet-Spot). Auf Styx: --no-mmap würde 14.2GB Modell in RAM laden (16GB total — zu tight). Auf Mars: Vulkan, nicht CUDA. Nicht lohnenswert für den Fork.** |
 | 60 | ❌ | RADV Driver-Specific Shader Optimizations | Mars, Venus | 4-8h | nein (Driver-Config) | — | 5-15% möglicher Speedup — **Recherche 2026-07-13: RADV Environment-Variables (RADV_PERFTEST=geom, RADV_NO_DYNAMIC_BOUNDS) sind graphics-orientiert (geometry shaders, invariant geom). Für reine Compute-Workloads (Vulkan LLM Inference) nicht relevant. Kein messbarer Speedup erwartet.** |
+| 77 | ☐ | K-Quant MMVQ Path Fix für RDNA3 | Mars | 2-4h | Issue #21151 | — | 10-15x für Q4_K/Q5_K single-token decode — **Recherche 2026-07-14 (Research-Sweep #4): Issue #21151 zeigt dass Q4_K/Q5_K/Q2_K auf RDNA3 über MMVQ-Pfad 10-15x langsamer sind als f32-Dequant. Fork hat ggml_vk_should_use_mmvq() mit AMD-Logik (k<2048→false), aber Q4_K/Q5_K fallen durchs Raster (default→true bei k≥2048). Zu verifizieren mit Benchmark auf Mars.** |
+| 78 | ☐ | Vulkan Pipeline Cache Disk Persistence | Mars, Venus | 1-2 Tage | Perinban/llama.cpp | — | Reduziert Startup-Zeit — **Recherche 2026-07-14 (Research-Sweep #4): Speichert Pipeline-Cache-Binaries auf Disk (GGML_VK_CACHE_DIR). Vermeidet teure Shader-Rekompilierung bei jedem Start. Perinban-Fork hat funktionierende Implementierung.** |
+| 79 | ☐ | NCCL Communication Optimization | Uranus | 1 Woche | docs/multi-gpu.md | — | Bis 2x für Multi-GPU TP — **Recherche 2026-07-14 (Research-Sweep #4): Automatische NCCL-Nutzung für Cross-GPU Reductions statt manueller PCIe-Kopien. Bereits dokumentiert aber nicht aktiv konfiguriert.** |
 
 ## Tier 2: Mittelfristig (2-6 Wochen Solo-Agent)
 
@@ -88,6 +91,14 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 66 | ☐ | BucketServe: Dynamic Batching | Alle | 1-2 Wochen | arXiv:2507.17120 | — | bis 3.58× Throughput — **Recherche 2026-07-13: Bucket-basiertes dynamisches Batching für multi-request Szenarien. Besonders relevant für Server-Workloads (phobos, styx, uranus).** |
 | 67 | ☐ | MXFP4 Quantization für gpt-oss | Alle | 1-2 Wochen | Diskussion #15095 | — | Native gpt-oss Modellnutzung — **Recherche 2026-07-13: OCP open-standard MXFP4 Format. Alle major Backends (CUDA, Vulkan, Metal, CPU). Ermöglicht gpt-oss Modelle ohne Konvertierung.** |
 | 68 | ✅ | Vulkan Matmul Parameter-Tuning AMD | Mars | 1-2 Tage | PR #18749 (merged) | — | +1-3% auf RDNA3 — **Recherche 2026-07-13: Bereits im Fork (Commits cf119f140, f45eef8cb). Matmul-Parameter-Kombinationen spezifisch für AMD coopmat. Keine weitere Aktion nötig.** |
+| 80 | ☐ | GEAR: KV Cache Quant+LowRank+Sparse | Alle | 3-6 Wochen | arXiv:2403.05527 | — | 2.38x Throughput, komplementär zu TurboQuant — **Recherche 2026-07-14 (Research-Sweep #4): 4-bit Quant + Low-Rank-Fehlerkorrektur + Sparse-Outlier-Remediation. Near-lossless. GitHub: HaoKang-Timmy/GEAR (öffentlich). Hardware-agnostisch, besonders Mars (224k) und Styx (8GB).** |
+| 81 | ☐ | PEARL: Parallel Speculative Decoding | Alle SD | 3-6 Wochen | arXiv:2408.11850 | — | 1.50x über Vanilla SD — **Recherche 2026-07-14 (Research-Sweep #4): Pre-Verify + Post-Verify parallelisieren Drafting und Verification. ICLR 2025. GitHub: smart-lty/ParallelSpeculativeDecoding (öffentlich). Komplementär zu EAGLE-3.** |
+| 82 | ☐ | Fiddler: CPU-GPU MoE Orchestration | Styx, Mars | 3-6 Wochen | arXiv:2402.07033 | — | 1.26-11.57x je nach Workload — **Recherche 2026-07-14 (Research-Sweep #4): Strategische CPU-GPU Resource-Verteilung für MoE. ICLR 2025. GitHub: efeslab/fiddler (öffentlich).** |
+| 83 | ☐ | IQ*_K Quantization mit Importance Matrix | Alle | 2-3 Wochen | PR #19726 | — | Bessere Qualität bei gleicher Größe — **Recherche 2026-07-14 (Research-Sweep #4): ik_llama.cpp IQ2_K bis IQ6_K mit layer-wise importance matrix. Aktivierungs-Statistiken für intelligentere Quantisierung.** |
+| 84 | ☐ | Wave32/Wave64 Subgroup Size Tuning | Mars | 2-3 Tage | PR #12087 (unvollständig) | — | 5-15% auf matmul-vec — **Recherche 2026-07-14 (Research-Sweep #4): RDNA3 unterstützt Wave32 und Wave64. Für memory-bandwidth-bound Operationen ist Wave64 oft optimal.** |
+| 85 | ☐ | Vulkan Push Descriptors (VK_KHR_push_descriptor) | Mars, Venus | 3-5 Tage | nein (Vulkan-Extension) | — | Reduziert CPU-Overhead bei Descriptor-Binding — **Recherche 2026-07-14 (Research-Sweep #4): Deskriptoren direkt in Command Buffer schreiben statt Deskriptor-Sets zu binden.** |
+| 86 | ☐ | Dynamic Speculative Decoding (ngram-map) | Alle | 2-3 Wochen | PR #18471 | — | SD ohne Draft-Model — **Recherche 2026-07-14 (Research-Sweep #4): Self-speculative decoding mit ngram-map und adaptive skip-streak. Kein separates Draft-Model erforderlich. Fork hat bereits Adaptive MTP (skip-streak), aber DSD nutzt ngram-map statt MTP.** |
+| 87 | ☐ | Cross-Layer Gate Expert Prediction | Styx, Hydra | 1-2 Wochen | arXiv:2502.12224 | — | Höhere Prediction-Accuracy → besseres Prefetching — **Recherche 2026-07-14 (Research-Sweep #4): Cross-Layer-Gating für genauere Expert-Prediction ohne Fine-Tuning.** |
 
 ## Tier 3: Komplex (6-12 Wochen Solo-Agent)
 
