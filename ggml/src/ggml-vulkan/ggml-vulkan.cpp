@@ -724,6 +724,10 @@ struct vk_device_struct {
 
     bool pipeline_executable_properties_support {};
 
+    // Disk-persistent Vulkan pipeline cache (GGML_VK_CACHE_DIR)
+    vk::PipelineCache pipeline_cache;
+    std::string pipeline_cache_path;
+
     size_t idx;
 
     bool mul_mat_l[GGML_TYPE_COUNT];
@@ -972,6 +976,32 @@ struct vk_device_struct {
         all_pipelines.clear();
 
         device.destroyDescriptorSetLayout(dsl);
+
+        // Save pipeline cache to disk (atomic write via temp file + rename)
+        if (pipeline_cache && !pipeline_cache_path.empty()) {
+            try {
+                auto cache_data = device.getPipelineCacheData(pipeline_cache);
+                if (!cache_data.empty()) {
+                    std::string tmp_path = pipeline_cache_path + ".tmp";
+                    if (FILE * f = fopen(tmp_path.c_str(), "wb")) {
+                        if (fwrite(cache_data.data(), 1, cache_data.size(), f) == cache_data.size()) {
+                            fclose(f);
+                            // Atomic rename
+                            if (rename(tmp_path.c_str(), pipeline_cache_path.c_str()) != 0) {
+                                // Rename failed — remove temp file
+                                remove(tmp_path.c_str());
+                            }
+                        } else {
+                            fclose(f);
+                            remove(tmp_path.c_str());
+                        }
+                    }
+                }
+            } catch (const vk::SystemError & e) {
+                // Non-fatal — cache just won't be persisted
+            }
+            device.destroyPipelineCache(pipeline_cache);
+        }
 
         device.destroy();
     }
@@ -2541,7 +2571,7 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
 #endif
 
     try {
-        pipeline->pipeline = device->device.createComputePipeline(VK_NULL_HANDLE, compute_pipeline_create_info).value;
+        pipeline->pipeline = device->device.createComputePipeline(device->pipeline_cache, compute_pipeline_create_info).value;
     } catch (const vk::SystemError& e) {
         std::cerr << "ggml_vulkan: Compute pipeline creation failed for " << pipeline->name << std::endl;
         std::cerr << "ggml_vulkan: " << e.what() << std::endl;
@@ -6321,6 +6351,58 @@ static vk_device ggml_vk_get_device(size_t idx) {
         };
 
         device->fence = device->device.createFence({});
+
+        // Disk-persistent Vulkan pipeline cache (GGML_VK_CACHE_DIR)
+        // Loads cached pipeline binaries from disk to skip shader recompilation on startup.
+        // Cache is validated against pipelineCacheUUID to discard stale entries on driver updates.
+        {
+            const char * vk_cache_dir = getenv("GGML_VK_CACHE_DIR");
+            if (vk_cache_dir) {
+                device->pipeline_cache_path = std::string(vk_cache_dir) + "/vk_pipeline_cache_" + std::to_string(idx) + ".bin";
+            }
+
+            std::vector<uint8_t> cache_data;
+            if (!device->pipeline_cache_path.empty()) {
+                if (FILE * f = fopen(device->pipeline_cache_path.c_str(), "rb")) {
+                    fseek(f, 0, SEEK_END);
+                    long fsize = ftell(f);
+                    fseek(f, 0, SEEK_SET);
+                    if (fsize > 0 && fsize < 256 * 1024 * 1024) {  // sanity check: max 256MB
+                        cache_data.resize((size_t) fsize);
+                        if (fread(cache_data.data(), 1, cache_data.size(), f) != cache_data.size()) {
+                            // Read error — discard
+                            cache_data.clear();
+                        }
+                    }
+                    fclose(f);
+
+                    // Validate pipelineCacheUUID (first VK_UUID_SIZE bytes after Vulkan header)
+                    // Vulkan cache header: uint32_t headerSize, uint32_t headerVersion, uint32_t vendorID, uint32_t deviceID, uint8_t pipelineCacheUUID[VK_UUID_SIZE]
+                    if (cache_data.size() >= 16 + VK_UUID_SIZE) {
+                        const uint8_t * cached_uuid = cache_data.data() + 16;
+                        if (memcmp(cached_uuid, device->properties.pipelineCacheUUID, VK_UUID_SIZE) != 0) {
+                            // UUID mismatch — driver update or different GPU, discard stale cache
+                            cache_data.clear();
+                        }
+                    } else {
+                        // Too small to contain a valid header
+                        cache_data.clear();
+                    }
+                }
+            }
+
+            vk::PipelineCacheCreateInfo cache_info;
+            if (!cache_data.empty()) {
+                cache_info.setInitialDataSize(cache_data.size());
+                cache_info.setPInitialData(cache_data.data());
+            }
+            try {
+                device->pipeline_cache = device->device.createPipelineCache(cache_info);
+            } catch (const vk::SystemError & e) {
+                std::cerr << "ggml_vulkan: Pipeline cache creation failed: " << e.what() << std::endl;
+                // Non-fatal — continue without cache
+            }
+        }
 
         device->idx = idx;
 
