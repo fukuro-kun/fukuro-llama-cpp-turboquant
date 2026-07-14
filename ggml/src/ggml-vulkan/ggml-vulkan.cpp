@@ -6480,6 +6480,7 @@ static void ggml_vk_print_gpu_info(size_t idx) {
     bool integer_dot_product = false;
     bool bfloat16_support = false;
     bool dot2_f16_support = false;
+    bool push_descriptor_support = false;
 
     for (auto properties : ext_props) {
         if (strcmp("VK_KHR_16bit_storage", properties.extensionName) == 0) {
@@ -6512,6 +6513,9 @@ static void ggml_vk_print_gpu_info(size_t idx) {
         } else if (strcmp("VK_VALVE_shader_mixed_float_dot_product", properties.extensionName) == 0 &&
                     !getenv("GGML_VK_DISABLE_DOT2")) {
             dot2_f16_support = true;
+        } else if (strcmp("VK_KHR_push_descriptor", properties.extensionName) == 0 &&
+                   !getenv("GGML_VK_DISABLE_PUSH_DESCRIPTOR")) {
+            push_descriptor_support = true;
         }
     }
 
@@ -6662,7 +6666,7 @@ static void ggml_vk_print_gpu_info(size_t idx) {
     GGML_LOG_DEBUG("ggml_vulkan: %zu = %s (%s) | uma: %d | fp16: %s | bf16: %d | warp size: %zu | shared memory: %d | int dot: %d | matrix cores: %s | push_desc: %d\n",
               idx, device_name.c_str(), driver_props.driverName.data(), uma, fp16_str, bf16, subgroup_size,
               props2.properties.limits.maxComputeSharedMemorySize, integer_dot_product, matrix_cores.c_str(),
-              device->push_descriptor_supported ? 1 : 0);
+              push_descriptor_support ? 1 : 0);
 
     if (props2.properties.deviceType == vk::PhysicalDeviceType::eCpu) {
         GGML_LOG_DEBUG("ggml_vulkan: Warning: Device type is CPU. This is probably not the device you want.\n");
