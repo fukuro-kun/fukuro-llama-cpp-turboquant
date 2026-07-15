@@ -8,6 +8,15 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-15
 
+### #19 Expected Attention Phase 2a/b/c — Review-Fixes
+
+- **fix: P0/P1/P2 aus review-swe Code-Review** — (P0) `--ea-no-covariance`/`--ea-no-vnorm` als `handler_void` registriert (vorher `handler_string` → frassen nächstes CLI-Argument). (P1) Validierung numerischer EA-Parameter: `n_sink`/`n_local`/`n_future` >= 0 in `arg.cpp`, `ratio` <= 1.0 Clamp in `llama_context`, `rolling_buffer_size` >= 1. (P1) `ea_compress_stub()` seq_id Bounds-Check + `n_to_prune` Clamp. (P2) `llama_ea_params` Default `compression_ratio` 0.5→0.0 (konsistent mit Public API). (P2) Bool-Layout in `llama_context_params` korrigiert (bools ans Ende). (P2) Env-Var `LLAMA_ARG_EA_NO_COV`→`LLAMA_ARG_EA_NO_COVARIANCE`.
+
+### Tier 3 Eval: GRKV + CapKV
+
+- **eval: #41 GRKV ❌** — Ridge-Regression-basiertes KV-Merging (arXiv:2605.31105). ABLEHNEN: Zu rechenintensiv für Pascal (keine Tensor Cores), numerische Instabilität mit 3-4 bit TurboQuant KV-Cache, kein Production-Referenzcode (nur Author-Repo), marginaler Gewinn bei 2-3 Wochen Aufwand.
+- **eval: #42 CapKV ⏭️** — Capacity-aware KV Eviction (arXiv:2604.25975). VERSCHIEBEN auf Phase 3+: Redundant zu Expected Attention (beide eviction-basiert). NVIDIA kvpress Referenzcode vorhanden (Apache-2.0). 1-2 Wochen Portierung. Vergleich EA vs CapKV wenn EA nicht ausreicht.
+
 ### #19 Expected Attention Phase 2a/b/c — CLI-Parameter + KV-Cache Stub
 
 - **feat: Phase 2a — Public API + cparams Integration** — `llama_context_params` (public API in `llama.h`): 7 neue EA-Felder. `llama_cparams` (internal): neue `struct llama_ea_params`. Default-Werte in `llama_context_default_params()`. Durchreichung `common_params → llama_context_params → llama_cparams`.
