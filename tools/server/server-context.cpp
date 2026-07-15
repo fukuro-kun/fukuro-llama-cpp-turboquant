@@ -1053,6 +1053,16 @@ private:
             params_base.speculative.draft.ctx_dft = ctx_dft.get();
         } else if (std::find(params_base.speculative.types.begin(), params_base.speculative.types.end(),
                              COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params_base.speculative.types.end()) {
+            // Check if the target model has MTP/NextN assistant layers
+            if (llama_model_n_layer_nextn(model_tgt) == 0) {
+                SRV_ERR("%s: model '%s' has no MTP/NextN assistant layers (n_layer_nextn == 0). "
+                        "MTP speculative decoding requires either a model with built-in MTP heads "
+                        "or a separate draft model (--model-draft). Use --spec-type draft-mtp only "
+                        "with MTP-enabled models.\n",
+                        __func__, params_base.model.path.c_str());
+                return false;
+            }
+
             SRV_INF("creating MTP draft context against the target model '%s'\n",
                     params_base.model.path.c_str());
 

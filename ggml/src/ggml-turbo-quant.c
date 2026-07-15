@@ -278,13 +278,22 @@ void quantize_row_turbo3_0_ref(const float * GGML_RESTRICT x, block_turbo3_0 * G
 
     // Read WHT group size from global (set by CPU SET_ROWS handler before each call).
     // Fallback: 128 if row is 128-aligned, else 64.
+    // NOTE: turbo3 block size (QK_TURBO3) is 128, so group_size=64 would
+    // produce blocks_per_group=0 (division by zero / empty blocks).
+    // Force group_size=128 for turbo3 — if k is not 128-aligned, fall back
+    // to the legacy path without WHT grouping.
     extern int turbo3_cpu_wht_group_size;
     int group_size = turbo3_cpu_wht_group_size;
     if (group_size != 64 && group_size != 128) {
         group_size = (k % 128 == 0) ? 128 : 64;
     }
     if (k % group_size != 0) group_size = (group_size == 128) ? 64 : 128;
+    // turbo3 blocks are 128 elements each — group_size must be >= QK_TURBO3
+    if (group_size < QK_TURBO3) {
+        group_size = QK_TURBO3;  // force 128, k must be 128-aligned (checked above)
+    }
     assert(k % group_size == 0);
+    assert(group_size >= QK_TURBO3);
 
     const int n_groups = k / group_size;
     const int blocks_per_group = group_size / QK_TURBO3;
@@ -379,7 +388,12 @@ void quantize_row_turbo2_0_ref(const float * GGML_RESTRICT x, block_turbo2_0 * G
         group_size = (k % 128 == 0) ? 128 : 64;
     }
     if (k % group_size != 0) group_size = (group_size == 128) ? 64 : 128;
+    // turbo2 blocks are 128 elements each — group_size must be >= QK_TURBO2
+    if (group_size < QK_TURBO2) {
+        group_size = QK_TURBO2;  // force 128
+    }
     assert(k % group_size == 0);
+    assert(group_size >= QK_TURBO2);
 
     const int n_groups = k / group_size;
     const int blocks_per_group = group_size / QK_TURBO2;

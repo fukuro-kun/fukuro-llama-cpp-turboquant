@@ -578,6 +578,9 @@ extern "C" {
     LLAMA_API int32_t llama_model_n_swa      (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_expert   (const struct llama_model * model);
 
+    // Returns the number of NextN/MTP prediction layers (0 if the model has no MTP assistant head)
+    LLAMA_API int32_t llama_model_n_layer_nextn(const struct llama_model * model);
+
     // Get the model's RoPE frequency scaling factor
     LLAMA_API float llama_model_rope_freq_scale_train(const struct llama_model * model);
 
