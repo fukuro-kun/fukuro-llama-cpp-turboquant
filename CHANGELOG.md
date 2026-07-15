@@ -8,6 +8,12 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-15
 
+### #19 Expected Attention Phase 2a/b/c — CLI-Parameter + KV-Cache Stub
+
+- **feat: Phase 2a — Public API + cparams Integration** — `llama_context_params` (public API in `llama.h`): 7 neue EA-Felder. `llama_cparams` (internal): neue `struct llama_ea_params`. Default-Werte in `llama_context_default_params()`. Durchreichung `common_params → llama_context_params → llama_cparams`.
+- **feat: Phase 2b — CLI-Parameter** — 6 neue CLI-Args: `--ea-ratio`, `--ea-future`, `--ea-sink`, `--ea-local`, `--ea-no-covariance`, `--ea-no-vnorm`. Env-Var-Äquivalente (`LLAMA_ARG_EA_RATIO` etc.). Default: `--ea-ratio=0.0` (disabled).
+- **feat: Phase 2c — KV-Cache Pruning Stub** — `llama_kv_cache::ea_compress_stub()`: Validiert EA-Parameter, zählt populated cells, berechnet `n_to_prune`. Loggt via `LLAMA_LOG_DEBUG`. Kein echtes Pruning — Phase 2d implementiert `seq_rm()` + Attention-Mask-Update.
+
 ### #19 Expected Attention Phase 1 — CPU Math Implementiert
 
 - **feat: Expected Attention KV Cache Compression Phase 1** — `src/llama-expected-attention.{h,cpp}`: Training-free KV-Pruning (arXiv:2510.00636). Orthogonal zu TurboQuant (Pruning vs Quantisierung, kombiniert ~10x Kompression). CPU-only Math: Rolling query buffer, mean/covariance, RoPE rotation matrix, E(A) score computation, value-norm rescaling, compression decision (sink+local protection). 12 Unit-Tests mit 135 Assertions, alle grün. Phase 2 (KV-Cache Integration) ausstehend.
