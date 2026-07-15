@@ -8,6 +8,12 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-15
 
+### #19 Expected Attention Phase 1 — CPU Math Implementiert
+
+- **feat: Expected Attention KV Cache Compression Phase 1** — `src/llama-expected-attention.{h,cpp}`: Training-free KV-Pruning (arXiv:2510.00636). Orthogonal zu TurboQuant (Pruning vs Quantisierung, kombiniert ~10x Kompression). CPU-only Math: Rolling query buffer, mean/covariance, RoPE rotation matrix, E(A) score computation, value-norm rescaling, compression decision (sink+local protection). 12 Unit-Tests mit 135 Assertions, alle grün. Phase 2 (KV-Cache Integration) ausstehend.
+- **eval: #17 HOBBIT ❌** — PCIe 3.0 Mismatch (9.93x war SSD-vs-DRAM, auf RTX 4090 nur 3.2-3.9x), kein Referenzcode (Paper-only, 10-14 Wochen), Fork hat bereits MoE Cache + thecodacus Prefetch.
+- **eval: #24 HybriMoE ❌** — Architektur-Mismatch (CPU-GPU-Hybrid vs Fork's GPU-Cache), 1.33x/1.70x auf RTX A6000 (48GB), auf Styx (8GB, PCIe 3.0) Regression erwartet. Referenzcode auf kTransformers (nicht llama.cpp).
+
 ### MoE Cache Heuristic — Code-Review Fixes
 
 - **fix: 5 P1 Issues aus review-swe Code-Review** — `moe-cache.cu` Heuristic Eviction: (1) `max_freq` wird jetzt bei Inserts aktualisiert (vorher degenerierte Heuristic zu LRU während Initial-Füllung), (2) `max_freq` wird bei Eviction des heißesten Slots recomputed (verhindert stale max_freq), (3) `g.tick` wird nur einmal pro `plan()` erhöht statt pro Hit/Insert (verhindert Iterations-Reihenfolge-Bias), (4) `freq` saturierend inkrementiert (verhindert uint32 Overflow nach ~4B Hits), (5) `GGML_CUDA_MOE_CACHE_POLICY` case-insensitive + Warning bei unbekannten Werten.
