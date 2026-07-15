@@ -8,6 +8,11 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-15
 
+### #87: Cross-Layer Gate Expert Prediction — ❌ evaluiert
+
+- **eval: #87 Cross-Layer Gate Expert Prediction (Fate, arXiv:2502.12224)** — Evaluation in `docs/fork/2026-07-15_CROSS_LAYER_GATE_EVAL.md`. Fate schlägt training-freie Expert-Prediction via Cross-Layer Gating vor (>83% Cosine-Ähnlichkeit der Gate-Inputs → 97.15% Prefetch-Accuracy). Paper: MIT-Lizenz, Code auf GitHub (FFFzy/Fate_open), training-frei. **Messung auf Mars (QAT Q4_K_XL, 155 Tokens):** Expert-Selection-Overlap zwischen benachbarten Layern = **6.6%** (nahe Random-Baseline 6.25% für 128 Experten + Top-8). 0% Exact Match. Multi-Step Overlap (N vs N+2, N+3) ebenfalls ~6%. **Schlussfolgerung:** ❌ Nicht viable für Gemma-4 26B-A4B. Die Gate-Funktion (Softmax + Top-8 aus 128) ist zu nicht-linear für Cross-Layer-Prediction. Fate wurde auf Modellen mit 8-16 Experten (Top-2) evaluiert, wo die Gate-Funktion wesentlich robuster ist. Neues Tool `llama-expert-overlap` entwickelt für diese Messung.
+- **feat: llama-expert-overlap Tool** — Neues Profiling-Tool in `tools/expert-profile/expert-overlap.cpp`. Misst Cross-Layer Expert-Selection-Overlap für MoE-Modelle. Verwendet `ggml_backend_tensor_get` für GPU-Tensor-Zugriff. Build: `cmake --build build --target llama-expert-overlap`.
+
 ### MTP bei verschiedenen Kontextgrößen auf Mars — 256k Root Cause
 
 - **bench: MTP Kontextgrößen-Scan auf Mars** — Benchmark in `docs/fork/2026-07-14_MTP_DRAFT_COMPARISON.md` (Nachtrag). Setup: QAT Q4_K_XL, Q4_0 Draft, "Hallo" Prompt (17 tokens), max_tokens=64, turbo3/turbo4 KV, FlashAttention on. **Ergebnisse:** MTP bringt bei 32k **+29.3%** tg (34.4 vs 26.6 t/s), bei 64k **+34.6%** (35.8 t/s), bei 128k **+15.4%** (30.7 t/s). Bei 160k neutral (26.1 t/s). Bei 256k **Timeout (>5min)** — 300x Slowdown in prompt processing (0.14 t/s für 8 tokens vs 43.5 t/s Baseline).
