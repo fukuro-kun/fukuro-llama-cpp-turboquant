@@ -53,6 +53,8 @@ struct moe_cache_slot {
     int      next;
     bool     valid;     // contents complete, lookups may hit
     bool     queued;    // insert copy queued or in flight
+    uint32_t freq;      // access count (for heuristic eviction policy)
+    uint64_t last_access; // monotonic tick of last access (for recency)
 };
 
 struct moe_cache_pool {
@@ -68,6 +70,7 @@ struct moe_cache_pool {
     std::unordered_map<uint64_t, int> map;
     int lru_head = -1;
     int lru_tail = -1;
+    uint32_t max_freq = 0;     // running max of freq (for normalization)
 };
 
 struct moe_cache_device {
@@ -155,6 +158,13 @@ struct moe_cache_global {
     int    max_batch        = 1; // decode batches up to this size use the cache
                                  // (GGML_CUDA_MOE_CACHE_MAX_BATCH; >1 for spec-verify/parallel)
     int    stats_every      = 0; // log every N collect() calls (0 = off)
+
+    // Eviction policy: "lru" (default, original) or "heuristic" (recency+frequency)
+    // GGML_CUDA_MOE_CACHE_POLICY=heuristic to enable
+    // Heuristic: score = alpha*(1/(age+1)) + beta*(freq/max_freq)
+    // Evict slot with LOWEST score. alpha=0.7, beta=0.3 empirically.
+    enum eviction_policy { POLICY_LRU, POLICY_HEURISTIC } policy = POLICY_LRU;
+    uint64_t tick = 0;  // monotonic access counter (advanced on each hit/insert)
 
     moe_cache_device dev[MOE_CACHE_MAX_DEV];
 
@@ -371,7 +381,7 @@ restart:
             if (p.map.count(key)) continue;
 
             const int si = p.n_used++;
-            p.slots[si] = moe_cache_slot{key, -1, -1, false, true};
+            p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, ++g.tick};
             moe_cache_lru_push_back(p, si);
             p.map[key] = si;
             d.inserts++;
@@ -609,7 +619,7 @@ static bool moe_cache_pool_alloc(int di, size_t expert_size, int wtype, size_t b
     p.n_used      = 0;
     p.map.clear();
     p.lru_head = p.lru_tail = -1;
-    p.slots.assign(ns, moe_cache_slot{0, -1, -1, false, false});
+    p.slots.assign(ns, moe_cache_slot{0, -1, -1, false, false, 0, 0});
     d.n_pools++;
     MOE_CACHE_LOG("[moe-cache] dev=%d pool[%d]: type=%d slot=%zu KB slots=%d total=%zu MB%s\n",
             di, d.n_pools - 1, wtype, expert_size >> 10, ns,
@@ -939,6 +949,10 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
             if (s.valid) {
                 moe_cache_lru_remove(p, si);
                 moe_cache_lru_push_back(p, si);
+                // update frequency + recency for heuristic eviction
+                s.freq++;
+                s.last_access = ++g.tick;
+                if (s.freq > p.max_freq) p.max_freq = s.freq;
                 slot_idx[k] = si;
                 d.hits++;
                 d.pool_hits[g.cur_pool]++;
@@ -996,10 +1010,32 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
         if (p.n_used < p.n_slots) {
             si = p.n_used++;
         } else {
-            int cand = p.lru_head;
-            int guard = 0;
-            while (cand >= 0 && p.slots[cand].queued && guard++ < 64) cand = p.slots[cand].next;
-            if (cand < 0 || p.slots[cand].queued) { d.insert_skips++; d.skip_lrubusy++; continue; }
+            // Eviction: pick victim based on policy
+            int cand = -1;
+            if (g.policy == moe_cache_global::POLICY_HEURISTIC) {
+                // Heuristic: score = alpha*(1/(age+1)) + beta*(freq/max_freq)
+                // Evict slot with LOWEST score (least likely to be reused)
+                // Skip queued slots (can't evict in-flight inserts)
+                const float alpha = 0.7f, beta = 0.3f;
+                float worst_score = 1e30f;
+                for (int i = 0; i < p.n_slots; i++) {
+                    if (p.slots[i].queued) continue;
+                    const uint64_t age = g.tick - p.slots[i].last_access;
+                    const float freq_norm = p.max_freq > 0 ? (float)p.slots[i].freq / p.max_freq : 0.0f;
+                    const float score = alpha * (1.0f / (float)(age + 1)) + beta * freq_norm;
+                    if (score < worst_score) {
+                        worst_score = score;
+                        cand = i;
+                    }
+                }
+            } else {
+                // Original LRU: walk from head, skip queued
+                cand = p.lru_head;
+                int guard = 0;
+                while (cand >= 0 && p.slots[cand].queued && guard++ < 64) cand = p.slots[cand].next;
+                if (cand >= 0 && p.slots[cand].queued) cand = -1;
+            }
+            if (cand < 0) { d.insert_skips++; d.skip_lrubusy++; continue; }
             si = cand;
             moe_cache_slot & old = p.slots[si];
             if (old.valid || old.queued) {
@@ -1022,7 +1058,7 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
             src_up = (const char *)g.cur_host_base + (size_t)eid * g.cur_expert_size;
         }
 
-        p.slots[si] = moe_cache_slot{key, -1, -1, false, true};
+        p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, ++g.tick};
         moe_cache_lru_push_back(p, si);
         p.map[key] = si;
         d.inserts++;
@@ -1786,6 +1822,11 @@ void ggml_moe_cache_register(void) {
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_MAX_BATCH"))     { int n = atoi(e); if (n >= 1 && n <= 8) g.max_batch = n; }
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_PREFETCH"))      g.backfill.enabled = atoi(e) > 0;
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_HOTSET"))        g.hotset_enabled = atoi(e) > 0;
+    if (const char * e = getenv("GGML_CUDA_MOE_CACHE_POLICY")) {
+        // "lru" (default) or "heuristic" (recency+frequency weighted eviction)
+        if (strcmp(e, "heuristic") == 0 || atoi(e) == 1) g.policy = moe_cache_global::POLICY_HEURISTIC;
+        else g.policy = moe_cache_global::POLICY_LRU;
+    }
     g.hotset_last_save = ggml_time_us();   // first save no sooner than one period in
     memset(g.blk_pair_pool, -1, sizeof(g.blk_pair_pool));
     memset(g.blk_down_pool, -1, sizeof(g.blk_down_pool));
