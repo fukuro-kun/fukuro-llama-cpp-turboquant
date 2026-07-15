@@ -8,6 +8,10 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-15
 
+### MoE Cache Heuristic — Code-Review Fixes
+
+- **fix: 5 P1 Issues aus review-swe Code-Review** — `moe-cache.cu` Heuristic Eviction: (1) `max_freq` wird jetzt bei Inserts aktualisiert (vorher degenerierte Heuristic zu LRU während Initial-Füllung), (2) `max_freq` wird bei Eviction des heißesten Slots recomputed (verhindert stale max_freq), (3) `g.tick` wird nur einmal pro `plan()` erhöht statt pro Hit/Insert (verhindert Iterations-Reihenfolge-Bias), (4) `freq` saturierend inkrementiert (verhindert uint32 Overflow nach ~4B Hits), (5) `GGML_CUDA_MOE_CACHE_POLICY` case-insensitive + Warning bei unbekannten Werten.
+
 ### #69/#70 MoE Cache Prediction — Phase 1 Heuristic Implementiert
 
 - **feat: MoE Cache Heuristic Eviction Policy** — Neue Eviction-Policy in `moe-cache.cu` neben LRU. Aktivierbar via `GGML_CUDA_MOE_CACHE_POLICY=heuristic`. Algorithmus: `score = 0.7*(1/(age+1)) + 0.3*(freq/max_freq)`, evict slot mit niedrigstem Score. Inspiriert von FlashMoE (arXiv:2601.17063). Phase 1 des kombinierten FlashMoE+ST-MoE Design-Dokuments. Default bleibt LRU.
