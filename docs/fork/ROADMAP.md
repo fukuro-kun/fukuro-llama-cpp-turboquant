@@ -109,7 +109,7 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 |---|--------|--------|---------|---------|-----------|-----------|------|
 | 17 | ☐ | HOBBIT: Mixed-Precision Expert Offloading | Styx, Mars | 8-12 Wochen | arXiv:2411.01433 | später | bis 9.93x MoE offloading |
 | 18 | ☐ | DALI: Workload-Aware MoE Offloading | Styx | 4-6 Wochen | arXiv:2602.03495 | später | intelligentes MoE-Offloading |
-| 19 | ☐ | Expected Attention KV Cache Compression | Alle | 4-6 Wochen | arXiv:2510.00636 | später | ergänzt TurboQuant |
+| 19 | 🔬 | Expected Attention KV Cache Compression | Alle | 4-6 Wochen | arXiv:2510.00636 | [Phase 1](2026-07-15_EXPECTED_ATTENTION_DESIGN.md) | ergänzt TurboQuant — **Phase 1 Design-Dokument fertig: orthogonal zu TurboQuant (Pruning vs Quant), kombiniert ~10x Kompression** |
 | 20 | ✅ | Tensor Parallelism für Uranus | Uranus | 6-8 Wochen | PR #19378 (merged) | [M5](plans/SESSION_PLAN_tensor-parallelism.md) | ~40% boost für 2x 4060 Ti — **bereits im Fork integriert: Commit d850df3f5, backend-agnostic tensor parallelism, AllReduce in ggml-cuda/allreduce.cu, Meta-Device in llama.cpp** |
 | 21 | ☐ | PagedAttention / Paged KV Cache | Uranus, Mars | 6-8 Wochen | PR #22569 | später | 2.5x aggregate throughput |
 | 22 | ☐ | GWQ: Gradient-Aware Weight Quantization | Alle | 4-6 Wochen | arXiv:2411.00850 | später | 1.2x inference speedup |
