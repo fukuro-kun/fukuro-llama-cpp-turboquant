@@ -1,10 +1,17 @@
-# SESSION_PLAN — #65 Pre-Attention Expert Prediction
+# SESSION_PLAN — #65 Pre-Attention Expert Prediction + #87 Cross-Layer Gate
 
-**Datum:** 2026-07-14 | **Item:** #65 (arXiv:2511.10676) | **Systeme:** Styx (CUDA, MoE-Offload), Mars (Vulkan, Referenz)
+**Datum:** 2026-07-14 | **Item:** #65 (arXiv:2511.10676) + #87 (arXiv:2502.12224) | **Systeme:** Styx (CUDA, MoE-Offload), Mars (Vulkan, Referenz)
+
+## Status
+
+- **#65 Pre-Attention Expert Prediction:** ⏭️ Verschoben — Blocker: Training-Pipeline, CC BY-NC-SA Lizenz, fehlender Expert-Cache-Manager
+- **#87 Cross-Layer Gate Expert Prediction (Fate):** ❌ Evaluiert — Expert-Selection-Overlap 6.6% (nahe Random-Baseline 6.25%). Nicht viable für 128-Experten MoE. Siehe `docs/fork/2026-07-15_CROSS_LAYER_GATE_EVAL.md`.
 
 ## Session-Ziel
 
-Implementiere Pre-Attention Expert Prediction für Gemma-4 26B-A4B MoE auf Styx. Ziel: 93-97% Expert-Vorhersage-Genauigkeit bevor MoE-Layer → präziseres Prefetching → reduzierte Cache-Misses → schnellerer Decode auf Styx (MoE-Offload-Bottleneck).
+~~Implementiere Pre-Attention Expert Prediction für Gemma-4 26B-A4B MoE auf Styx.~~
+
+**Aktualisiert (2026-07-15):** Evaluiere #87 Fate Cross-Layer Gate als Fallback für #65. Ergebnis: ❌ nicht viable für Gemma-4 26B-A4B.
 
 ## Entscheidungen (autonom, User nicht verfügbar)
 
