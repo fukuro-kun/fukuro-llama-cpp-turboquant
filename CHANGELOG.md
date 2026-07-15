@@ -6,6 +6,14 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-15
+
+### MTP bei verschiedenen Kontextgrößen auf Mars — 256k Root Cause
+
+- **bench: MTP Kontextgrößen-Scan auf Mars** — Benchmark in `docs/fork/2026-07-14_MTP_DRAFT_COMPARISON.md` (Nachtrag). Setup: QAT Q4_K_XL, Q4_0 Draft, "Hallo" Prompt (17 tokens), max_tokens=64, turbo3/turbo4 KV, FlashAttention on. **Ergebnisse:** MTP bringt bei 32k **+29.3%** tg (34.4 vs 26.6 t/s), bei 64k **+34.6%** (35.8 t/s), bei 128k **+15.4%** (30.7 t/s). Bei 160k neutral (26.1 t/s). Bei 256k **Timeout (>5min)** — 300x Slowdown in prompt processing (0.14 t/s für 8 tokens vs 43.5 t/s Baseline).
+- **rca: 256k MTP Timeout — shared KV cache override** — Root Cause: MTP-Draft teilt sich den KV-Cache mit dem Backbone (`ctx_other`). Beim Laden wird der Draft-KV-Cache auf die Backbone-Größe überschrieben: `W llama_kv_cache: kv_size = 4096 overridden to 262144 to match the shared source cache`. Ein n_ctx-Limit-Fix für den Draft (Commits `108a804ed`, `98339dd7f`) wurde durch das KV-Cache-Sharing **überschrieben**. Die MTP-Attention operiert über 262k Positionen im shared KV-Cache. Bei 128k funktioniert MTP (innerhalb draft training context 131072), bei 256k nicht (überschreitet draft training context → RoPE-Skalierung/Performance-Einbruch). Fix-Versuch reverted (`7a76dcfd7`). Potenzieller zukünftiger Fix: MTP-Draft-Attention auf SWA-Fenster limitieren oder shared KV-Cache-Größe für MTP auf n_ctx_train limitieren.
+- **empfehlung: MTP auf Mars bei ≤128k aktivieren** — Echter Speedup +15% bis +35% tg bei 32k-128k Kontext. Bei 256k Produktiv-Kontext deaktiviert lassen bis shared-KV-Cache-Problem gelöst ist.
+
 ## 2026-07-14
 
 ### MTP Draft-Vergleich mit QAT — Korrektur der Wochenrückschau

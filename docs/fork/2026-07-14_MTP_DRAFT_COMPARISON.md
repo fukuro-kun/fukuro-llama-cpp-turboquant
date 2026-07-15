@@ -106,6 +106,56 @@ Q4_K_M ist auf beiden Systemen ein Netto-Nachteil (-15% bis -21%): der größere
 6. **Bei Produktiv-Kontext (Styx 224k, Mars 256k) ist MTP ohnehin unmöglich** (Draft-OOM auf GPU, CPU-Draft ist -44%).
 7. **MTP könnte auf Mars bei kleinerem Kontext (z.B. 32k-64k) einen leichten Benefit bringen** — aber das Produktiv-Setup nutzt 256k, wo der Draft nicht auf GPU passt.
 
+## Nachtrag 15.07.2026: MTP bei verschiedenen Kontextgrößen auf Mars
+
+### Fragestellung
+
+Kann MTP (Q4_0 Draft) bei Produktiv-Kontext (256k) auf Mars verwendet werden? Der Draft hat `context_length = 131072` (128k) — funktioniert MTP wenn der Backbone-Kontext das Trainings-Limit des Drafts überschreitet?
+
+### Setup
+
+| Parameter | Wert |
+|-----------|------|
+| System | Mars/phobos (AMD Radeon 760M, Vulkan, voller GPU-Offload) |
+| Modell | Gemma-4-26B-A4B QAT Q4_K_XL |
+| Draft | mtp-gemma-4-26B-A4B-it-Q4_0.gguf (241 MB, 4 Layer, n_embd=1024, context_length=131072) |
+| Prompt | "Hallo" (17 tokens), max_tokens=64 |
+| KV-Cache | turbo3 K, turbo4 V, FlashAttention on |
+
+### Ergebnisse
+
+| Kontext | MTP tg t/s | Baseline tg t/s | MTP Speedup | Response Time | Status |
+|---------|-----------|----------------|-------------|---------------|--------|
+| 8k | 26.70 | 25.79 | +3.5% | ~2s | ✅ neutral |
+| 32k | **34.4** | 26.6 | **+29.3%** | 2.3s | ✅ **echter Speedup** |
+| 64k | **35.8** | 26.6 | **+34.6%** | 2.2s | ✅ **echter Speedup** |
+| 128k | **30.7** | 26.6 | **+15.4%** | 2.5s | ✅ **echter Speedup** |
+| 160k | 26.1 | 26.6 | -1.9% | 2.9s | ✅ neutral |
+| 256k | — | 26.6 | — | >5min | ❌ **Timeout** |
+
+### Root Cause: 256k-Timeout
+
+**Symptom:** Bei 256k Backbone-Kontext dauert die Prompt-Verarbeitung von 8 Tokens >55 Sekunden (0.14 t/s), während die Baseline (ohne MTP) 17 Tokens in 391ms verarbeitet (43.5 t/s) — ein **300x Slowdown**.
+
+**Root Cause:** Der MTP-Draft teilt sich den KV-Cache mit dem Backbone (shared KV cache via `ctx_other`). Beim Laden wird der Draft-KV-Cache auf die Backbone-Größe überschrieben:
+```
+W llama_kv_cache: kv_size = 4096 overridden to 262144 to match the shared source cache
+```
+Ein n_ctx-Fix für den Draft (limitiert auf 4096 oder 131072) wird durch das KV-Cache-Sharing **überschrieben**. Die MTP-Attention operiert über 262k Positionen im shared KV-Cache, was bei 256k zu extremen Verlangsamungen führt.
+
+**Warum 128k funktioniert aber 256k nicht:** Bei 128k Backbone-Kontext ist der shared KV-Cache 131072 Positionen groß — innerhalb des Draft-Trainings-Limits. Bei 256k wird der KV-Cache auf 262144 verdoppelt, was den Draft-Trainings-Kontext (131072) überschreitet. Die RoPE-Skalierung und/oder KV-Cache-Management bei n_ctx > n_ctx_train verursacht den superlinearen Performance-Einbruch.
+
+**Fix-Versuch (reverted):** `params_dft.n_ctx` für MTP-Drafts auf 4096 limitieren. Funktionierte nicht wegen KV-Cache-Sharing-Override. Commit `98339dd7f` wurde reverted (`7a76dcfd7`).
+
+### Fazit Nachtrag
+
+1. **MTP bringt bei 32k-128k Kontext einen echten Speedup auf Mars** (+15% bis +35% tg).
+2. **Bei 160k ist MTP neutral** — der Speedup verschwindet.
+3. **Bei 256k (Produktiv-Kontext) ist MTP unbrauchbar** — 300x Slowdown durch shared KV-Cache bei n_ctx > n_ctx_train.
+4. **Der n_ctx-Limit-Fix funktioniert nicht** weil der shared KV-Cache die Größe überschreibt.
+5. **Potenzieller Fix (zukünftig):** MTP-Draft-Attention auf SWA-Fenster limitieren statt vollen shared KV-Cache zu scannen. Oder shared KV-Cache-Größe für MTP-Draft auf n_ctx_train limitieren.
+6. **Empfehlung:** MTP auf Mars bei ≤128k Kontext aktivieren (echter Speedup). Bei 256k Produktiv-Kontext deaktiviert lassen bis das shared-KV-Cache-Problem gelöst ist.
+
 ## Korrektur zur Wochenrückschau
 
 Die Wochenrückschau `docs/fork/2026-07-14_WEEKLY_REVIEW.md` und der TTT-Eintrag vom 14.07. enthalten "+150% tg with MTP (12.7→31.9 t/s)". Das ist irreführend, weil es Config-A-Baseline (alle Experten CPU, kein Pinning) mit Config-B+MTP vergleicht. Der korrekte MTP-Boost ist +50% (21.3→31.9 t/s), bezogen auf die gleiche Config B — und gilt nur für IQ4_NL, nicht für QAT. Mit QAT ist MTP ein Netto-Nachteil (-9% bis -21%).
