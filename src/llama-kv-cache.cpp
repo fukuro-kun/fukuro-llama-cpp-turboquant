@@ -1,5 +1,6 @@
 #include "llama-kv-cache.h"
 
+#include "llama-expected-attention.h"
 #include "llama-impl.h"
 #include "llama-io.h"
 #include "llama-model.h"
@@ -3005,4 +3006,33 @@ void llama_kv_cache_context::set_input_k_rot(ggml_tensor * dst) const {
 
 void llama_kv_cache_context::set_input_v_rot(ggml_tensor * dst) const {
     kv->set_input_v_rot(dst);
+}
+
+// Expected Attention KV Cache Compression — Phase 2c Stub
+// Validates parameters and computes how many tokens WOULD be pruned.
+// No actual pruning yet — Phase 2d will implement the pruning logic.
+int llama_kv_cache::ea_compress_stub(const llama_cparams & cparams, llama_seq_id seq_id) const {
+    if (!cparams.ea.enabled || cparams.ea.compression_ratio <= 0.0f) {
+        return 0;
+    }
+
+    // Count populated cells for this sequence
+    const auto & cells = v_cells[seq_to_stream[seq_id]];
+    int n_tokens = 0;
+    for (uint32_t i = 0; i < cells.size(); i++) {
+        if (!cells.is_empty(i) && cells.seq_has(i, seq_id)) {
+            n_tokens++;
+        }
+    }
+
+    // Compute how many would be pruned
+    const int n_eligible = std::max(0, n_tokens - cparams.ea.n_sink - cparams.ea.n_local);
+    const int n_to_prune = (int)(cparams.ea.compression_ratio * n_eligible);
+
+    LLAMA_LOG_DEBUG("[ea_compress_stub] seq=%d: n_tokens=%d, n_eligible=%d, would_prune=%d (ratio=%.2f, sink=%d, local=%d, cov=%d, vnorm=%d)\n",
+                    seq_id, n_tokens, n_eligible, n_to_prune,
+                    cparams.ea.compression_ratio, cparams.ea.n_sink, cparams.ea.n_local,
+                    cparams.ea.use_covariance, cparams.ea.use_vnorm);
+
+    return n_to_prune;
 }
