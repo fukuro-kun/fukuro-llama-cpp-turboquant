@@ -908,6 +908,9 @@ void llm_graph_result::reset() {
     t_layer_inp.resize(LLAMA_MAX_LAYERS);
     std::fill(t_layer_inp.begin(), t_layer_inp.end(), nullptr);
 
+    t_ea_qcur.resize(LLAMA_MAX_LAYERS);
+    std::fill(t_ea_qcur.begin(), t_ea_qcur.end(), nullptr);
+
     t_sampled.clear();
     t_sampled_probs.clear();
     t_sampled_logits.clear();
@@ -1067,7 +1070,8 @@ llm_graph_context::llm_graph_context(const llm_graph_params & params) :
     res              (params.res),
     ctx0             (res->get_ctx()),
     gf               (res->get_gf()),
-    moe_freq_track   (params.moe_freq_track) {
+    moe_freq_track   (params.moe_freq_track),
+    ea_qcur_track    (params.ea_qcur_track) {
         res->set_params(params);
     }
 
@@ -1250,6 +1254,20 @@ llm_graph_qkv llm_graph_context::build_qkv(
     cb(Qcur, "Qcur", il);
     cb(Kcur, "Kcur", il);
     cb(Vcur, "Vcur", il);
+
+    // EA Phase 3: capture pre-RoPE Qcur for EA score computation.
+    // RoPE is applied in the model code AFTER build_qkv returns, so Qcur
+    // here is still pre-RoPE — exactly what the EA statistics need.
+    // We make a contiguous copy because ggml_rope_ext may overwrite its
+    // input inplace depending on the backend. Pattern follows MoE freq
+    // tracking (see build_moe_ffn).
+    if (ea_qcur_track && (size_t)il < res->t_ea_qcur.size()) {
+        ggml_tensor * q_ea = ggml_cont(ctx0, Qcur);
+        ggml_set_output(q_ea);
+        ggml_format_name(q_ea, "ea_qcur_pre_rope-%d", il);
+        ggml_build_forward_expand(gf, q_ea);
+        res->t_ea_qcur[il] = q_ea;
+    }
 
     return { Qcur, Kcur, Vcur };
 }

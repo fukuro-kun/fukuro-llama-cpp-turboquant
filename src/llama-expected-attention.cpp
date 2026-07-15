@@ -73,6 +73,54 @@ void ea_compute_mean(const ea_query_buffer & buf, float * mu) {
     }
 }
 
+// ============================================================================
+// TurboQuant WHT-Forward (replicates turbo_cpu_fwht from ggml-turbo-quant.c)
+// ============================================================================
+
+// WHT sign arrays — must match turbo_cpu_s1/s2 in ggml-turbo-quant.c
+// and turbo_wht_s1/s2 in ggml-cpu/ops.cpp (seed=42)
+static const float ea_wht_s1[128] = {
+    -1,1,1,-1,-1,1,-1,1,-1,-1,1,1,1,1,1,1,1,-1,1,-1,1,-1,-1,1,1,1,-1,1,1,-1,-1,-1,
+    -1,1,1,-1,1,1,-1,1,-1,1,1,-1,-1,1,-1,1,1,1,1,-1,-1,-1,-1,-1,1,-1,1,1,1,1,-1,1,
+    -1,-1,1,-1,-1,-1,1,-1,-1,-1,1,-1,-1,-1,1,1,1,-1,-1,1,1,1,-1,-1,1,1,-1,1,1,-1,1,-1,
+    -1,1,1,-1,1,-1,1,-1,1,1,1,1,-1,1,-1,1,1,-1,1,1,-1,-1,-1,-1,-1,1,1,-1,1,1,-1,1
+};
+
+static const float ea_wht_s2[128] = {
+    1,1,1,1,-1,1,1,-1,1,-1,-1,-1,1,-1,-1,-1,1,1,-1,-1,1,-1,1,-1,1,-1,-1,1,-1,1,1,1,
+    1,1,-1,-1,-1,1,-1,-1,-1,-1,-1,-1,1,1,1,-1,1,-1,1,1,1,-1,-1,1,-1,-1,-1,-1,-1,-1,1,1,
+    1,-1,1,-1,-1,-1,-1,1,-1,1,-1,1,-1,-1,1,1,-1,1,-1,1,1,-1,1,-1,-1,-1,-1,1,-1,-1,1,-1,
+    1,-1,1,1,1,-1,-1,1,-1,1,-1,1,1,-1,-1,1,-1,1,-1,1,1,-1,1,-1,1,-1,-1,-1,-1,-1,1,-1
+};
+
+void ea_wht_forward(float * x, int group_size, const float * scale_inv) {
+    const float * s1 = ea_wht_s1;
+    const float * s2 = ea_wht_s2;
+    const float inv_sqrt = (group_size == 128) ? 0.08838834764831845f : 0.125f;
+
+    // InnerQ forward: apply scale_inv BEFORE signs+WHT (for Q pre-rotation)
+    if (scale_inv) {
+        for (int i = 0; i < group_size; i++) x[i] *= scale_inv[i];
+    }
+
+    // signs1
+    for (int i = 0; i < group_size; i++) x[i] *= s1[i];
+
+    // butterfly stages
+    for (int h = 1; h < group_size; h *= 2) {
+        for (int i = 0; i < group_size; i += h * 2) {
+            for (int j = i; j < i + h; j++) {
+                float a = x[j], b = x[j + h];
+                x[j]     = a + b;
+                x[j + h] = a - b;
+            }
+        }
+    }
+
+    // normalize + signs2
+    for (int i = 0; i < group_size; i++) x[i] *= inv_sqrt * s2[i];
+}
+
 void ea_compute_covariance(const ea_query_buffer & buf, const float * mu, float * cov) {
     const int d = buf.head_dim;
     if (buf.count <= 1 || d <= 0) {
@@ -122,7 +170,7 @@ void ea_compute_covariance(const ea_query_buffer & buf, const float * mu, float 
 // Actually, llama.cpp uses the "interleaved" convention: (0,1), (2,3), ...
 // We use the interleaved convention here.
 
-void ea_compute_rope_matrix(float pos, float theta_base, int head_dim, float * rot) {
+void ea_compute_rope_matrix(float pos, float theta_base, int head_dim, float * rot, int rope_mode) {
     const int d = head_dim;
     const int half = d / 2;
 
@@ -132,21 +180,39 @@ void ea_compute_rope_matrix(float pos, float theta_base, int head_dim, float * r
         rot[(size_t)i * d + i] = 1.0f;
     }
 
-    // Fill 2x2 rotation blocks for each pair (2i, 2i+1)
-    for (int i = 0; i < half; i++) {
-        const float theta = std::pow(theta_base, (float)(-2 * i) / (float)d);
-        const float angle = pos * theta;
-        const float c = std::cos(angle);
-        const float s = std::sin(angle);
+    if (rope_mode == 1) {
+        // NeoX convention: pairs (i, i+d/2)
+        // R[i][i]       = cos(angle_i)
+        // R[i][i+d/2]   = -sin(angle_i)
+        // R[i+d/2][i]   = sin(angle_i)
+        // R[i+d/2][i+d/2] = cos(angle_i)
+        for (int i = 0; i < half; i++) {
+            const float theta = std::pow(theta_base, (float)(-2 * i) / (float)d);
+            const float angle = pos * theta;
+            const float c = std::cos(angle);
+            const float s = std::sin(angle);
 
-        const int r0 = 2 * i;
-        const int r1 = 2 * i + 1;
+            rot[(size_t)i * d + i]           = c;
+            rot[(size_t)i * d + (i + half)]  = -s;
+            rot[(size_t)(i + half) * d + i]  = s;
+            rot[(size_t)(i + half) * d + (i + half)] = c;
+        }
+    } else {
+        // Interleaved convention (GPT-J/NORM): pairs (2i, 2i+1)
+        for (int i = 0; i < half; i++) {
+            const float theta = std::pow(theta_base, (float)(-2 * i) / (float)d);
+            const float angle = pos * theta;
+            const float c = std::cos(angle);
+            const float s = std::sin(angle);
 
-        // Reset identity entries for this 2x2 block
-        rot[(size_t)r0 * d + r0] = c;
-        rot[(size_t)r0 * d + r1] = -s;
-        rot[(size_t)r1 * d + r0] = s;
-        rot[(size_t)r1 * d + r1] = c;
+            const int r0 = 2 * i;
+            const int r1 = 2 * i + 1;
+
+            rot[(size_t)r0 * d + r0] = c;
+            rot[(size_t)r0 * d + r1] = -s;
+            rot[(size_t)r1 * d + r0] = s;
+            rot[(size_t)r1 * d + r1] = c;
+        }
     }
 
     // Handle odd dimension (last dimension unpaired, no rotation)
@@ -156,10 +222,10 @@ void ea_compute_rope_matrix(float pos, float theta_base, int head_dim, float * r
 }
 
 void ea_average_rope(float current_pos, int n_future, float theta_base,
-                     int head_dim, float * rot_avg) {
+                     int head_dim, float * rot_avg, int rope_mode) {
     const int d = head_dim;
     if (n_future <= 0) {
-        ea_compute_rope_matrix(current_pos, theta_base, d, rot_avg);
+        ea_compute_rope_matrix(current_pos, theta_base, d, rot_avg, rope_mode);
         return;
     }
 
@@ -169,7 +235,7 @@ void ea_average_rope(float current_pos, int n_future, float theta_base,
 
     for (int t = 0; t < n_future; t++) {
         const float pos = current_pos + (float)t + 1.0f;
-        ea_compute_rope_matrix(pos, theta_base, d, rot_single.data());
+        ea_compute_rope_matrix(pos, theta_base, d, rot_single.data(), rope_mode);
         for (size_t k = 0; k < (size_t)d * d; k++) {
             rot_avg[k] += rot_single[k];
         }

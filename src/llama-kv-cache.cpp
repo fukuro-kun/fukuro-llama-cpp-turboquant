@@ -7,6 +7,9 @@
 #include "llama-model.h"
 #include "llama-context.h"
 
+#include "ggml.h"
+#include "ggml-backend.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -603,6 +606,67 @@ llama_kv_cache::llama_kv_cache(
 
     const char * LLAMA_KV_CACHE_DEBUG = getenv("LLAMA_KV_CACHE_DEBUG");
     debug = LLAMA_KV_CACHE_DEBUG ? atoi(LLAMA_KV_CACHE_DEBUG) : 0;
+
+    // EA Phase 3: initialize rolling query buffers.
+    // Layout: [n_layer_kv][n_seq_max][n_head_kv], each buffer holds
+    // rolling_buffer_size pre-RoPE queries of head_dim floats.
+    // Buffers are lazily initialized (empty until ea_add_query is called)
+    // to avoid memory waste when EA is disabled.
+    ea_n_head_kv = (int) hparams.n_head_kv(0);
+}
+
+void llama_kv_cache::ea_add_query(int il, llama_seq_id seq_id, int i_head, int head_dim, const float * query) {
+    if (seq_id < 0 || (uint32_t)seq_id >= n_seq_max) return;
+    if (il < 0 || il >= (int)ea_query_buffers.size()) return;
+
+    auto & layer_bufs = ea_query_buffers[il];
+    if ((uint32_t)seq_id >= layer_bufs.size()) return;
+    auto & seq_bufs = layer_bufs[seq_id];
+    if (i_head < 0 || i_head >= (int)seq_bufs.size()) return;
+
+    // Skip if head_dim doesn't match buffer (e.g. SWA layers with different head_dim)
+    auto & buf = seq_bufs[i_head];
+    if (buf.head_dim != head_dim) return;
+
+    buf.add(query);
+}
+
+void llama_kv_cache::ea_clear_queries(llama_seq_id seq_id) {
+    if (seq_id < 0 || (uint32_t)seq_id >= n_seq_max) return;
+    for (auto & layer_bufs : ea_query_buffers) {
+        if ((uint32_t)seq_id < layer_bufs.size()) {
+            for (auto & buf : layer_bufs[seq_id]) {
+                buf.clear();
+            }
+        }
+    }
+}
+
+const llama_expected_attention::ea_query_buffer * llama_kv_cache::ea_get_query_buffer(
+        int il, llama_seq_id seq_id, int i_head) const {
+    if (il < 0 || il >= (int)ea_query_buffers.size()) return nullptr;
+    const auto & layer_bufs = ea_query_buffers[il];
+    if (seq_id < 0 || (uint32_t)seq_id >= layer_bufs.size()) return nullptr;
+    const auto & seq_bufs = layer_bufs[seq_id];
+    if (i_head < 0 || i_head >= (int)seq_bufs.size()) return nullptr;
+    return &seq_bufs[i_head];
+}
+
+void llama_kv_cache::ea_init_buffers(int n_layers, int n_head_kv, int head_dim, int rolling_buffer_size) {
+    if (!ea_query_buffers.empty()) return;  // already initialized
+    if (n_layers <= 0 || n_head_kv <= 0 || head_dim <= 0 || rolling_buffer_size <= 0) return;
+
+    ea_query_buffers.resize(n_layers);
+    for (auto & layer_bufs : ea_query_buffers) {
+        layer_bufs.resize(n_seq_max);
+        for (auto & seq_bufs : layer_bufs) {
+            seq_bufs.reserve(n_head_kv);
+            for (int h = 0; h < n_head_kv; h++) {
+                seq_bufs.emplace_back(head_dim, rolling_buffer_size);
+            }
+        }
+    }
+    ea_n_head_kv = n_head_kv;
 }
 
 void llama_kv_cache::clear(bool data) {
@@ -614,6 +678,15 @@ void llama_kv_cache::clear(bool data) {
     if (data) {
         for (auto & [_, buf] : ctxs_bufs) {
             ggml_backend_buffer_clear(buf.get(), 0);
+        }
+
+        // Clear EA rolling query buffers on full cache clear
+        for (auto & layer_bufs : ea_query_buffers) {
+            for (auto & seq_bufs : layer_bufs) {
+                for (auto & buf : seq_bufs) {
+                    buf.clear();
+                }
+            }
         }
 
         // Re-initialize turbo rotation matrices after buffer clear (clear zeroes everything)
@@ -695,6 +768,19 @@ bool llama_kv_cache::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
                 head = new_head;
             }
         }
+    }
+
+    // Clear EA rolling query buffers for the removed sequence(s)
+    if (seq_id == -1) {
+        for (auto & layer_bufs : ea_query_buffers) {
+            for (auto & seq_bufs : layer_bufs) {
+                for (auto & buf : seq_bufs) {
+                    buf.clear();
+                }
+            }
+        }
+    } else {
+        ea_clear_queries(seq_id);
     }
 
     return true;
@@ -3009,10 +3095,10 @@ void llama_kv_cache_context::set_input_v_rot(ggml_tensor * dst) const {
     kv->set_input_v_rot(dst);
 }
 
-// Expected Attention KV Cache Compression — Phase 2d
-// Post-hoc pruning after decode. Removes KV pairs based on position heuristic.
-// MVP: oldest-first eviction (prune oldest eligible tokens, protect sink+local).
-// Phase 3 will integrate EA scoring (mean/covariance from query history).
+// Expected Attention KV Cache Compression — Phase 3
+// Post-hoc pruning after decode. Uses EA scoring (mean from rolling query buffer)
+// to rank KV pairs by predicted future importance, then prunes the lowest-scoring.
+// Falls back to oldest-first heuristic when query buffer is not yet populated.
 // Not threadsafe — caller must hold the same synchronization as for seq_rm/seq_add.
 int llama_kv_cache::ea_compress(const llama_cparams & cparams, llama_seq_id seq_id) {
     if (!cparams.ea.enabled || cparams.ea.compression_ratio <= 0.0f) {
@@ -3049,7 +3135,9 @@ int llama_kv_cache::ea_compress(const llama_cparams & cparams, llama_seq_id seq_
 
     const int n_tokens = (int)populated.size();
     const int n_eligible = std::max(0, n_tokens - n_sink - n_local);
-    const int n_to_prune = std::min((int)(ratio * n_eligible), n_eligible);
+    // Clamp n_to_prune to n_eligible - 1 to avoid std::nth_element UB (nth == end()).
+    // At ratio == 1.0 we'd prune everything which is degenerate anyway.
+    const int n_to_prune = std::min((int)(ratio * n_eligible), n_eligible > 0 ? n_eligible - 1 : 0);
 
     if (n_to_prune <= 0) {
         LLAMA_LOG_DEBUG("[ea_compress] seq=%d: n_tokens=%d, n_eligible=%d, n_to_prune=0 (nothing to prune)\n",
@@ -3057,16 +3145,259 @@ int llama_kv_cache::ea_compress(const llama_cparams & cparams, llama_seq_id seq_
         return 0;
     }
 
-    // MVP heuristic: prune oldest tokens from the eligible range.
-    // Eligible range = [n_sink, n_tokens - n_local) (0-indexed in sorted order)
-    // Prune the first n_to_prune tokens in this range (oldest non-protected).
-    // Use direct cells.seq_rm() with cell index (O(1) per token, not O(n_cells)).
+    // Determine which tokens to prune: EA scoring or oldest-first fallback.
+    // collect_prune_indices() returns the indices (into populated[]) to prune.
+    auto collect_prune_indices = [&](std::vector<int> & prune_indices) {
+        // Try EA scoring first. Requires rolling query buffers with enough data.
+        const bool has_ea_buffers = !ea_query_buffers.empty();
+        bool ea_scoring_done = false;
+
+        if (has_ea_buffers) {
+            // Check if we have enough queries in the rolling buffer for meaningful statistics.
+            // Need at least 2 queries to compute a non-trivial mean.
+            const auto * buf0 = ea_get_query_buffer(0, seq_id, 0);
+            if (buf0 && buf0->count >= 2) {
+                // EA Phase 3: score-based pruning
+                std::vector<float> token_scores(n_tokens, 0.0f);
+                bool scoring_ok = true;
+
+                // Compute scores per layer, per head, aggregate via maximum.
+                const int n_layer_kv = (int) ea_query_buffers.size();
+                const int n_head_kv  = ea_n_head_kv;
+                const int head_dim   = buf0->head_dim;
+                const float theta_base = cparams.rope_freq_base;
+                // RoPE convention: NeoX (1) for Gemma/Qwen/etc, interleaved (0) for Llama/Mistral
+                const int rope_mode = (hparams.rope_type == LLAMA_ROPE_TYPE_NEOX) ? 1 : 0;
+
+                // EA params for the scoring pipeline
+                llama_expected_attention::ea_params ea_p;
+                ea_p.compression_ratio   = ratio;
+                ea_p.n_future_positions  = cparams.ea.n_future_positions;
+                ea_p.n_sink              = n_sink;
+                ea_p.n_local             = n_local;
+                ea_p.use_covariance      = false;  // Phase 3: Mean-only (O(d) not O(d^2)), covariance deferred to Phase 4
+                ea_p.use_vnorm           = cparams.ea.use_vnorm;
+                ea_p.rolling_buffer_size = cparams.ea.rolling_buffer_size;
+
+                // Current position for RoPE prediction (last populated position).
+                // ea_average_rope internally adds +1 to predict the NEXT position.
+                const float current_pos = (float)(populated.back().first);
+
+                // For each layer: read K from cache, dequantize per head, compute scores
+                for (int il = 0; il < n_layer_kv && scoring_ok; il++) {
+                    const int32_t ikv = map_layer_ids.at(il);
+                    ggml_tensor * k_tensor = layers[ikv].k;
+                    if (!k_tensor || !k_tensor->buffer) {
+                        scoring_ok = false;
+                        break;
+                    }
+
+                    const int n_head_kv_layer = (int) hparams.n_head_kv(il);
+                    const int hd = (int) hparams.n_embd_head_k(il);
+                    const ggml_type k_type = k_tensor->type;
+                    const bool k_is_turbo = (k_type == GGML_TYPE_TURBO3_0 || k_type == GGML_TYPE_TURBO4_0 || k_type == GGML_TYPE_TURBO2_0);
+
+                    // TurboQuant: K is stored WHT-rotated and padded to next multiple of 128.
+                    // The attention path applies WHT-forward to Q AFTER RoPE, so we must do:
+                    //   mu → RoPE → pad to hd_eff → WHT-forward → score against K (WHT-rotated)
+                    // WHT is linear, so WHT(mean(q)) = mean(WHT(q)) — applying to mu is correct.
+                    const int hd_eff = k_is_turbo ? ((hd + 127) / 128) * 128 : hd;
+                    const int wht_group = 128;
+
+                    // Read InnerQ scale_inv for turbo types (per-channel scaling before WHT)
+                    std::vector<float> innerq_scale;
+                    if (k_is_turbo) {
+                        ggml_tensor * scale_tensor = get_turbo_innerq_scale_inv();
+                        if (scale_tensor && scale_tensor->buffer) {
+                            innerq_scale.resize(wht_group, 1.0f);
+                            const size_t scale_bytes = std::min((size_t)wht_group * sizeof(float), ggml_nbytes(scale_tensor));
+                            const size_t n_floats = scale_bytes / sizeof(float);
+                            ggml_backend_tensor_get(scale_tensor, innerq_scale.data(), 0, scale_bytes);
+                            // Fill remaining with 1.0 if tensor is smaller than wht_group
+                            for (size_t i = n_floats; i < (size_t)wht_group; i++) innerq_scale[i] = 1.0f;
+                        }
+                    }
+
+                    // K tensor layout: [n_embd_k_gqa_eff, kv_size, n_stream] (3D, row-major)
+                    // ne[0] = n_embd_k_gqa_eff (padded, all heads), ne[1] = kv_size, ne[2] = n_stream
+                    // For (stream s, head h, cell_idx):
+                    //   offset = s * stream_stride + cell_idx * cell_stride + h * head_stride
+                    //   head_stride   = ggml_row_size(k_type, hd_eff)  (one head's row, padded)
+                    //   cell_stride   = k_tensor->nb[1]                (all heads for one cell, padded)
+                    //   stream_stride = k_tensor->nb[2]                (one stream's worth of cells)
+                    const size_t head_stride   = ggml_row_size(k_type, hd_eff);
+                    const size_t cell_stride   = k_tensor->nb[1];
+                    const size_t stream_stride = k_tensor->nb[2];
+                    const uint32_t stream_id   = seq_to_stream[seq_id];
+
+                    // Get dequantization function
+                    auto * traits = ggml_get_type_traits(k_type);
+                    auto to_float = traits->to_float;
+                    if (!to_float) {
+                        scoring_ok = false;
+                        break;
+                    }
+
+                    // V tensor for value-norm rescaling (optional).
+                    // Only safe when V is NOT transposed (v_trans == false, i.e. flash_attn enabled).
+                    // When v_trans == true, V has a different memory layout and reading with
+                    // K-style strides would access wrong bytes — disable vnorm in that case.
+                    ggml_tensor * v_tensor = layers[ikv].v;
+                    const bool use_vnorm = ea_p.use_vnorm && !v_trans && v_tensor && v_tensor->buffer;
+                    const ggml_type v_type = use_vnorm ? v_tensor->type : GGML_TYPE_F32;
+                    const auto * v_traits = use_vnorm ? ggml_get_type_traits(v_type) : nullptr;
+                    auto v_to_float = use_vnorm ? v_traits->to_float : nullptr;
+                    // V head dim may differ from K head dim — use n_embd_head_v
+                    const int hd_v = use_vnorm ? (int) hparams.n_embd_head_v(il) : 0;
+                    const size_t v_head_stride   = use_vnorm ? ggml_row_size(v_type, hd_v) : 0;
+                    const size_t v_cell_stride   = use_vnorm ? v_tensor->nb[1] : 0;
+                    const size_t v_stream_stride = use_vnorm ? v_tensor->nb[2] : 0;
+
+                    // Buffers for dequantization (reused per head)
+                    std::vector<uint8_t> k_raw(head_stride);
+                    std::vector<float>   k_float(hd_eff);
+                    std::vector<uint8_t> v_raw(use_vnorm ? v_head_stride : 0);
+                    std::vector<float>   v_float(use_vnorm ? hd_v : 0);
+
+                    for (int h = 0; h < n_head_kv_layer; h++) {
+                        // Get rolling query buffer for this (layer, seq, head)
+                        const auto * qbuf = ea_get_query_buffer(il, seq_id, h);
+                        if (!qbuf || qbuf->count < 2) continue;
+                        // Skip if buffer head_dim doesn't match this layer's head_dim (SWA safety)
+                        if (qbuf->head_dim != hd) continue;
+
+                        // Compute mean from rolling buffer
+                        std::vector<float> mu(hd);
+                        llama_expected_attention::ea_compute_mean(*qbuf, mu.data());
+
+                        // Average RoPE rotation over future positions
+                        std::vector<float> rot_avg((size_t)hd * hd);
+                        llama_expected_attention::ea_average_rope(current_pos, ea_p.n_future_positions,
+                                                                  theta_base, hd, rot_avg.data(), rope_mode);
+
+                        // Transform mean: mu' = R @ mu (covariance skipped — mean-only)
+                        std::vector<float> mu_prime(hd);
+                        llama_expected_attention::ea_transform_statistics(mu.data(), nullptr, rot_avg.data(),
+                                                                          hd, mu_prime.data(), nullptr);
+
+                        // TurboQuant: apply WHT-forward to mu' to match K's WHT domain.
+                        // Pad mu' to hd_eff (zero-padding), then apply WHT per 128-element group.
+                        // The attention path does: Q → RoPE → pad → WHT-forward → @K(WHT-rotated).
+                        // Since WHT is linear: WHT(mean(q)) = mean(WHT(q)), so applying to mu' is correct.
+                        std::vector<float> mu_score(hd_eff, 0.0f);
+                        std::copy(mu_prime.begin(), mu_prime.end(), mu_score.begin());
+                        if (k_is_turbo) {
+                            const float * scale_ptr = !innerq_scale.empty() ? innerq_scale.data() : nullptr;
+                            for (int g = 0; g < hd_eff; g += wht_group) {
+                                llama_expected_attention::ea_wht_forward(mu_score.data() + g, wht_group, scale_ptr);
+                            }
+                        }
+
+                        // Compute scores for each token
+                        std::vector<float> head_scores(n_tokens, 0.0f);
+                        for (int t = 0; t < n_tokens; t++) {
+                            const uint32_t cell_idx = populated[t].second;
+
+                            // Read K row from cache: offset = s*stream_stride + cell_idx*cell_stride + h*head_stride
+                            const size_t offset = (size_t)stream_id * stream_stride
+                                                + (size_t)cell_idx * cell_stride
+                                                + (size_t)h * head_stride;
+                            if (offset + head_stride > ggml_nbytes(k_tensor)) {
+                                head_scores[t] = 0.0f;
+                                continue;
+                            }
+                            ggml_backend_tensor_get(k_tensor, k_raw.data(), offset, head_stride);
+
+                            // Dequantize K row to float
+                            to_float(k_raw.data(), k_float.data(), hd_eff);
+
+                            // Compute EA score: E(A) = exp(K @ mu_score / sqrt(d))
+                            // (Mean-only, no covariance term)
+                            // For turbo: K is WHT-rotated (hd_eff dims), mu_score is WHT-rotated (hd_eff dims)
+                            // For non-turbo: K is normal (hd dims), mu_score = mu_prime (hd dims)
+                            float mean_term = 0.0f;
+                            const float inv_sqrt_d = 1.0f / std::sqrt((float)hd);
+                            const int score_dim = k_is_turbo ? hd_eff : hd;
+                            for (int d = 0; d < score_dim; d++) {
+                                mean_term += k_float[d] * mu_score[d];
+                            }
+                            mean_term *= inv_sqrt_d;
+
+                            // Clamp to avoid overflow
+                            float logit = mean_term;
+                            if (logit > 50.0f) logit = 50.0f;
+                            if (logit < -50.0f) logit = -50.0f;
+                            float ea = std::exp(logit);
+
+                            // Value-norm rescaling (optional): score *= ||V||_2
+                            if (use_vnorm) {
+                                const size_t v_offset = (size_t)stream_id * v_stream_stride
+                                                      + (size_t)cell_idx * v_cell_stride
+                                                      + (size_t)h * v_head_stride;
+                                if (v_offset + v_head_stride <= ggml_nbytes(v_tensor)) {
+                                    ggml_backend_tensor_get(v_tensor, v_raw.data(), v_offset, v_head_stride);
+                                    v_to_float(v_raw.data(), v_float.data(), hd_v);
+                                    float v_norm = 0.0f;
+                                    for (int d = 0; d < hd_v; d++) {
+                                        v_norm += v_float[d] * v_float[d];
+                                    }
+                                    v_norm = std::sqrt(v_norm);
+                                    ea *= (v_norm + 1e-6f);
+                                }
+                            }
+
+                            head_scores[t] = ea + 1e-6f;
+                        }
+
+                        // Aggregate via maximum over heads
+                        for (int t = 0; t < n_tokens; t++) {
+                            token_scores[t] = std::max(token_scores[t], head_scores[t]);
+                        }
+                    }
+                }
+
+                if (scoring_ok) {
+                    // Score-based pruning: prune the n_to_prune tokens with lowest scores
+                    // from the eligible range [n_sink, n_tokens - n_local)
+                    struct score_idx { float score; int idx; };
+                    std::vector<score_idx> eligible(n_eligible);
+                    for (int i = 0; i < n_eligible; i++) {
+                        eligible[i] = {token_scores[n_sink + i], n_sink + i};
+                    }
+                    // Partial sort: find n_to_prune smallest scores
+                    std::nth_element(eligible.begin(), eligible.begin() + n_to_prune,
+                                     eligible.end(), [](const score_idx & a, const score_idx & b) {
+                                         return a.score < b.score;
+                                     });
+                    prune_indices.resize(n_to_prune);
+                    for (int i = 0; i < n_to_prune; i++) {
+                        prune_indices[i] = eligible[i].idx;
+                    }
+                    ea_scoring_done = true;
+                    LLAMA_LOG_DEBUG("[ea_compress] seq=%d: EA scoring active (n_layers=%d, n_head_kv=%d, head_dim=%d)\n",
+                                    seq_id, n_layer_kv, n_head_kv, head_dim);
+                }
+            }
+        }
+
+        // Fallback: oldest-first heuristic (Phase 2d MVP behavior)
+        if (!ea_scoring_done) {
+            prune_indices.resize(n_to_prune);
+            for (int j = 0; j < n_to_prune; j++) {
+                prune_indices[j] = n_sink + j;
+            }
+            LLAMA_LOG_DEBUG("[ea_compress] seq=%d: fallback to oldest-first (insufficient query data)\n", seq_id);
+        }
+    };
+
+    std::vector<int> prune_indices;
+    collect_prune_indices(prune_indices);
+
+    // Apply pruning: remove seq_id from the selected cells
     int n_pruned = 0;
     uint32_t new_head = cells.size();
-    for (int j = 0; j < n_to_prune; j++) {
-        const int idx = n_sink + j;
-        if (idx >= (int)populated.size()) break;
-
+    for (int idx : prune_indices) {
+        if (idx < 0 || idx >= (int)populated.size()) continue;
         const uint32_t cell_idx = populated[idx].second;
         cells.seq_rm(cell_idx, seq_id);
         new_head = std::min(new_head, cell_idx);

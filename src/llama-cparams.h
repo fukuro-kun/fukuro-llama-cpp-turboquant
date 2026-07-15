@@ -19,6 +19,11 @@ struct llama_ea_params {
     bool     use_covariance      = true;    // covariance term (O(d^2), more accurate)
     bool     use_vnorm           = true;    // rescale scores by value L2 norm
     int      rolling_buffer_size = 128;     // query statistics window
+
+    // Phase 3: when true, build_qkv captures pre-RoPE Qcur as graph output
+    // so it can be read back after compute for EA score computation.
+    // Automatically set when ea.enabled && compression_ratio > 0.0f.
+    bool     qcur_track          = false;
 };
 
 struct llama_cparams {

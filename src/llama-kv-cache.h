@@ -4,6 +4,7 @@
 #include "llama-graph.h"
 #include "llama-kv-cells.h"
 #include "llama-memory.h"
+#include "llama-expected-attention.h"
 
 #include <unordered_map>
 #include <vector>
@@ -207,9 +208,19 @@ public:
 
     // Expected Attention KV Cache Compression (arXiv:2510.00636)
     // Phase 2d: Post-hoc pruning after decode. Removes oldest eligible KV pairs.
-    // MVP uses oldest-first heuristic; Phase 3 will integrate EA scoring.
+    // Phase 3: EA score-based pruning (mean from rolling query buffer).
     // Returns the number of tokens actually pruned (0 if EA disabled).
     int ea_compress(const llama_cparams & cparams, llama_seq_id seq_id);
+
+    // EA Phase 3: Rolling query buffer management.
+    // Stores pre-RoPE queries per (layer, seq_id, head) for EA statistics.
+    void ea_add_query(int il, llama_seq_id seq_id, int i_head, int head_dim, const float * query);
+    void ea_clear_queries(llama_seq_id seq_id);
+    const llama_expected_attention::ea_query_buffer * ea_get_query_buffer(int il, llama_seq_id seq_id, int i_head) const;
+
+    // Initialize rolling query buffers with given dimensions.
+    // Called lazily when EA is first enabled (from ea_compress or extract_ea_qcur).
+    void ea_init_buffers(int n_layers, int n_head_kv, int head_dim, int rolling_buffer_size);
 
     //
     // input API
@@ -293,6 +304,11 @@ private:
 
     // maps from a sequence id to a stream id
     std::vector<uint32_t> seq_to_stream;
+
+    // EA Phase 3: Rolling query buffers [n_layers][n_seq_max][n_head_kv]
+    // Stores pre-RoPE queries for EA score computation.
+    std::vector<std::vector<std::vector<llama_expected_attention::ea_query_buffer>>> ea_query_buffers;
+    int ea_n_head_kv = 0;  // cached n_head_kv for buffer init
 
     // pending stream copies that will be applied during the next update
     stream_copy_info sc_info;

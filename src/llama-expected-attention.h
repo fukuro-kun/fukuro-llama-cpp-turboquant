@@ -64,6 +64,13 @@ struct ea_query_buffer {
 // Output: mu[head_dim]
 void ea_compute_mean(const ea_query_buffer & buf, float * mu);
 
+// Apply TurboQuant WHT-forward rotation in-place.
+// Replicates turbo_cpu_fwht: signs1 → butterfly → normalize → signs2.
+// group_size is always 128 (TurboQuant pads head_dim to multiples of 128).
+// If scale_inv is non-null, applies per-channel scaling BEFORE WHT (InnerQ forward).
+// x must have at least group_size elements. Operates on one group at a time.
+void ea_wht_forward(float * x, int group_size, const float * scale_inv = nullptr);
+
 // Compute covariance (Σ) of stored queries around the mean.
 // Output: cov[head_dim * head_dim], row-major
 void ea_compute_covariance(const ea_query_buffer & buf, const float * mu, float * cov);
@@ -71,7 +78,9 @@ void ea_compute_covariance(const ea_query_buffer & buf, const float * mu, float 
 // Compute RoPE rotation matrix for a given position.
 // For Llama-style RoPE with theta_base and head_dim.
 // Output: rot[head_dim * head_dim], row-major
-void ea_compute_rope_matrix(float pos, float theta_base, int head_dim, float * rot);
+// rope_mode: 0 = interleaved (GPT-J/NORM, pairs (2i, 2i+1)),
+//            1 = NeoX (pairs (i, i+d/2))
+void ea_compute_rope_matrix(float pos, float theta_base, int head_dim, float * rot, int rope_mode = 0);
 
 // Transform statistics through RoPE: μ' = R @ μ, Σ' = R @ Σ @ R^T
 void ea_transform_statistics(const float * mu, const float * cov, const float * rot,
@@ -79,8 +88,9 @@ void ea_transform_statistics(const float * mu, const float * cov, const float * 
 
 // Average RoPE rotation over n_future_positions starting from current_pos.
 // This gives the expected rotation that future queries will undergo.
+// rope_mode: 0 = interleaved (GPT-J/NORM), 1 = NeoX
 void ea_average_rope(float current_pos, int n_future, float theta_base,
-                     int head_dim, float * rot_avg);
+                     int head_dim, float * rot_avg, int rope_mode = 0);
 
 // Compute expected attention scores for each KV pair.
 //

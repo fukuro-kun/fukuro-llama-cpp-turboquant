@@ -4,7 +4,7 @@
 **ROADMAP-Item:** #19
 **Paper:** arXiv:2510.00636
 **Referenz:** NVIDIA kvpress (Apache 2.0)
-**Status:** Phase 1 (Recherche + Design) — Solo-Session Regel 14
+**Status:** Phase 3 (Intelligent EA Scoring) implementiert — 2026-07-16
 
 ## Zusammenfassung
 
@@ -61,22 +61,28 @@ Expected Attention ist eine training-freie KV-Cache-Compression-Methode, die KV-
 ## Implementierungsplan (4-6 Wochen)
 
 ### Phase 1 (Woche 1-2): Grundimplementierung CPU
-- [ ] Expected Attention Statistik (Mean/Covariance, Rolling-Buffer)
-- [ ] RoPE-Rotations-Vorhersage
-- [ ] Expected Attention Score-Berechnung
-- [ ] Unit-Tests für Mathematik
+- [x] Expected Attention Statistik (Mean/Covariance, Rolling-Buffer)
+- [x] RoPE-Rotations-Vorhersage
+- [x] Expected Attention Score-Berechnung
+- [x] Unit-Tests für Mathematik
 
 ### Phase 2 (Woche 3-4): KV-Cache Integration
-- [ ] Integration in `llama_kv_cache`
-- [ ] Pruning-Logik (Ranking + Eviction)
-- [ ] Sink-Token und Local-Window Schutz
-- [ ] CLI-Parameter `--expected-attention-ratio`
+- [x] Integration in `llama_kv_cache`
+- [x] Pruning-Logik (Ranking + Eviction)
+- [x] Sink-Token und Local-Window Schutz
+- [x] CLI-Parameter `--ea-ratio` (und 5 weitere)
 
-### Phase 3 (Woche 5-6): TurboQuant-Kombination + Optimierung
-- [ ] Kombination Pruning → Quantisierung
+### Phase 3 (Woche 5-6): Intelligent EA Scoring + Optimierung
+- [x] Q-Capture in `build_qkv()` via `ggml_set_output`
+- [x] Q-Extraction + Rolling Buffer im Context
+- [x] Score-basiertes Pruning in `ea_compress()`
+- [x] NeoX + Interleaved RoPE Konventionen
+- [x] GQA Query-Head-Mapping (`h * n_gqa`)
+- [x] Value-Norm Rescaling implementiert
+- [x] Unit-Tests (227/227 grün) + Smoke-Test (Gemma 4 12B CPU)
+- [x] **TurboQuant+EA Kombination** (Phase 3 — WHT-Forward auf μ' angewendet, Domain-Mismatch gelöst)
 - [ ] CUDA/Vulkan Backend-Optimierung
-- [ ] Benchmarks (Accuracy, Memory, Speed)
-- [ ] Dokumentation
+- [ ] Benchmarks (Accuracy, Memory, Speed) — auf Styx (GPU)
 
 ## Zu ändernde Dateien
 
@@ -91,10 +97,19 @@ Expected Attention ist eine training-freie KV-Cache-Compression-Methode, die KV-
 
 ## Risiken
 
-1. **RoPE-Variation:** RoPE unterscheidet sich zwischen Architekturen (Llama, Gemma, Qwen). Muss architektur-spezifisch unterstützt werden.
-2. **Covariance O(d²):** Bei head_dim=128 → 16K floats pro Head. Mit vielen Heads teuer. Mean-only-Modus als Fallback.
-3. **Flash Attention:** Expected Attention benötigt Query-Zugriff. Flash Attention materialisiert Queries nicht. Workaround: Sampling-Buffer.
-4. **Streaming:** Statistik muss während Decoding aktualisiert werden (rolling buffer).
+1. **RoPE-Variation:** RoPE unterscheidet sich zwischen Architekturen (Llama, Gemma, Qwen). Muss architektur-spezifisch unterstützt werden. ✅ NeoX + Interleaved implementiert.
+2. **Covariance O(d²):** Bei head_dim=128 → 16K floats pro Head. Mit vielen Heads teuer. Mean-only-Modus als Fallback. ✅ Mean-only aktiv, Covariance deferred to Phase 4.
+3. **Flash Attention:** Expected Attention benötigt Query-Zugriff. Flash Attention materialisiert Queries nicht. Workaround: Sampling-Buffer. ✅ Q-Capture via `ggml_set_output` in `build_qkv()`.
+4. **Streaming:** Statistik muss während Decoding aktualisiert werden (rolling buffer). ✅ Rolling Buffer implementiert, `ea_clear_queries` in `clear()`/`seq_rm()`.
+
+## Bekannte Limitationen (Phase 3)
+
+1. **V-norm nur bei Flash Attention:** Value-Norm Rescaling ist nur aktiv wenn `v_trans == false` (d.h. Flash Attention enabled). Ohne Flash Attention ist V transposed und die K-Style-Stride-Leselogik greift nicht — vnorm wird deaktiviert.
+2. **Covariance-Term:** Nur Mean-only-Modus aktiv (`use_covariance=false` hardcoded). Covariance O(d²) ist für Phase 4 geplant.
+3. **RoPE-Parameter:** `freq_scale`, `freq_factors`, `ext_factor`, `attn_factor` und per-Layer `rope_freq_base` werden nicht an `ea_average_rope` übergeben. Nur `theta_base` aus `cparams.rope_freq_base`. Bei Modellen mit nicht-standard RoPE-Parametern kann die Vorhersage ungenau sein.
+4. **RoPE-Mode:** Nur NEOX und Interleaved (NORM). `MROPE`, `IMROPE`, `VISION`, `NONE` fallen auf Interleaved zurück.
+5. **EA-Buffer-Init:** Rolling Buffer wird mit Layer-0 Dimensionen (`n_head_kv`, `head_dim`) initialisiert. Layer mit abweichenden Dimensionen (SWA) werden stillschweigend übersprungen. Korrekt wäre lazy per-Layer Initialisierung.
+6. **GPU-Tests:** Nur CPU Smoke-Test durchgeführt. GPU-Tests müssen auf Styx laufen (AGENTS.md GPU-Regel).
 
 ## Relevanz für Fork-Systeme
 

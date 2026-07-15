@@ -608,6 +608,9 @@ struct llm_graph_params {
     // MoE expert frequency tracking (#40)
     bool moe_freq_track = false;
 
+    // EA Phase 3: capture pre-RoPE Qcur for EA score computation
+    bool ea_qcur_track = false;
+
     static bool samplers_equal(
           const std::map<llama_seq_id, llama_sampler *> & lhs,
           const std::map<llama_seq_id, llama_sampler *> & rhs) {
@@ -693,7 +696,8 @@ struct llm_graph_params {
             cvec  == other.cvec  &&
             loras == other.loras &&
             cross == other.cross &&
-            moe_freq_track == other.moe_freq_track;
+            moe_freq_track == other.moe_freq_track &&
+            ea_qcur_track  == other.ea_qcur_track;
     }
 };
 
@@ -710,6 +714,7 @@ public:
     ggml_tensor * get_h_nextn()     const { return t_h_nextn; }
 
     ggml_tensor * get_layer_inp(int il) const { return t_layer_inp[il]; }
+    ggml_tensor * get_ea_qcur (int il) const { return t_ea_qcur[il]; }
 
     ggml_cgraph  * get_gf()  const { return gf; }
     ggml_context * get_ctx() const { return ctx_compute.get(); }
@@ -741,6 +746,10 @@ public:
     ggml_tensor * t_h_nextn     = nullptr; // [n_embd, n_outputs] hidden state before final output norm
 
     std::vector<ggml_tensor *> t_layer_inp;
+
+    // EA Phase 3: pre-RoPE Qcur per layer, captured for EA score computation.
+    // Populated by build_qkv() when ea_qcur_track is true.
+    std::vector<ggml_tensor *> t_ea_qcur;
 
     std::map<llama_seq_id, ggml_tensor *> t_sampled_logits;
     std::map<llama_seq_id, ggml_tensor *> t_candidates;
@@ -847,6 +856,10 @@ struct llm_graph_context {
     // double-counting when build_moe_ffn is called multiple times per
     // layer (e.g. GroveMoE chunk experts).
     mutable std::set<int> moe_freq_tracked_layers;
+
+    // EA Phase 3: when true, build_qkv captures pre-RoPE Qcur as a graph
+    // output so it can be read back after compute for EA score computation.
+    bool ea_qcur_track = false;
 
     llm_graph_context(const llm_graph_params & params);
     virtual ~llm_graph_context() = default;

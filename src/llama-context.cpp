@@ -106,15 +106,19 @@ llama_context::llama_context(
     cparams.ea.use_covariance      = params.ea_use_covariance;
     cparams.ea.use_vnorm           = params.ea_use_vnorm;
     cparams.ea.rolling_buffer_size = std::max(1, params.ea_rolling_buffer_size);
+    // Phase 3: auto-enable Q capture when EA is active with compression_ratio > 0
+    // (needed for score-based pruning — skip overhead when ratio == 0)
+    cparams.ea.qcur_track          = cparams.ea.enabled && cparams.ea.compression_ratio > 0.0f;
 
     if (cparams.ea.enabled) {
         if (cparams.ea.compression_ratio > 1.0f) {
             LLAMA_LOG_WARN("%s: EA compression_ratio %.2f > 1.0, clamping to 1.0\n", __func__, cparams.ea.compression_ratio);
             cparams.ea.compression_ratio = 1.0f;
         }
-        LLAMA_LOG_INFO("%s: Expected Attention enabled (ratio=%.2f, future=%d, sink=%d, local=%d, cov=%d, vnorm=%d)\n",
+        LLAMA_LOG_INFO("%s: Expected Attention enabled (ratio=%.2f, future=%d, sink=%d, local=%d, cov=%d, vnorm=%d, qcur_track=%d)\n",
                        __func__, cparams.ea.compression_ratio, cparams.ea.n_future_positions,
-                       cparams.ea.n_sink, cparams.ea.n_local, cparams.ea.use_covariance, cparams.ea.use_vnorm);
+                       cparams.ea.n_sink, cparams.ea.n_local, cparams.ea.use_covariance, cparams.ea.use_vnorm,
+                       cparams.ea.qcur_track);
     }
 
     // TODO: more generic
@@ -1404,6 +1408,19 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
         track_moe_freq(res->get_gf());
     }
 
+    // EA Phase 3: extract pre-RoPE Qcur after compute and feed into rolling buffers.
+    // Runs on every graph compute (decode + prefill) to build query statistics.
+    // The seq_id is extracted from the ubatch; for multi-seq batches we use seq 0.
+    if (cparams.ea.enabled && cparams.ea.qcur_track) {
+        ggml_backend_sched_synchronize(sched.get());
+        // For decode, there's typically one seq_id. For prefill, use the first.
+        llama_seq_id ea_seq_id = 0;
+        if (ubatch.n_seq_id && ubatch.seq_id && ubatch.seq_id[0] != nullptr) {
+            ea_seq_id = ubatch.seq_id[0][0];
+        }
+        extract_ea_qcur(res, ea_seq_id);
+    }
+
     ret = GGML_STATUS_SUCCESS;
 
     return res;
@@ -2108,7 +2125,7 @@ int llama_context::decode(const llama_batch & batch_inp) {
         }
 
         // Only run if at most 1 token per sequence (decode, not prefill)
-        if ((int)seq_ids.size() >= n_tokens_all) {
+        if ((int)seq_ids.size() >= (int)n_tokens_all) {
             // Get the kv_cache from the memory module (supports all cache types)
             llama_kv_cache * kv = nullptr;
             auto * mem_hybrid = dynamic_cast<llama_memory_hybrid *>(memory.get());
@@ -2502,6 +2519,7 @@ llm_graph_params llama_context::graph_params(
         /*.cross       =*/ &cross,
         /*.samplers    =*/ sampling.samplers,
         /*.moe_freq_track =*/ moe_freq_track,
+        /*.ea_qcur_track  =*/ cparams.ea.enabled && cparams.ea.qcur_track,
         /*.n_outputs   =*/ n_outputs,
         /*.cb          =*/ graph_get_cb(),
         /*.res         =*/ res,
@@ -2625,6 +2643,75 @@ void llama_context::track_moe_freq(ggml_cgraph * gf) {
             if (expert >= 0 && expert < (int)moe_freq[il].size()) {
                 moe_freq[il][expert]++;
             }
+        }
+    }
+}
+
+void llama_context::extract_ea_qcur(const llm_graph_result * res, llama_seq_id seq_id) {
+    const auto & hparams = model.hparams;
+
+    // Get the kv_cache from the memory module (same dynamic_cast chain as in decode())
+    llama_kv_cache * kv = nullptr;
+    auto * mem_hybrid = dynamic_cast<llama_memory_hybrid *>(memory.get());
+    if (mem_hybrid) {
+        kv = mem_hybrid->get_mem_attn();
+    } else {
+        auto * mem_hybrid_iswa = dynamic_cast<llama_memory_hybrid_iswa *>(memory.get());
+        if (mem_hybrid_iswa) {
+            kv = mem_hybrid_iswa->get_mem_attn()->get_base();
+        } else {
+            auto * kv_iswa = dynamic_cast<llama_kv_cache_iswa *>(memory.get());
+            if (kv_iswa) {
+                kv = kv_iswa->get_base();
+            } else {
+                auto * kv_dsa = dynamic_cast<llama_kv_cache_dsa *>(memory.get());
+                if (kv_dsa) {
+                    kv = kv_dsa->get_mla();
+                } else {
+                    kv = dynamic_cast<llama_kv_cache *>(memory.get());
+                }
+            }
+        }
+    }
+
+    if (!kv) return;
+
+    // Lazily initialize rolling query buffers on first use
+    const int n_layer_kv = (int) hparams.n_layer_kv();
+    const int n_head_kv  = (int) hparams.n_head_kv(0);
+    const int head_dim   = (int) hparams.n_embd_head_k(0);
+    kv->ea_init_buffers(n_layer_kv, n_head_kv, head_dim, cparams.ea.rolling_buffer_size);
+
+    // Read pre-RoPE Qcur tensors and feed into rolling query buffers.
+    // Qcur shape: [n_embd_head, n_head, n_tokens] (row-major, f32)
+    // For decode (n_tokens=1), we extract the single query per head.
+    for (int il = 0; il < n_layer_kv; il++) {
+        ggml_tensor * q = res->get_ea_qcur(il);
+        if (!q) continue;
+
+        const int n_head    = (int) hparams.n_head(il);
+        const int hd        = (int) hparams.n_embd_head_k(il);
+        const size_t n_elems = ggml_nelements(q);
+        const size_t n_tokens = q->ne[2];
+        if (n_tokens == 0) continue;
+
+        // Read tensor data to CPU (synchronous — same pattern as track_moe_freq)
+        std::vector<float> buf(n_elems);
+        ggml_backend_tensor_get(q, buf.data(), 0, n_elems * sizeof(float));
+
+        // For each KV head, add the last token's query to the rolling buffer.
+        // With GQA (n_head > n_head_kv), each KV head h maps to n_gqa query heads.
+        // We use the first query head of each group (h * n_gqa) as representative.
+        // During decode n_tokens=1, so we take the single query.
+        // During prefill we only track the last token's query (statistics
+        // are built incrementally during decode, not from prefill).
+        const int last_token = (int)n_tokens - 1;
+        if (n_head_kv == 0) continue;  // safety: avoid division by zero
+        const int n_gqa = n_head / n_head_kv;
+        for (int h = 0; h < n_head_kv; h++) {
+            const int q_head_idx = h * n_gqa;
+            const float * q_head = buf.data() + (size_t)last_token * n_head * hd + (size_t)q_head_idx * hd;
+            kv->ea_add_query(il, seq_id, h, hd, q_head);
         }
     }
 }

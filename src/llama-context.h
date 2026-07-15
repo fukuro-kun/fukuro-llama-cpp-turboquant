@@ -269,6 +269,10 @@ private:
     void track_moe_freq(ggml_cgraph * gf);
     void moe_freq_init();
 
+    // EA Phase 3: extract pre-RoPE Qcur tensors after compute and feed
+    // them into the KV cache's rolling query buffers for EA scoring.
+    void extract_ea_qcur(const llm_graph_result * res, llama_seq_id seq_id);
+
     // TODO: read/write lora adapters and cvec
     size_t state_write_data(llama_io_write_i & io);
     size_t state_read_data (llama_io_read_i  & io);
