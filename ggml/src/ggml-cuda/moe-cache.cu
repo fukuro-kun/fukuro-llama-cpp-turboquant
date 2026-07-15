@@ -29,6 +29,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
+#include <string>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -163,8 +165,10 @@ struct moe_cache_global {
     // GGML_CUDA_MOE_CACHE_POLICY=heuristic to enable
     // Heuristic: score = alpha*(1/(age+1)) + beta*(freq/max_freq)
     // Evict slot with LOWEST score. alpha=0.7, beta=0.3 empirically.
+    // tick is advanced ONCE per plan() call (not per hit) so all hits in the
+    // same plan() share the same last_access value — avoids iteration-order bias.
     enum eviction_policy { POLICY_LRU, POLICY_HEURISTIC } policy = POLICY_LRU;
-    uint64_t tick = 0;  // monotonic access counter (advanced on each hit/insert)
+    uint64_t tick = 0;  // monotonic plan-scope counter (advanced once per plan())
 
     moe_cache_device dev[MOE_CACHE_MAX_DEV];
 
@@ -381,7 +385,8 @@ restart:
             if (p.map.count(key)) continue;
 
             const int si = p.n_used++;
-            p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, ++g.tick};
+            p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, g.tick};
+            if (p.max_freq < 1) p.max_freq = 1;
             moe_cache_lru_push_back(p, si);
             p.map[key] = si;
             d.inserts++;
@@ -936,6 +941,10 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
 
     std::lock_guard<std::mutex> lk(g.mu);
 
+    // Advance tick ONCE per plan() call — all hits/inserts in this call share
+    // the same last_access, avoiding iteration-order bias in recency scoring.
+    const uint64_t cur_tick = ++g.tick;
+
     for (int k = 0; k < n_ids; k++) {
         slot_idx[k] = -1;
         const int eid = ids[k];
@@ -950,8 +959,8 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
                 moe_cache_lru_remove(p, si);
                 moe_cache_lru_push_back(p, si);
                 // update frequency + recency for heuristic eviction
-                s.freq++;
-                s.last_access = ++g.tick;
+                if (s.freq < UINT32_MAX) s.freq++;
+                s.last_access = cur_tick;
                 if (s.freq > p.max_freq) p.max_freq = s.freq;
                 slot_idx[k] = si;
                 d.hits++;
@@ -1041,6 +1050,16 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
             if (old.valid || old.queued) {
                 p.map.erase(old.key);
                 d.evictions++;
+                // If we evicted the slot with max_freq, recompute it to avoid
+                // stale max_freq making new slots look perpetually "cold"
+                if (g.policy == moe_cache_global::POLICY_HEURISTIC &&
+                    old.freq >= p.max_freq && p.max_freq > 0) {
+                    uint32_t new_max = 0;
+                    for (int j = 0; j < p.n_slots; j++) {
+                        if (j != si && p.slots[j].freq > new_max) new_max = p.slots[j].freq;
+                    }
+                    p.max_freq = new_max;
+                }
                 // residency bitmap (hot-set persistence): this expert is leaving.
                 // The key does not encode (blk,eid) reversibly, so clear lazily:
                 // a stale bit merely makes the next session's warm backfill load
@@ -1058,7 +1077,8 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
             src_up = (const char *)g.cur_host_base + (size_t)eid * g.cur_expert_size;
         }
 
-        p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, ++g.tick};
+        p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, cur_tick};
+        if (p.max_freq < 1) p.max_freq = 1;  // ensure freq term is non-zero after inserts
         moe_cache_lru_push_back(p, si);
         p.map[key] = si;
         d.inserts++;
@@ -1824,8 +1844,18 @@ void ggml_moe_cache_register(void) {
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_HOTSET"))        g.hotset_enabled = atoi(e) > 0;
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_POLICY")) {
         // "lru" (default) or "heuristic" (recency+frequency weighted eviction)
-        if (strcmp(e, "heuristic") == 0 || atoi(e) == 1) g.policy = moe_cache_global::POLICY_HEURISTIC;
-        else g.policy = moe_cache_global::POLICY_LRU;
+        // Case-insensitive comparison for usability
+        std::string pol(e);
+        for (auto & c : pol) c = tolower(c);
+        if (pol == "heuristic" || pol == "1") {
+            g.policy = moe_cache_global::POLICY_HEURISTIC;
+            MOE_CACHE_LOG("[moe-cache] eviction policy: heuristic (recency+frequency)\n");
+        } else if (pol == "lru" || pol == "0") {
+            g.policy = moe_cache_global::POLICY_LRU;
+        } else {
+            MOE_CACHE_LOG("[moe-cache] WARNING: unknown GGML_CUDA_MOE_CACHE_POLICY='%s', falling back to lru\n", e);
+            g.policy = moe_cache_global::POLICY_LRU;
+        }
     }
     g.hotset_last_save = ggml_time_us();   // first save no sooner than one period in
     memset(g.blk_pair_pool, -1, sizeof(g.blk_pair_pool));

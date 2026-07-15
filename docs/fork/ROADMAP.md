@@ -162,9 +162,9 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 
 | # | Prio | Datei | Issue | Aufwand |
 |---|------|-------|-------|---------|
-| R1-1 | P1 | `common/speculative.cpp:1004,1071` | Non-shared-MTP: Inkonsistente `(token, h)`-Konvention zwischen process() und draft() — nur `is_mem_shared`-Pfad korrekt | 2-3 Tage |
-| R1-2 | P1 | `common/speculative.cpp:1012,1071` | Non-shared-MTP: Letztes Token pro batch_view wird nie ins Draft-KV geschrieben (deferred boundary nicht aufgeholt) | 1-2 Tage |
-| R1-3 | P1 | `common/speculative.cpp:988-1034,1171` | `verify_h` nach Batch-Split zeigt nur auf letzten Chunk → `pending_h` aus falscher Position (nur bei n_draft > n_ubatch) | 2-3 Tage |
+| R1-1 | ⏭️ P1 | `common/speculative.cpp:1004,1071` | Non-shared-MTP: Inkonsistente `(token, h)`-Konvention zwischen process() und draft() — nur `is_mem_shared`-Pfad korrekt. **Analyse 2026-07-15: Betrifft nur `!is_mem_shared` Pfad. Gemma-4 MTP nutzt `is_mem_shared=true` (ctx_other==ctx_tgt). EAGLE-3 ebenfalls shared. Low-priority für Fork-Use-Case.** | 2-3 Tage |
+| R1-2 | ⏭️ P1 | `common/speculative.cpp:1012,1071` | Non-shared-MTP: Letztes Token pro batch_view wird nie ins Draft-KV geschrieben (deferred boundary nicht aufgeholt). **Analyse 2026-07-15: Same — nur `!is_mem_shared` Pfad.** | 1-2 Tage |
+| R1-3 | ⏭️ P1 | `common/speculative.cpp:988-1034,1171` | `verify_h` nach Batch-Split zeigt nur auf letzten Chunk → `pending_h` aus falscher Position (nur bei n_draft > n_ubatch). **Analyse 2026-07-15: Same — nur `!is_mem_shared` Pfad.** | 2-3 Tage |
 | R1-4 | ✅ P1 | `tools/server/server-context.cpp:1054-1075` | MTP-Draft-Kontext aus model_tgt ohne Assistant-Head → 0% Acceptance. **Gefixst: `llama_model_n_layer_nextn()` API + Server-Check** (Commit `4e794de07`) | 2-4h |
 | R1-5 | ✅ P2 | `common/speculative.cpp:1098` | `llama_get_embeddings_nextn_ith` nicht auf nullptr geprüft. **Gefixst** (Commit `5e2bb1da7`) | 1h |
 | R1-6 | ✅ P2 | `common/speculative.cpp:846,1167` | `last_n_drafted` wird geschrieben aber nie gelesen. **Gefixst: entfernt** (Commit `5e2bb1da7`) | 30min |
