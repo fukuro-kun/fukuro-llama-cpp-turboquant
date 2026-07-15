@@ -1032,11 +1032,26 @@ private:
                 return false;
             }
 
-            auto cparams = common_context_params_to_llama(params_dft);
-
             const bool spec_mtp = std::find(params_base.speculative.types.begin(),
                                             params_base.speculative.types.end(),
                                             COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params_base.speculative.types.end();
+
+            // MTP draft only processes a few tokens per step — it does NOT need
+            // the full backbone context. Limiting n_ctx to a small value prevents
+            // extreme slowdowns when backbone n_ctx is large (e.g., 256k backbone
+            // with 128k draft → 200x slowdown in prompt processing).
+            // The MTP draft uses SWA (sliding window attention), so n_ctx only
+            // needs to cover the SWA window + generation length.
+            if (spec_mtp) {
+                const uint32_t draft_n_ctx_recommended = 4096;
+                if ((uint32_t) params_dft.n_ctx > draft_n_ctx_recommended) {
+                    SRV_INF("[spec] limiting MTP draft n_ctx from %u to %u (MTP only needs small context)\n",
+                            params_dft.n_ctx, draft_n_ctx_recommended);
+                    params_dft.n_ctx = draft_n_ctx_recommended;
+                }
+            }
+
+            auto cparams = common_context_params_to_llama(params_dft);
 
             if (spec_mtp) {
                 cparams.ctx_type = LLAMA_CONTEXT_TYPE_MTP;
