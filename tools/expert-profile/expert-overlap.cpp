@@ -57,8 +57,12 @@ struct OverlapCollector {
         const int64_t n_tok = t->ne[1];  // n_tokens
         n_expert_used = n_eu;
 
+        // Copy tensor data from backend (may be on GPU)
+        const size_t nbytes = n_eu * n_tok * sizeof(int32_t);
+        std::vector<int32_t> data(n_eu * n_tok);
+        ggml_backend_tensor_get(t, data.data(), 0, nbytes);
+
         std::vector<std::set<int32_t>> token_experts(n_tok);
-        const int32_t * data = (const int32_t *) t->data;
         for (int64_t t_idx = 0; t_idx < n_tok; ++t_idx) {
             for (int64_t k = 0; k < n_eu; ++k) {
                 int32_t eid = data[k + t_idx * n_eu];
