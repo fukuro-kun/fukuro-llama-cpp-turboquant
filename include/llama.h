@@ -395,6 +395,17 @@ extern "C" {
         // a source/target/parent context
         // can be utilized in various ways, for example by sharing results or llama_memory between 2 contexts
         struct llama_context * ctx_other;
+
+        // Expected Attention KV Cache Compression (arXiv:2510.00636)
+        // Training-free KV pruning, orthogonal to TurboQuant quantization.
+        // compression_ratio > 0.0 enables pruning; 0.0 = disabled (default)
+        float    ea_compression_ratio;   // 0.0 = disabled, 0.5 = prune 50% of eligible KV pairs
+        int32_t  ea_n_future_positions;  // RoPE prediction horizon (default: 512)
+        int32_t  ea_n_sink;              // protected initial tokens (default: 4)
+        int32_t  ea_n_local;             // protected recent tokens (default: 128)
+        bool     ea_use_covariance;      // covariance term (O(d^2), more accurate)
+        bool     ea_use_vnorm;           // rescale scores by value L2 norm
+        int32_t  ea_rolling_buffer_size; // query statistics window (default: 128)
     };
 
     struct llama_model_tensor_override {

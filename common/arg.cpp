@@ -1407,6 +1407,51 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
                            }
                        }).set_env("LLAMA_ARG_FLASH_ATTN"));
     add_opt(common_arg(
+        {"--ea-ratio"}, "RATIO",
+        "Expected Attention KV compression ratio (0.0 = disabled, 0.5 = prune 50%% of eligible KV pairs, default: 0.0)",
+        [](common_params & params, const std::string & value) {
+            params.ea_compression_ratio = std::stof(value);
+            if (params.ea_compression_ratio < 0.0f || params.ea_compression_ratio > 0.95f) {
+                throw std::runtime_error("error: --ea-ratio must be between 0.0 and 0.95\n");
+            }
+        }
+    ).set_env("LLAMA_ARG_EA_RATIO"));
+    add_opt(common_arg(
+        {"--ea-future"}, "N",
+        "Expected Attention RoPE prediction horizon (default: 512)",
+        [](common_params & params, const std::string & value) {
+            params.ea_n_future_positions = std::stoi(value);
+        }
+    ).set_env("LLAMA_ARG_EA_FUTURE"));
+    add_opt(common_arg(
+        {"--ea-sink"}, "N",
+        "Expected Attention protected initial tokens (default: 4)",
+        [](common_params & params, const std::string & value) {
+            params.ea_n_sink = std::stoi(value);
+        }
+    ).set_env("LLAMA_ARG_EA_SINK"));
+    add_opt(common_arg(
+        {"--ea-local"}, "N",
+        "Expected Attention protected recent tokens (default: 128)",
+        [](common_params & params, const std::string & value) {
+            params.ea_n_local = std::stoi(value);
+        }
+    ).set_env("LLAMA_ARG_EA_LOCAL"));
+    add_opt(common_arg(
+        {"--ea-no-covariance"}, "",
+        "Disable Expected Attention covariance term (mean-only mode, faster)",
+        [](common_params & params, const std::string &) {
+            params.ea_use_covariance = false;
+        }
+    ).set_env("LLAMA_ARG_EA_NO_COV"));
+    add_opt(common_arg(
+        {"--ea-no-vnorm"}, "",
+        "Disable Expected Attention value-norm rescaling",
+        [](common_params & params, const std::string &) {
+            params.ea_use_vnorm = false;
+        }
+    ).set_env("LLAMA_ARG_EA_NO_VNORM"));
+    add_opt(common_arg(
         {"-p", "--prompt"}, "PROMPT",
         "prompt to start generation with; for system message, use -sys",
         [](common_params & params, const std::string & value) {

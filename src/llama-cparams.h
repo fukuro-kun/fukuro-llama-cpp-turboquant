@@ -7,6 +7,20 @@
 
 #define LLAMA_MAX_SEQ 256
 
+// Expected Attention KV Cache Compression parameters (arXiv:2510.00636)
+// Training-free KV pruning, orthogonal to TurboQuant quantization.
+// See docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md
+struct llama_ea_params {
+    bool     enabled             = false;   // master switch
+    float    compression_ratio   = 0.5f;    // fraction of KV pairs to prune
+    int      n_future_positions  = 512;     // RoPE prediction horizon
+    int      n_sink              = 4;       // protected initial tokens
+    int      n_local             = 128;     // protected recent tokens
+    bool     use_covariance      = true;    // covariance term (O(d^2), more accurate)
+    bool     use_vnorm           = true;    // rescale scores by value L2 norm
+    int      rolling_buffer_size = 128;     // query statistics window
+};
+
 struct llama_cparams {
     uint32_t n_ctx;           // context size used during inference
     uint32_t n_ctx_seq;       // context for a single sequence
@@ -55,4 +69,7 @@ struct llama_cparams {
     void * cb_eval_user_data;
 
     llama_context * ctx_other;
+
+    // Expected Attention KV Cache Compression (Phase 2)
+    llama_ea_params ea;
 };

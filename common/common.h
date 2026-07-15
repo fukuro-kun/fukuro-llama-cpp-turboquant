@@ -473,6 +473,16 @@ struct common_params {
     enum llama_attention_type    attention_type    = LLAMA_ATTENTION_TYPE_UNSPECIFIED; // attention type for embeddings
     enum llama_flash_attn_type   flash_attn_type   = LLAMA_FLASH_ATTN_TYPE_AUTO; // whether to use Flash Attention
 
+    // Expected Attention KV Cache Compression (arXiv:2510.00636)
+    // Training-free KV pruning, orthogonal to TurboQuant
+    float    ea_compression_ratio   = 0.0f;  // 0.0 = disabled, 0.5 = prune 50% of eligible KV pairs
+    int      ea_n_future_positions  = 512;   // RoPE prediction horizon
+    int      ea_n_sink              = 4;     // protected initial tokens
+    int      ea_n_local             = 128;   // protected recent tokens
+    bool     ea_use_covariance      = true;  // covariance term (O(d^2), more accurate)
+    bool     ea_use_vnorm           = true;  // rescale scores by value L2 norm
+    int      ea_rolling_buffer_size = 128;   // query statistics window
+
     struct common_params_sampling    sampling;
     struct common_params_speculative speculative;
     struct common_params_vocoder     vocoder;

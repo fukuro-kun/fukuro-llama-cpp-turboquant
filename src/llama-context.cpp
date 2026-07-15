@@ -91,6 +91,16 @@ llama_context::llama_context(
 
     cparams.ctx_other = nullptr;
 
+    // Expected Attention KV Cache Compression
+    cparams.ea.enabled             = params.ea_compression_ratio > 0.0f;
+    cparams.ea.compression_ratio   = params.ea_compression_ratio;
+    cparams.ea.n_future_positions  = params.ea_n_future_positions;
+    cparams.ea.n_sink              = params.ea_n_sink;
+    cparams.ea.n_local             = params.ea_n_local;
+    cparams.ea.use_covariance      = params.ea_use_covariance;
+    cparams.ea.use_vnorm           = params.ea_use_vnorm;
+    cparams.ea.rolling_buffer_size = params.ea_rolling_buffer_size;
+
     // TODO: more generic
     if (model.arch == LLM_ARCH_GEMMA4_ASSISTANT) {
         if (params.ctx_other == nullptr) {
@@ -3565,6 +3575,13 @@ llama_context_params llama_context_default_params() {
         /*.sampler                     =*/ nullptr,
         /*.n_sampler                   =*/ 0,
         /*.ctx_other                   =*/ nullptr,
+        /*.ea_compression_ratio        =*/ 0.0f,
+        /*.ea_n_future_positions       =*/ 512,
+        /*.ea_n_sink                   =*/ 4,
+        /*.ea_n_local                  =*/ 128,
+        /*.ea_use_covariance           =*/ true,
+        /*.ea_use_vnorm                =*/ true,
+        /*.ea_rolling_buffer_size      =*/ 128,
     };
 
     return result;

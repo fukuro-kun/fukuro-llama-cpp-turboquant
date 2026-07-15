@@ -1597,6 +1597,15 @@ struct llama_context_params common_context_params_to_llama(const common_params &
     cparams.type_k = params.cache_type_k;
     cparams.type_v = params.cache_type_v;
 
+    // Expected Attention KV Cache Compression
+    cparams.ea_compression_ratio   = params.ea_compression_ratio;
+    cparams.ea_n_future_positions  = params.ea_n_future_positions;
+    cparams.ea_n_sink              = params.ea_n_sink;
+    cparams.ea_n_local             = params.ea_n_local;
+    cparams.ea_use_covariance      = params.ea_use_covariance;
+    cparams.ea_use_vnorm           = params.ea_use_vnorm;
+    cparams.ea_rolling_buffer_size = params.ea_rolling_buffer_size;
+
     return cparams;
 }
 
