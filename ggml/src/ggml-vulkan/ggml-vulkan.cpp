@@ -15184,36 +15184,41 @@ static void ggml_vk_save_pipeline_cache(vk_device_struct * device) {
     // Use device->mutex + bool flag instead of function-local statics to avoid
     // static destruction order fiasco (function-local statics may be destroyed
     // before vk_instance, causing UAF in ~vk_device_struct).
+    //
+    // The entire operation (flag check + getPipelineCacheData + file write) must
+    // be under device->mutex because Vulkan requires external synchronization for
+    // pipeline cache objects — another thread could be compiling pipelines and
+    // modifying device->pipeline_cache concurrently.
     {
         std::lock_guard<std::recursive_mutex> lock(device->mutex);
         if (device->pipeline_cache_saved) {
             return;
         }
         device->pipeline_cache_saved = true;
-    }
 
-    try {
-        auto cache_data = device->device.getPipelineCacheData(device->pipeline_cache);
-        if (!cache_data.empty()) {
-            std::string tmp_path = device->pipeline_cache_path + ".tmp";
-            if (FILE * f = fopen(tmp_path.c_str(), "wb")) {
-                size_t written = fwrite(cache_data.data(), 1, cache_data.size(), f);
-                int fclose_ret = fclose(f);
-                if (written == cache_data.size() && fclose_ret == 0) {
-                    // Atomic rename (POSIX). On Windows, remove target first.
+        try {
+            auto cache_data = device->device.getPipelineCacheData(device->pipeline_cache);
+            if (!cache_data.empty()) {
+                std::string tmp_path = device->pipeline_cache_path + ".tmp";
+                if (FILE * f = fopen(tmp_path.c_str(), "wb")) {
+                    size_t written = fwrite(cache_data.data(), 1, cache_data.size(), f);
+                    int fclose_ret = fclose(f);
+                    if (written == cache_data.size() && fclose_ret == 0) {
+                        // Atomic rename (POSIX). On Windows, remove target first.
 #ifdef _WIN32
-                    std::remove(device->pipeline_cache_path.c_str());
+                        std::remove(device->pipeline_cache_path.c_str());
 #endif
-                    if (std::rename(tmp_path.c_str(), device->pipeline_cache_path.c_str()) != 0) {
+                        if (std::rename(tmp_path.c_str(), device->pipeline_cache_path.c_str()) != 0) {
+                            std::remove(tmp_path.c_str());
+                        }
+                    } else {
                         std::remove(tmp_path.c_str());
                     }
-                } else {
-                    std::remove(tmp_path.c_str());
                 }
             }
+        } catch (const vk::SystemError &) {
+            // Non-fatal — cache just won't be persisted
         }
-    } catch (const vk::SystemError &) {
-        // Non-fatal — cache just won't be persisted
     }
 }
 

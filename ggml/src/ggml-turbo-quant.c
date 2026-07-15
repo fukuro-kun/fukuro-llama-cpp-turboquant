@@ -13,7 +13,6 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include <string.h>
-#include <assert.h>
 #include <stdlib.h>
 
 #ifndef M_PI
@@ -274,7 +273,7 @@ GGML_API void turbo_cpu_fwht_inverse(float * x, int group_size) {
 /* ---------- TURBO3_0: 3-bit PolarQuant with WHT rotation ---------- */
 
 void quantize_row_turbo3_0_ref(const float * GGML_RESTRICT x, block_turbo3_0 * GGML_RESTRICT y, int64_t k) {
-    assert(k % QK_TURBO3 == 0);
+    GGML_ASSERT(k % QK_TURBO3 == 0);
 
     // Read WHT group size from global (set by CPU SET_ROWS handler before each call).
     // Fallback: 128 if row is 128-aligned, else 64.
@@ -291,8 +290,8 @@ void quantize_row_turbo3_0_ref(const float * GGML_RESTRICT x, block_turbo3_0 * G
     if (group_size < QK_TURBO3) {
         group_size = QK_TURBO3;  // force 128, k must be 128-aligned (checked above)
     }
-    assert(k % group_size == 0);
-    assert(group_size >= QK_TURBO3);
+    GGML_ASSERT(k % group_size == 0);
+    GGML_ASSERT(group_size >= QK_TURBO3);
 
     const int n_groups = k / group_size;
     const int blocks_per_group = group_size / QK_TURBO3;
@@ -347,7 +346,7 @@ void quantize_row_turbo3_0_ref(const float * GGML_RESTRICT x, block_turbo3_0 * G
 
 void dequantize_row_turbo3_0(const block_turbo3_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     // Stub — Metal shader handles dequant on GPU.
-    assert(k % QK_TURBO3 == 0);
+    GGML_ASSERT(k % QK_TURBO3 == 0);
     const int nb = k / QK_TURBO3;
     for (int block = 0; block < nb; block++) {
         float norm = GGML_FP16_TO_FP32(x[block].norm);
@@ -363,7 +362,7 @@ void dequantize_row_turbo3_0(const block_turbo3_0 * GGML_RESTRICT x, float * GGM
 size_t quantize_turbo3_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
                          int64_t nrows, int64_t n_per_row, const float * imatrix) {
     GGML_UNUSED(imatrix);
-    assert(n_per_row % QK_TURBO3 == 0);
+    GGML_ASSERT(n_per_row % QK_TURBO3 == 0);
 
     size_t row_size = (n_per_row / QK_TURBO3) * sizeof(block_turbo3_0);
     for (int64_t row = 0; row < nrows; row++) {
@@ -379,7 +378,7 @@ size_t quantize_turbo3_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT d
 /* ---------- TURBO2_0: 2-bit PolarQuant (no QJL) ---------- */
 
 void quantize_row_turbo2_0_ref(const float * GGML_RESTRICT x, block_turbo2_0 * GGML_RESTRICT y, int64_t k) {
-    assert(k % QK_TURBO2 == 0);
+    GGML_ASSERT(k % QK_TURBO2 == 0);
 
     int group_size = turbo3_cpu_wht_group_size;
     if (group_size != 64 && group_size != 128) {
@@ -390,8 +389,8 @@ void quantize_row_turbo2_0_ref(const float * GGML_RESTRICT x, block_turbo2_0 * G
     if (group_size < QK_TURBO2) {
         group_size = QK_TURBO2;  // force 128
     }
-    assert(k % group_size == 0);
-    assert(group_size >= QK_TURBO2);
+    GGML_ASSERT(k % group_size == 0);
+    GGML_ASSERT(group_size >= QK_TURBO2);
 
     const int n_groups = k / group_size;
     const int blocks_per_group = group_size / QK_TURBO2;
@@ -441,7 +440,7 @@ void quantize_row_turbo2_0_ref(const float * GGML_RESTRICT x, block_turbo2_0 * G
 }
 
 void dequantize_row_turbo2_0(const block_turbo2_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
-    assert(k % QK_TURBO2 == 0);
+    GGML_ASSERT(k % QK_TURBO2 == 0);
     const int nb = k / QK_TURBO2;
     for (int block = 0; block < nb; block++) {
         float norm = GGML_FP16_TO_FP32(x[block].norm);
@@ -455,7 +454,7 @@ void dequantize_row_turbo2_0(const block_turbo2_0 * GGML_RESTRICT x, float * GGM
 size_t quantize_turbo2_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
                          int64_t nrows, int64_t n_per_row, const float * imatrix) {
     GGML_UNUSED(imatrix);
-    assert(n_per_row % QK_TURBO2 == 0);
+    GGML_ASSERT(n_per_row % QK_TURBO2 == 0);
 
     size_t row_size = (n_per_row / QK_TURBO2) * sizeof(block_turbo2_0);
     for (int64_t row = 0; row < nrows; row++) {
@@ -474,7 +473,7 @@ void quantize_row_turbo4_0_ref(const float * GGML_RESTRICT x, block_turbo4_0 * G
     turbo_init_rotation();
     turbo_init_qjl();
 
-    assert(k % QK_TURBO4 == 0);
+    GGML_ASSERT(k % QK_TURBO4 == 0);
     const int nb = k / QK_TURBO4;
     const int d  = QK_TURBO4;
 
@@ -590,7 +589,7 @@ void quantize_row_turbo4_0_ref(const float * GGML_RESTRICT x, block_turbo4_0 * G
 void dequantize_row_turbo4_0(const block_turbo4_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     turbo_init_rotation();
 
-    assert(k % QK_TURBO4 == 0);
+    GGML_ASSERT(k % QK_TURBO4 == 0);
     const int nb = k / QK_TURBO4;
     const int d  = QK_TURBO4;
 
@@ -665,7 +664,7 @@ void dequantize_row_turbo4_0(const block_turbo4_0 * GGML_RESTRICT x, float * GGM
 size_t quantize_turbo4_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
                          int64_t nrows, int64_t n_per_row, const float * imatrix) {
     GGML_UNUSED(imatrix);
-    assert(n_per_row % QK_TURBO4 == 0);
+    GGML_ASSERT(n_per_row % QK_TURBO4 == 0);
 
     size_t row_size = (n_per_row / QK_TURBO4) * sizeof(block_turbo4_0);
     for (int64_t row = 0; row < nrows; row++) {
@@ -772,7 +771,7 @@ static int tq4_0_choose_index(float val) {
 /* ---------- TQ3_1S quantization ---------- */
 
 void quantize_row_tq3_1s_ref(const float * GGML_RESTRICT x, block_tq3_1s * GGML_RESTRICT y, int64_t k) {
-    assert(k % QK_TQ3_0 == 0);
+    GGML_ASSERT(k % QK_TQ3_0 == 0);
     const int nb = k / QK_TQ3_0;
 
     for (int block = 0; block < nb; block++) {
@@ -868,7 +867,7 @@ void quantize_row_tq3_1s_ref(const float * GGML_RESTRICT x, block_tq3_1s * GGML_
 }
 
 void dequantize_row_tq3_1s(const block_tq3_1s * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
-    assert(k % QK_TQ3_0 == 0);
+    GGML_ASSERT(k % QK_TQ3_0 == 0);
     const int nb = k / QK_TQ3_0;
 
     for (int blk_i = 0; blk_i < nb; blk_i++) {
@@ -906,7 +905,7 @@ void dequantize_row_tq3_1s(const block_tq3_1s * GGML_RESTRICT x, float * GGML_RE
 size_t quantize_tq3_1s(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
                         int64_t nrows, int64_t n_per_row, const float * imatrix) {
     GGML_UNUSED(imatrix);
-    assert(n_per_row % QK_TQ3_0 == 0);
+    GGML_ASSERT(n_per_row % QK_TQ3_0 == 0);
 
     size_t row_size = (n_per_row / QK_TQ3_0) * sizeof(block_tq3_1s);
     for (int64_t row = 0; row < nrows; row++) {
@@ -922,7 +921,7 @@ size_t quantize_tq3_1s(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst
 /* ---------- TQ4_1S quantization ---------- */
 
 void quantize_row_tq4_1s_ref(const float * GGML_RESTRICT x, block_tq4_1s * GGML_RESTRICT y, int64_t k) {
-    assert(k % QK_TQ4_1S == 0);
+    GGML_ASSERT(k % QK_TQ4_1S == 0);
     const int nb = k / QK_TQ4_1S;
 
     for (int block = 0; block < nb; block++) {
@@ -1010,7 +1009,7 @@ void quantize_row_tq4_1s_ref(const float * GGML_RESTRICT x, block_tq4_1s * GGML_
 }
 
 void dequantize_row_tq4_1s(const block_tq4_1s * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
-    assert(k % QK_TQ4_1S == 0);
+    GGML_ASSERT(k % QK_TQ4_1S == 0);
     const int nb = k / QK_TQ4_1S;
 
     for (int blk_i = 0; blk_i < nb; blk_i++) {
@@ -1034,7 +1033,7 @@ void dequantize_row_tq4_1s(const block_tq4_1s * GGML_RESTRICT x, float * GGML_RE
 size_t quantize_tq4_1s(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
                         int64_t nrows, int64_t n_per_row, const float * imatrix) {
     GGML_UNUSED(imatrix);
-    assert(n_per_row % QK_TQ4_1S == 0);
+    GGML_ASSERT(n_per_row % QK_TQ4_1S == 0);
 
     size_t row_size = (n_per_row / QK_TQ4_1S) * sizeof(block_tq4_1s);
     for (int64_t row = 0; row < nrows; row++) {

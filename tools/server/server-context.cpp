@@ -363,7 +363,7 @@ struct server_slot {
         return n_draft_max;
     }
 
-    void update_batch(llama_batch & batch) {
+    void update_batch(llama_batch & batch, int n_batch_max) {
         if (spec_draft.empty()) {
             // no speculative decoding
             i_batch = batch.n_tokens;
@@ -378,8 +378,21 @@ struct server_slot {
 
             GGML_ASSERT(spec_i_batch.empty());
 
+            // limit draft tokens to what fits in the remaining batch capacity
+            // each slot adds (1 + n_draft) tokens; this prevents batch overflow
+            // when multiple slots speculate simultaneously
+            int n_draft_avail = (int) spec_draft.size();
+            while (n_draft_avail > 0 && (batch.n_tokens + 1 + n_draft_avail) >= n_batch_max) {
+                n_draft_avail--;
+            }
+            if (n_draft_avail < (int) spec_draft.size()) {
+                SLT_WRN(*this, "reducing draft from %zu to %d to fit batch capacity (n_batch=%d)\n",
+                        spec_draft.size(), n_draft_avail, n_batch_max);
+                spec_draft.resize(n_draft_avail);
+            }
+
             spec_i_batch.push_back(batch.n_tokens);
-            for (size_t i = 0; i < spec_draft.size(); i++) {
+            for (int i = 0; i < n_draft_avail; i++) {
                 spec_i_batch.push_back(batch.n_tokens + i + 1);
             }
 
@@ -2793,10 +2806,11 @@ private:
         }
 
         // update the batch with the sampled/drafted tokens
+        const int32_t n_batch_capacity = llama_n_batch(ctx_tgt);
         for (auto * slot_ptr : generating) {
             auto & slot = *slot_ptr;
 
-            slot.update_batch(batch);
+            slot.update_batch(batch, n_batch_capacity);
         }
 
         // process in chunks of params.n_batch
