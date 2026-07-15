@@ -307,6 +307,10 @@ target_include_directories(test-alloc PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
 llama_build_and_test(test-turbo-quant.c)
 target_include_directories(test-turbo-quant PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
 
+# Expected Attention KV Cache Compression — Phase 1 math tests
+llama_build_and_test(test-expected-attention.cpp)
+target_include_directories(test-expected-attention PRIVATE ${PROJECT_SOURCE_DIR}/src)
+
 llama_build(export-graph-ops.cpp)
 target_include_directories(export-graph-ops PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src)
 if (TARGET gguf-model-data)

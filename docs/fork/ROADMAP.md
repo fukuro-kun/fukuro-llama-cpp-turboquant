@@ -107,14 +107,14 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 
 | # | Status | Ansatz | Systeme | Aufwand | Existiert | Solo-Plan | Gain |
 |---|--------|--------|---------|---------|-----------|-----------|------|
-| 17 | ☐ | HOBBIT: Mixed-Precision Expert Offloading | Styx, Mars | 8-12 Wochen | arXiv:2411.01433 | später | bis 9.93x MoE offloading |
+| 17 | ❌ | HOBBIT: Mixed-Precision Expert Offloading | Styx, Mars | 8-12 Wochen | arXiv:2411.01433 | später | bis 9.93x MoE offloading — **Eval 2026-07-15: ❌ ABLEHNEN. 9.93x ist SSD-vs-DRAM, auf RTX 4090 (PCIe 4.0) nur 3.2-3.9x. Styx hat PCIe 3.0 (16 GB/s) → 50% Bandbreitenverlust. Kein Referenzcode (Paper-only, 10-14 Wochen). Fork hat bereits MoE Cache + thecodacus Prefetch. INT2/INT4 Expert-Quantisierung kollidiert potenziell mit TurboQuant.** |
 | 18 | ☐ | DALI: Workload-Aware MoE Offloading | Styx | 4-6 Wochen | arXiv:2602.03495 | später | intelligentes MoE-Offloading |
 | 19 | 🔬 | Expected Attention KV Cache Compression | Alle | 4-6 Wochen | arXiv:2510.00636 | [Phase 1](2026-07-15_EXPECTED_ATTENTION_DESIGN.md) | ergänzt TurboQuant — **Phase 1 Design-Dokument fertig: orthogonal zu TurboQuant (Pruning vs Quant), kombiniert ~10x Kompression** |
 | 20 | ✅ | Tensor Parallelism für Uranus | Uranus | 6-8 Wochen | PR #19378 (merged) | [M5](plans/SESSION_PLAN_tensor-parallelism.md) | ~40% boost für 2x 4060 Ti — **bereits im Fork integriert: Commit d850df3f5, backend-agnostic tensor parallelism, AllReduce in ggml-cuda/allreduce.cu, Meta-Device in llama.cpp** |
 | 21 | ☐ | PagedAttention / Paged KV Cache | Uranus, Mars | 6-8 Wochen | PR #22569 | später | 2.5x aggregate throughput |
 | 22 | ☐ | GWQ: Gradient-Aware Weight Quantization | Alle | 4-6 Wochen | arXiv:2411.00850 | später | 1.2x inference speedup |
 | 23 | ☐ | DuoServe-MoE: Dual-Phase Expert Scheduling | Styx | 6-8 Wochen | arXiv:2509.07379 | später | phase-spezifisches Prefetch |
-| 24 | ☐ | HybriMoE: Hybrid CPU-GPU Scheduling | Styx | 6-8 Wochen | arXiv:2504.05897 | später | 1.33x prefill, 1.70x decode |
+| 24 | ❌ | HybriMoE: Hybrid CPU-GPU Scheduling | Styx | 6-8 Wochen | arXiv:2504.05897 | später | 1.33x prefill, 1.70x decode — **Eval 2026-07-15: ❌ ABLEHNEN. Architektur-Mismatch: HybriMoE führt Experten auf CPU aus (CPU-GPU-Hybrid), Fork hält Experten im VRAM (GPU-Cache). 1.33x/1.70x auf RTX A6000 (48GB), auf Styx (8GB, PCIe 3.0) Regression erwartet. Referenzcode auf kTransformers (nicht llama.cpp), 6-8 Wochen Portierung. Konflikt mit thecodacus Prefetch.** |
 | 41 | ☐ | GRKV: Global Regression KV Compression | Alle | 4-6 Wochen | arXiv:2605.31105 | später | training-free KV compression — **Recherche 2026-07-12** |
 | 42 | ☐ | CapKV: Capacity-aware KV Eviction | Alle | 4-6 Wochen | arXiv:2604.25975 | später | information-theoretic eviction — **Recherche 2026-07-12** |
 | 43 | ☐ | SliderQuant: Sliding-layer PTQ | Alle | 4-6 Wochen | arXiv:2603.25284 | später | bessere Low-Bit-Quantisierung — **Recherche 2026-07-12** |
