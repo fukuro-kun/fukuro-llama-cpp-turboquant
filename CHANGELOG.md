@@ -8,6 +8,10 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-15
 
+### #79: NCCL Communication Optimization — ✅ evaluiert
+
+- **eval: #79 NCCL Communication Optimization** — Evaluation in `docs/fork/2026-07-15_NCCL_EVAL.md`. NCCL ist bereits im Fork integriert (`GGML_CUDA_NCCL=ON`) und auf Uranus installiert (NCCL 2.30.7). Benchmark auf Uranus (2x RTX 4060 Ti, PCIe, kein NVLink): **Tensor Parallelism + NCCL gibt +23-32% tg Speedup** vs Layer Split, aber -11-21% pp Regression. NCCL ist +4-8% besser für pp (große AllReduce-Tensoren), Internal AllReduce ist +3-6% besser für tg (kleine Tensoren auf PCIe). `GGML_CUDA_ALLREDUCE=internal` env var für tg-heavy Workloads. 12B-Modell crasht mit TP (`GGML_ASSERT(src_ss[0].axis != GGML_BACKEND_SPLIT_AXIS_0)` in `ggml-backend-meta.cpp:541`) — Meta-Backend Split-Limitation. E4B und 26B-A4B funktionieren mit TP.
+
 ### #87: Cross-Layer Gate Expert Prediction — ❌ evaluiert
 
 - **eval: #87 Cross-Layer Gate Expert Prediction (Fate, arXiv:2502.12224)** — Evaluation in `docs/fork/2026-07-15_CROSS_LAYER_GATE_EVAL.md`. Fate schlägt training-freie Expert-Prediction via Cross-Layer Gating vor (>83% Cosine-Ähnlichkeit der Gate-Inputs → 97.15% Prefetch-Accuracy). Paper: MIT-Lizenz, Code auf GitHub (FFFzy/Fate_open), training-frei. **Messung auf Mars (QAT Q4_K_XL, 155 Tokens):** Expert-Selection-Overlap zwischen benachbarten Layern = **6.6%** (nahe Random-Baseline 6.25% für 128 Experten + Top-8). 0% Exact Match. Multi-Step Overlap (N vs N+2, N+3) ebenfalls ~6%. **Schlussfolgerung:** ❌ Nicht viable für Gemma-4 26B-A4B. Die Gate-Funktion (Softmax + Top-8 aus 128) ist zu nicht-linear für Cross-Layer-Prediction. Fate wurde auf Modellen mit 8-16 Experten (Top-2) evaluiert, wo die Gate-Funktion wesentlich robuster ist. Neues Tool `llama-expert-overlap` entwickelt für diese Messung.
