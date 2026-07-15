@@ -262,9 +262,13 @@ int main(int argc, char ** argv) {
     llama_context * ctx = llama_init_from_model(model, cparams);
     if (!ctx) { LOG_ERR("failed to create context\n"); return 1; }
 
+    fprintf(stderr, "DEBUG: context created, tokenizing...\n");
+
     // Tokenize prompt
     std::vector<llama_token> tokens = common_tokenize(ctx, prompt, true, true);
     if ((int) tokens.size() > 256) tokens.resize(256);
+
+    fprintf(stderr, "DEBUG: tokenized %zu tokens, decoding...\n", tokens.size());
 
     printf("Processing %zu prompt tokens...\n", tokens.size());
 
