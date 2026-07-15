@@ -1421,6 +1421,9 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         "Expected Attention RoPE prediction horizon (default: 512)",
         [](common_params & params, const std::string & value) {
             params.ea_n_future_positions = std::stoi(value);
+            if (params.ea_n_future_positions < 0) {
+                throw std::runtime_error("error: --ea-future must be >= 0\n");
+            }
         }
     ).set_env("LLAMA_ARG_EA_FUTURE"));
     add_opt(common_arg(
@@ -1428,6 +1431,9 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         "Expected Attention protected initial tokens (default: 4)",
         [](common_params & params, const std::string & value) {
             params.ea_n_sink = std::stoi(value);
+            if (params.ea_n_sink < 0) {
+                throw std::runtime_error("error: --ea-sink must be >= 0\n");
+            }
         }
     ).set_env("LLAMA_ARG_EA_SINK"));
     add_opt(common_arg(
@@ -1435,19 +1441,22 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         "Expected Attention protected recent tokens (default: 128)",
         [](common_params & params, const std::string & value) {
             params.ea_n_local = std::stoi(value);
+            if (params.ea_n_local < 0) {
+                throw std::runtime_error("error: --ea-local must be >= 0\n");
+            }
         }
     ).set_env("LLAMA_ARG_EA_LOCAL"));
     add_opt(common_arg(
-        {"--ea-no-covariance"}, "",
+        {"--ea-no-covariance"},
         "Disable Expected Attention covariance term (mean-only mode, faster)",
-        [](common_params & params, const std::string &) {
+        [](common_params & params) {
             params.ea_use_covariance = false;
         }
-    ).set_env("LLAMA_ARG_EA_NO_COV"));
+    ).set_env("LLAMA_ARG_EA_NO_COVARIANCE"));
     add_opt(common_arg(
-        {"--ea-no-vnorm"}, "",
+        {"--ea-no-vnorm"},
         "Disable Expected Attention value-norm rescaling",
-        [](common_params & params, const std::string &) {
+        [](common_params & params) {
             params.ea_use_vnorm = false;
         }
     ).set_env("LLAMA_ARG_EA_NO_VNORM"));

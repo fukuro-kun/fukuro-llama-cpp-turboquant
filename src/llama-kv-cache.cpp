@@ -1,5 +1,6 @@
 #include "llama-kv-cache.h"
 
+// TODO(Phase 2d): needed for ea_compress() implementation
 #include "llama-expected-attention.h"
 #include "llama-impl.h"
 #include "llama-io.h"
@@ -3011,10 +3012,23 @@ void llama_kv_cache_context::set_input_v_rot(ggml_tensor * dst) const {
 // Expected Attention KV Cache Compression — Phase 2c Stub
 // Validates parameters and computes how many tokens WOULD be pruned.
 // No actual pruning yet — Phase 2d will implement the pruning logic.
+// Not threadsafe — caller must hold the same synchronization as for seq_rm/seq_add.
 int llama_kv_cache::ea_compress_stub(const llama_cparams & cparams, llama_seq_id seq_id) const {
     if (!cparams.ea.enabled || cparams.ea.compression_ratio <= 0.0f) {
         return 0;
     }
+
+    // Validate seq_id bounds
+    if (seq_id < 0 || (uint32_t)seq_id >= cparams.n_seq_max) {
+        LLAMA_LOG_WARN("[ea_compress_stub] invalid seq_id=%d (n_seq_max=%u)\n", seq_id, cparams.n_seq_max);
+        return 0;
+    }
+
+    // Validate compression_ratio range
+    if (cparams.ea.compression_ratio > 1.0f) {
+        LLAMA_LOG_WARN("[ea_compress_stub] compression_ratio=%.2f > 1.0, clamping to 1.0\n", cparams.ea.compression_ratio);
+    }
+    const float ratio = std::min(cparams.ea.compression_ratio, 1.0f);
 
     // Count populated cells for this sequence
     const auto & cells = v_cells[seq_to_stream[seq_id]];
@@ -3025,9 +3039,9 @@ int llama_kv_cache::ea_compress_stub(const llama_cparams & cparams, llama_seq_id
         }
     }
 
-    // Compute how many would be pruned
+    // Compute how many would be pruned (clamped to valid range)
     const int n_eligible = std::max(0, n_tokens - cparams.ea.n_sink - cparams.ea.n_local);
-    const int n_to_prune = (int)(cparams.ea.compression_ratio * n_eligible);
+    const int n_to_prune = std::min((int)(ratio * n_eligible), n_eligible);
 
     LLAMA_LOG_DEBUG("[ea_compress_stub] seq=%d: n_tokens=%d, n_eligible=%d, would_prune=%d (ratio=%.2f, sink=%d, local=%d, cov=%d, vnorm=%d)\n",
                     seq_id, n_tokens, n_eligible, n_to_prune,

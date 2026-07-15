@@ -94,12 +94,22 @@ llama_context::llama_context(
     // Expected Attention KV Cache Compression
     cparams.ea.enabled             = params.ea_compression_ratio > 0.0f;
     cparams.ea.compression_ratio   = params.ea_compression_ratio;
-    cparams.ea.n_future_positions  = params.ea_n_future_positions;
-    cparams.ea.n_sink              = params.ea_n_sink;
-    cparams.ea.n_local             = params.ea_n_local;
+    cparams.ea.n_future_positions  = std::max(0, params.ea_n_future_positions);
+    cparams.ea.n_sink              = std::max(0, params.ea_n_sink);
+    cparams.ea.n_local             = std::max(0, params.ea_n_local);
     cparams.ea.use_covariance      = params.ea_use_covariance;
     cparams.ea.use_vnorm           = params.ea_use_vnorm;
-    cparams.ea.rolling_buffer_size = params.ea_rolling_buffer_size;
+    cparams.ea.rolling_buffer_size = std::max(1, params.ea_rolling_buffer_size);
+
+    if (cparams.ea.enabled) {
+        if (cparams.ea.compression_ratio > 1.0f) {
+            LLAMA_LOG_WARN("%s: EA compression_ratio %.2f > 1.0, clamping to 1.0\n", __func__, cparams.ea.compression_ratio);
+            cparams.ea.compression_ratio = 1.0f;
+        }
+        LLAMA_LOG_INFO("%s: Expected Attention enabled (ratio=%.2f, future=%d, sink=%d, local=%d, cov=%d, vnorm=%d)\n",
+                       __func__, cparams.ea.compression_ratio, cparams.ea.n_future_positions,
+                       cparams.ea.n_sink, cparams.ea.n_local, cparams.ea.use_covariance, cparams.ea.use_vnorm);
+    }
 
     // TODO: more generic
     if (model.arch == LLM_ARCH_GEMMA4_ASSISTANT) {
@@ -3579,9 +3589,9 @@ llama_context_params llama_context_default_params() {
         /*.ea_n_future_positions       =*/ 512,
         /*.ea_n_sink                   =*/ 4,
         /*.ea_n_local                  =*/ 128,
+        /*.ea_rolling_buffer_size      =*/ 128,
         /*.ea_use_covariance           =*/ true,
         /*.ea_use_vnorm                =*/ true,
-        /*.ea_rolling_buffer_size      =*/ 128,
     };
 
     return result;

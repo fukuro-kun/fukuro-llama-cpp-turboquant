@@ -403,9 +403,9 @@ extern "C" {
         int32_t  ea_n_future_positions;  // RoPE prediction horizon (default: 512)
         int32_t  ea_n_sink;              // protected initial tokens (default: 4)
         int32_t  ea_n_local;             // protected recent tokens (default: 128)
+        int32_t  ea_rolling_buffer_size; // query statistics window (default: 128)
         bool     ea_use_covariance;      // covariance term (O(d^2), more accurate)
         bool     ea_use_vnorm;           // rescale scores by value L2 norm
-        int32_t  ea_rolling_buffer_size; // query statistics window (default: 128)
     };
 
     struct llama_model_tensor_override {

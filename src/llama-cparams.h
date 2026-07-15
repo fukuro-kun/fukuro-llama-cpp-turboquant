@@ -12,7 +12,7 @@
 // See docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md
 struct llama_ea_params {
     bool     enabled             = false;   // master switch
-    float    compression_ratio   = 0.5f;    // fraction of KV pairs to prune
+    float    compression_ratio   = 0.0f;    // fraction of KV pairs to prune (0.0 = disabled)
     int      n_future_positions  = 512;     // RoPE prediction horizon
     int      n_sink              = 4;       // protected initial tokens
     int      n_local             = 128;     // protected recent tokens
