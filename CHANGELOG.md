@@ -8,6 +8,16 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-15
 
+### Code-Review Sweep + Expected Attention Phase 1
+
+- **review: 3x Code-Review (review-swe, review-kimi, review-swe)** — 3 parallele Review-Subagents prüften Spec-Decoding/MTP/Server, Vulkan/TurboQuant und expert-overlap Tool. Ergebnisse: 3 P0, 15 P1, 14 P2. Alle 3 P0 und 13/19 P1+P2 in dieser Session gefixst.
+  - P0: expert-overlap ffn_moe_topk tensor read (View-Stride ignoriert), Vulkan turbo_wht dispatch (group_size!=128), Legacy turbo4 uninitialisiertes rnorm
+  - P1: MTP ohne Assistant-Head abweisen (neues API `llama_model_n_layer_nextn`), turbo3/2 group_size<128 guard, Vulkan throw e;→throw; (Exception-Slicing), Vulkan pipeline leak fix, expert-overlap memory-leaks/CLI-Parsing/type-Map
+  - P2: nullptr check embeddings_nextn_ith, last_n_drafted entfernt, n_batch<1 guard, speculative_process slot-release, Block-Größen-Kommentare, redundante extern, n_vocab einmalig, chunk_size=n_ubatch
+  - Offen: R1-9 (batch-Allokation-Check), R2-2 (Pipeline-Cache-Race), R2-3 (Test-Abdeckung), R2-6 (assert→Laufzeit-Check)
+- **feat: `llama_model_n_layer_nextn()` API** — Neuer öffentlicher Getter für MTP/NextN-Layer-Anzahl. Erlaubt Server-Check ob Modell MTP-Heads hat vor `--spec-type draft-mtp`.
+- **docs: #19 Expected Attention Phase 1 Design** — `docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md`. Expected Attention (arXiv:2510.00636) = training-freies KV-Pruning via Query-Statistik. Orthogonal zu TurboQuant (Pruning vs Quantisierung). Kombiniert ~10x Kompression (5.1x turbo3 * 2x pruning). Phase 1 (CPU + Mean-only) in 4-6 Wochen realistisch. ROADMAP #19 Status: ☐→🔬.
+
 ### ROADMAP Research-Sweep #5 (Tier 2 Completion)
 
 - **eval: #67 MXFP4 Quantization für gpt-oss — ✅ bereits vollständig integriert** — Tiefen-Recherche bestätigt: `GGML_TYPE_MXFP4 = 39` in ggml.h, `LLAMA_FTYPE_MOSTLY_MXFP4_MOE = 38` in llama.h. Alle Backends (CUDA, Vulkan, Metal, SYCL, OpenCL, Hexagon, WebGPU, CPU) haben Implementierungen. Vulkan-Shader vollständig (types.glsl, dequant_funcs.glsl, mul_mat_vecq.comp, mul_mm_funcs.glsl). Quantize-Tool unterstützt `mxfp4` für MoE-Tensoren. Keine weitere Arbeit nötig.
