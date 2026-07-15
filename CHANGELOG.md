@@ -8,6 +8,10 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-15
 
+### #19 Expected Attention Phase 2d — Post-hoc KV-Cache Pruning
+
+- **feat: Phase 2d — Post-hoc Pruning MVP** — `ea_compress_stub()` → `ea_compress()`: echtes KV-Cache Pruning. MVP-Heuristic: oldest-first Eviction (älteste nicht-geschützte Tokens werden entfernt, n_sink initiale + n_local recent Tokens geschützt). Integration in `llama_context::decode()` nach allen Ubatches. `dynamic_cast` unterstützt `llama_kv_cache` und `llama_memory_hybrid`. Nur aktiv während Decode (n_tokens <= n_ubatch). Phase 3: EA-Scoring-Mathematik (mean/covariance) statt oldest-first.
+
 ### #19 Expected Attention Phase 2a/b/c — Review-Fixes
 
 - **fix: P0/P1/P2 aus review-swe Code-Review** — (P0) `--ea-no-covariance`/`--ea-no-vnorm` als `handler_void` registriert (vorher `handler_string` → frassen nächstes CLI-Argument). (P1) Validierung numerischer EA-Parameter: `n_sink`/`n_local`/`n_future` >= 0 in `arg.cpp`, `ratio` <= 1.0 Clamp in `llama_context`, `rolling_buffer_size` >= 1. (P1) `ea_compress_stub()` seq_id Bounds-Check + `n_to_prune` Clamp. (P2) `llama_ea_params` Default `compression_ratio` 0.5→0.0 (konsistent mit Public API). (P2) Bool-Layout in `llama_context_params` korrigiert (bools ans Ende). (P2) Env-Var `LLAMA_ARG_EA_NO_COV`→`LLAMA_ARG_EA_NO_COVARIANCE`.
