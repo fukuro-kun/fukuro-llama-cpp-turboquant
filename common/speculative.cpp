@@ -843,7 +843,6 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
     // Per-seq draft length from the last draft() call, used in accept() to
     // roll back ctx_dft's recurrent state past the AR draft's redundant
     // pre-advancement before process() mirrored the verify batch.
-    std::vector<uint16_t> last_n_drafted;
 
     common_speculative_impl_draft_mtp(const common_params_speculative & params, uint32_t n_seq)
         : common_speculative_impl(COMMON_SPECULATIVE_TYPE_DRAFT_MTP, n_seq)
@@ -910,8 +909,6 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
 
         verify_h.assign(n_seq, {});
         verify_h_rows.assign(n_seq, 0);
-
-        last_n_drafted.assign(n_seq, 0);
     }
 
     ~common_speculative_impl_draft_mtp() override {
@@ -1098,6 +1095,14 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
                 h_row = llama_get_embeddings_nextn_ith(ctx_dft, i_batch);
                 ++i_batch;
 
+                if (h_row == nullptr) {
+                    LOG_ERR("%s: llama_get_embeddings_nextn_ith returned null for seq_id %d, i_batch %d\n",
+                            __func__, seq_id, i_batch - 1);
+                    drafting[seq_id] = false;
+                    n_drafting--;
+                    continue;
+                }
+
                 const auto * cur_p = common_sampler_get_candidates(smpl, true);
 
                 for (int k = 0; k < std::min(3, (int) cur_p->size); ++k) {
@@ -1163,8 +1168,6 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
             if (dp.result->size() < (size_t) params.n_min) {
                 dp.result->clear();
             }
-
-            last_n_drafted[seq_id] = (uint16_t) dp.result->size();
         }
     }
 

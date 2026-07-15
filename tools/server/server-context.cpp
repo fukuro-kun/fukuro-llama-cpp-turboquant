@@ -3451,6 +3451,20 @@ private:
                     n_batch /= 2;
                 }
 
+                // prevent infinite retry loop: if n_batch reaches 0 (unhandled ret code like ret==2),
+                // abort all slots instead of looping forever
+                if (n_batch < 1) {
+                    SRV_ERR("decode failed with unhandled ret = %d and n_batch reached 0, aborting all slots\n", ret);
+                    for (auto & slot : slots) {
+                        if (slot.is_processing()) {
+                            send_error(slot, "Compute error (unhandled decode return code).");
+                            slot.release();
+                            slot.prompt_clear(false);
+                        }
+                    }
+                    break;
+                }
+
                 SRV_WRN("failed to find free space in the KV cache, retrying with smaller batch size, i = %d, n_batch = %d, ret = %d\n", i, n_batch, ret);
 
                 continue; // continue loop of n_batch
@@ -3504,7 +3518,14 @@ private:
             if (!common_speculative_process(spec.get(), batch_view)) {
                 SRV_ERR("%s", "failed to process speculative batch\n");
 
-                // TODO: handle error
+                // release all processing slots to avoid infinite retry loop
+                for (auto & slot : slots) {
+                    if (slot.is_processing()) {
+                        send_error(slot, "failed to process speculative batch");
+                        slot.release();
+                        slot.prompt_clear(false);
+                    }
+                }
                 break;
             }
 
