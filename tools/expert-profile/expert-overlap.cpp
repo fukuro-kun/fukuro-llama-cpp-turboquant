@@ -226,14 +226,39 @@ int main(int argc, char ** argv) {
             if (i + 1 >= argc) { fprintf(stderr, "Missing argument for %s\n", argv[i]); exit(1); }
             return argv[++i];
         };
+        auto next_int = [&](const char * opt) -> int {
+            std::string s = next();
+            try { return std::stoi(s); }
+            catch (const std::exception &) {
+                fprintf(stderr, "Invalid integer for %s: '%s'\n", opt, s.c_str());
+                exit(1);
+            }
+        };
+        auto next_ggml_type = [&](const char * opt) -> enum ggml_type {
+            std::string s = next();
+            // accept numeric or name (f16, f32, turbo3, turbo4, q8_0, etc.)
+            static const std::map<std::string, enum ggml_type> type_map = {
+                {"f16", GGML_TYPE_F16}, {"f32", GGML_TYPE_F32},
+                {"q8_0", GGML_TYPE_Q8_0}, {"q4_0", GGML_TYPE_Q4_0},
+                {"turbo3", GGML_TYPE_TURBO3_0}, {"turbo4", GGML_TYPE_TURBO4_0},
+                {"turbo2", GGML_TYPE_TURBO2_0},
+            };
+            auto it = type_map.find(s);
+            if (it != type_map.end()) return it->second;
+            try { return (enum ggml_type) std::stoi(s); }
+            catch (const std::exception &) {
+                fprintf(stderr, "Invalid ggml_type for %s: '%s' (use f16, f32, q8_0, turbo3, turbo4, or numeric)\n", opt, s.c_str());
+                exit(1);
+            }
+        };
         if (a == "-m" || a == "--model")        model_path = next();
         else if (a == "-p" || a == "--prompt")  prompt = next();
-        else if (a == "-n" || a == "--n-predict") n_predict = std::stoi(next());
-        else if (a == "-ngl")                   n_gpu_layers = std::stoi(next());
-        else if (a == "-t" || a == "--threads") n_threads = std::stoi(next());
-        else if (a == "-c" || a == "--ctx-size") ctx_size = std::stoi(next());
-        else if (a == "--type-k")               kv_type_k = (enum ggml_type) atoi(next().c_str());
-        else if (a == "--type-v")               kv_type_v = (enum ggml_type) atoi(next().c_str());
+        else if (a == "-n" || a == "--n-predict") n_predict = next_int("-n");
+        else if (a == "-ngl")                   n_gpu_layers = next_int("-ngl");
+        else if (a == "-t" || a == "--threads") n_threads = next_int("-t");
+        else if (a == "-c" || a == "--ctx-size") ctx_size = next_int("-c");
+        else if (a == "--type-k")               kv_type_k = next_ggml_type("--type-k");
+        else if (a == "--type-v")               kv_type_v = next_ggml_type("--type-v");
         else if (a == "-h" || a == "--help") {
             printf("Usage: %s -m model.gguf [options]\n"
                    "  -m, --model PATH      Model file\n"
