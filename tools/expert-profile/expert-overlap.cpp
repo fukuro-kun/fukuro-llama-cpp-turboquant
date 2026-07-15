@@ -266,29 +266,39 @@ int main(int argc, char ** argv) {
     std::vector<llama_token> tokens = common_tokenize(ctx, prompt, true, true);
     if ((int) tokens.size() > 256) tokens.resize(256);
 
-    printf("Processing %zu prompt tokens + %d generated tokens...\n",
-           tokens.size(), n_predict);
+    printf("Processing %zu prompt tokens...\n", tokens.size());
 
-    // Init sampler
-    struct common_params_sampling sparams;
-    sparams.temp = 1.0f;
-    sparams.top_p = 0.95f;
-    sparams.top_k = 64;
-    struct common_sampler * sampler = common_sampler_init(llama_get_model(ctx), sparams);
-
-    // Process prompt
-    llama_batch batch = llama_batch_get_one(tokens.data(), (int) tokens.size());
-    if (llama_decode(ctx, batch)) {
-        LOG_ERR("failed to decode prompt\n");
-        return 1;
+    // Process prompt in chunks to avoid memory issues
+    int chunk_size = 128;
+    for (int offset = 0; offset < (int) tokens.size(); offset += chunk_size) {
+        int n = std::min(chunk_size, (int) tokens.size() - offset);
+        llama_batch batch = llama_batch_get_one(tokens.data() + offset, n);
+        if (llama_decode(ctx, batch)) {
+            LOG_ERR("failed to decode prompt chunk at offset %d\n", offset);
+            return 1;
+        }
     }
 
-    // Generate tokens
+    // Generate tokens one by one (greedy: pick argmax from logits)
+    printf("Generating %d tokens (greedy)...\n", n_predict);
     for (int i = 0; i < n_predict; ++i) {
-        llama_token new_token = common_sampler_sample(sampler, ctx, -1);
-        common_sampler_accept(sampler, new_token, true);
+        float * logits = llama_get_logits_ith(ctx, -1);
+        if (!logits) {
+            LOG_ERR("failed to get logits for token %d\n", i);
+            break;
+        }
+        llama_vocab * vocab = llama_get_model(ctx) ? (llama_vocab *) llama_model_get_vocab(llama_get_model(ctx)) : nullptr;
+        int32_t n_vocab = llama_vocab_n_tokens(vocab);
+        llama_token new_token = 0;
+        float max_logit = -1e30f;
+        for (int32_t t = 0; t < n_vocab; ++t) {
+            if (logits[t] > max_logit) {
+                max_logit = logits[t];
+                new_token = t;
+            }
+        }
 
-        batch = llama_batch_get_one(&new_token, 1);
+        llama_batch batch = llama_batch_get_one(&new_token, 1);
         if (llama_decode(ctx, batch)) {
             LOG_ERR("failed to decode token %d\n", i);
             break;
@@ -297,8 +307,6 @@ int main(int argc, char ** argv) {
 
     // Report
     g_collector.report();
-
-    common_sampler_free(sampler);
     llama_free(ctx);
     llama_model_free(model);
     llama_backend_free();
