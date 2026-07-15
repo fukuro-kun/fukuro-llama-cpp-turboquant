@@ -170,18 +170,18 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | R1-6 | ✅ P2 | `common/speculative.cpp:846,1167` | `last_n_drafted` wird geschrieben aber nie gelesen. **Gefixst: entfernt** (Commit `5e2bb1da7`) | 30min |
 | R1-7 | ✅ P2 | `tools/server/server-context.cpp:3400-3446` | llama_decode Retry-Schleife: n_batch→0 Endlosschleife. **Gefixst: n_batch<1 guard** (Commit `5e2bb1da7`) | 2-4h |
 | R1-8 | ✅ P2 | `tools/server/server-context.cpp:3494` | `common_speculative_process` Fehler setzt kein has_err. **Gefixst: slots werden released** (Commit `5e2bb1da7`) | 1-2h |
-| R1-9 | ☐ P2 | `tools/server/server-context.cpp:304,366` | `can_batch_with`/`update_batch` prüft nicht ob `(1+n_draft)*n_slots` in batch-Allokation passt | 2-4h |
+| R1-9 | ✅ P2 | `tools/server/server-context.cpp:304,366` | `can_batch_with`/`update_batch` prüft nicht ob `(1+n_draft)*n_slots` in batch-Allokation passt. **Gefixst: update_batch bekommt n_batch_capacity + draft-limiting** (Commit `819d7e6db`) | 2-4h |
 
 ### Review 2: Vulkan + TurboQuant (review-kimi)
 
 | # | Prio | Datei | Issue | Aufwand |
 |---|------|-------|-------|---------|
 | R2-1 | ✅ P1 | `ggml-turbo-quant.c:288,381` | CPU-TurboQuant: `blocks_per_group == 0` bei `group_size == 64`. **Gefixst: group_size >= QK_TURBO3/2 forciert** (Commit `4e794de07`) | 2-4h |
-| R2-2 | ☐ P1 | `ggml-vulkan.cpp:15182-15212` | Pipeline-Cache-Speicherung außerhalb mutex → Race Condition bei Shutdown | 4-8h |
-| R2-3 | ☐ P1 | `tests/test-turbo-quant.c` | Test deckt Bugs nicht ab (nur d=128, keine Assertions, kein group_size=64, kein Legacy-Pfad) | 4-8h |
+| R2-2 | ✅ P1 | `ggml-vulkan.cpp:15182-15212` | Pipeline-Cache-Speicherung außerhalb mutex. **Gefixst: gesamte Operation unter device->mutex** (Commit `819d7e6db`) | 4-8h |
+| R2-3 | ✅ P1 | `tests/test-turbo-quant.c` | Test deckt Bugs nicht ab. **Gefixst: 17 Tests mit Assertions, turbo2/3/4, multi-block, NaN/Inf edge cases** (Commit `12bb1671b`) | 4-8h |
 | R2-4 | ✅ P2 | `ggml-common.h:283-345` | Block-Größen-Kommentare falsch. **Gefixst** (Commit `17ad34409`) | 30min |
 | R2-5 | ✅ P2 | `ggml-turbo-quant.c:28,281,376` | Redundante `extern`-Deklaration. **Gefixst: entfernt** (Commit `17ad34409`) | 15min |
-| R2-6 | ☐ P2 | `ggml-turbo-quant.c` | `assert(k % QK_TURBO3 == 0)` statt Laufzeit-Validierung → OOB in Release-Builds möglich | 2-4h |
+| R2-6 | ✅ P2 | `ggml-turbo-quant.c` | `assert(k % QK_TURBO3 == 0)` statt Laufzeit-Validierung. **Gefixst: assert→GGML_ASSERT** (Commit `819d7e6db`) | 2-4h |
 
 ### Review 3: expert-overlap Tool (review-swe)
 
