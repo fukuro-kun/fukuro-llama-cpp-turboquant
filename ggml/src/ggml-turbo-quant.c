@@ -537,6 +537,12 @@ void quantize_row_turbo4_0_ref(const float * GGML_RESTRICT x, block_turbo4_0 * G
         /* Pack */
 #if !TURBO4_USE_4BIT
         y[block].norm  = GGML_FP32_TO_FP16(norm);
+        /* Residual norm for QJL scale in dequant (legacy 3-bit path) */
+        float residual_norm = 0.0f;
+        for (int i = 0; i < d; i++) {
+            residual_norm += residual[i] * residual[i];
+        }
+        y[block].rnorm = GGML_FP32_TO_FP16(sqrtf(residual_norm));
 #endif
 
 #if TURBO4_USE_4BIT

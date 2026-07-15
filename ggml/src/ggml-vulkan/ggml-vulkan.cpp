@@ -2571,7 +2571,9 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
     } catch (const vk::SystemError& e) {
         std::cerr << "ggml_vulkan: Compute pipeline creation failed for " << pipeline->name << std::endl;
         std::cerr << "ggml_vulkan: " << e.what() << std::endl;
-        throw e;
+        device->device.destroyShaderModule(pipeline->shader_module);
+        device->device.destroyPipelineLayout(pipeline->layout);
+        throw;
     }
 
     if (vk_instance.debug_utils_support) {
@@ -3044,7 +3046,7 @@ static vk_buffer ggml_vk_create_buffer(vk_device& device, size_t size, const std
                     // during last attempt throw the exception
                     if (it + 1 == req_flags_list.end() && mtype_it + 1 == memory_type_indices.end()) {
                         device->device.destroyBuffer(buf->buffer);
-                        throw e;
+                        throw;
                     }
                 }
             }
@@ -3091,7 +3093,7 @@ static vk_buffer ggml_vk_create_buffer_check(vk_device& device, size_t size, vk:
     } catch (const vk::SystemError& e) {
         std::cerr << "ggml_vulkan: Memory allocation of size " << size << " failed." << std::endl;
         std::cerr << "ggml_vulkan: " << e.what() << std::endl;
-        throw e;
+        throw;
     }
 }
 
@@ -3128,7 +3130,7 @@ static vk_buffer ggml_vk_create_buffer_device(vk_device& device, size_t size) {
     } catch (const vk::SystemError& e) {
         std::cerr << "ggml_vulkan: Device memory allocation of size " << size << " failed." << std::endl;
         std::cerr << "ggml_vulkan: " << e.what() << std::endl;
-        throw e;
+        throw;
     }
 
     return buf;
@@ -12240,14 +12242,17 @@ static void ggml_vk_turbo_wht(ggml_backend_vk_context * ctx, vk_context& subctx,
     vk_subbuffer src_buf = ggml_vk_tensor_subbuffer(ctx, src0, false);
     vk_subbuffer dst_buf = ggml_vk_tensor_subbuffer(ctx, dst, false);
     // Spread workgroups across Y/Z to stay within maxComputeWorkGroupCount[0].
+    // Workgroup size is always 128 (fixed in turbo_wht.comp), one workgroup per group.
+    // elements[0] must be n_groups * 128 (not n_groups * group_size) so that
+    // ggml_vk_dispatch_pipeline dividing by wg_denoms[0]==128 yields n_groups.
     const uint32_t n_groups = pc.ne / (uint32_t)group_size;
     std::array<uint32_t, 3> elements;
     if (n_groups > 262144) {
-        elements = { 512 * (uint32_t)group_size, 512, CEIL_DIV(n_groups, 262144) };
+        elements = { 512 * 128u, 512, CEIL_DIV(n_groups, 262144) };
     } else if (n_groups > 512) {
-        elements = { 512 * (uint32_t)group_size, CEIL_DIV(n_groups, 512), 1 };
+        elements = { 512 * 128u, CEIL_DIV(n_groups, 512), 1 };
     } else {
-        elements = { pc.ne, 1, 1 };
+        elements = { n_groups * 128u, 1, 1 };
     }
     // Compute-to-compute RAW/WAW ordering must be explicit on Vulkan.
     ggml_vk_sync_buffers(ctx, subctx);

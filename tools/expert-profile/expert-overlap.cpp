@@ -45,7 +45,9 @@ struct OverlapCollector {
     bool wants(struct ggml_tensor * t) {
         if (!t->name[0]) return false;
         const std::string n = clean_name(t->name);
-        return n.compare(0, 13, "ffn_moe_topk-") == 0;
+        if (n.compare(0, 13, "ffn_moe_topk-") != 0) return false;
+        int il = -1;
+        return sscanf(n.c_str(), "ffn_moe_topk-%d", &il) == 1;
     }
 
     bool on_tensor(struct ggml_tensor * t) {
@@ -53,19 +55,26 @@ struct OverlapCollector {
         int il = -1;
         if (sscanf(n.c_str(), "ffn_moe_topk-%d", &il) != 1) return false;
 
+        if (t->type != GGML_TYPE_I32) {
+            fprintf(stderr, "%s: expected I32 tensor, got type %d\n", __func__, (int)t->type);
+            return false;
+        }
+
         const int64_t n_eu  = t->ne[0];  // n_expert_used
         const int64_t n_tok = t->ne[1];  // n_tokens
         n_expert_used = n_eu;
 
-        // Copy tensor data from backend (may be on GPU)
-        const size_t nbytes = n_eu * n_tok * sizeof(int32_t);
-        std::vector<int32_t> data(n_eu * n_tok);
+        // ffn_moe_topk is a ggml_view of argsort_top_k output, NOT contiguous.
+        // Row stride in elements = nb[1] / sizeof(int32_t), which is n_expert (not n_eu).
+        const size_t row_stride = t->nb[1] / sizeof(int32_t);
+        const size_t nbytes     = ggml_nbytes(t);
+        std::vector<int32_t> data(nbytes / sizeof(int32_t));
         ggml_backend_tensor_get(t, data.data(), 0, nbytes);
 
         std::vector<std::set<int32_t>> token_experts(n_tok);
         for (int64_t t_idx = 0; t_idx < n_tok; ++t_idx) {
             for (int64_t k = 0; k < n_eu; ++k) {
-                int32_t eid = data[k + t_idx * n_eu];
+                int32_t eid = data[k + t_idx * row_stride];
                 if (eid >= 0) {
                     token_experts[t_idx].insert(eid);
                 }
@@ -133,7 +142,7 @@ struct OverlapCollector {
                 sum_overlap += overlap;
                 min_overlap = std::min(min_overlap, overlap);
                 max_overlap = std::max(max_overlap, overlap);
-                if (intersection.size() == tokens_a[t].size()) exact_match++;
+                if (intersection.size() == tokens_a[t].size() && tokens_a[t].size() == tokens_b[t].size()) exact_match++;
             }
 
             double avg_overlap = sum_overlap / n;
@@ -251,7 +260,7 @@ int main(int argc, char ** argv) {
     mparams.n_gpu_layers = n_gpu_layers;
 
     llama_model * model = llama_model_load_from_file(model_path.c_str(), mparams);
-    if (!model) { LOG_ERR("failed to load model\n"); return 1; }
+    if (!model) { LOG_ERR("failed to load model\n"); llama_backend_free(); return 1; }
 
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx             = ctx_size;
@@ -264,7 +273,7 @@ int main(int argc, char ** argv) {
     cparams.cb_eval_user_data = nullptr;
 
     llama_context * ctx = llama_init_from_model(model, cparams);
-    if (!ctx) { LOG_ERR("failed to create context\n"); return 1; }
+    if (!ctx) { LOG_ERR("failed to create context\n"); llama_model_free(model); llama_backend_free(); return 1; }
 
     // Tokenize prompt
     std::vector<llama_token> tokens = common_tokenize(ctx, prompt, true, true);
@@ -279,6 +288,7 @@ int main(int argc, char ** argv) {
         llama_batch batch = llama_batch_get_one(tokens.data() + offset, n);
         if (llama_decode(ctx, batch)) {
             LOG_ERR("failed to decode prompt chunk at offset %d\n", offset);
+            llama_free(ctx); llama_model_free(model); llama_backend_free();
             return 1;
         }
     }
@@ -291,7 +301,11 @@ int main(int argc, char ** argv) {
             LOG_ERR("failed to get logits for token %d\n", i);
             break;
         }
-        llama_vocab * vocab = llama_get_model(ctx) ? (llama_vocab *) llama_model_get_vocab(llama_get_model(ctx)) : nullptr;
+        const llama_vocab * vocab = llama_get_model(ctx) ? llama_model_get_vocab(llama_get_model(ctx)) : nullptr;
+        if (!vocab) {
+            LOG_ERR("failed to get vocab for token %d\n", i);
+            break;
+        }
         int32_t n_vocab = llama_vocab_n_tokens(vocab);
         llama_token new_token = 0;
         float max_logit = -1e30f;
