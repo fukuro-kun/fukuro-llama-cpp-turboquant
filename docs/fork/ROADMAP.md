@@ -165,32 +165,32 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | R1-1 | P1 | `common/speculative.cpp:1004,1071` | Non-shared-MTP: Inkonsistente `(token, h)`-Konvention zwischen process() und draft() — nur `is_mem_shared`-Pfad korrekt | 2-3 Tage |
 | R1-2 | P1 | `common/speculative.cpp:1012,1071` | Non-shared-MTP: Letztes Token pro batch_view wird nie ins Draft-KV geschrieben (deferred boundary nicht aufgeholt) | 1-2 Tage |
 | R1-3 | P1 | `common/speculative.cpp:988-1034,1171` | `verify_h` nach Batch-Split zeigt nur auf letzten Chunk → `pending_h` aus falscher Position (nur bei n_draft > n_ubatch) | 2-3 Tage |
-| R1-4 | P1 | `tools/server/server-context.cpp:1054-1075` | MTP-Draft-Kontext aus model_tgt ohne Assistant-Head → 0% Acceptance. Sollte auf `llama_model_has_mtp_assistant()` prüfen | 2-4h |
-| R1-5 | P2 | `common/speculative.cpp:1098` | `llama_get_embeddings_nextn_ith` nicht auf nullptr geprüft | 1h |
-| R1-6 | P2 | `common/speculative.cpp:846,1167` | `last_n_drafted` wird geschrieben aber nie gelesen (toter Speicher) | 30min |
-| R1-7 | P2 | `tools/server/server-context.cpp:3400-3446` | llama_decode Retry-Schleife: ret==2 nicht behandelt, n_batch→0 Endlosschleife möglich | 2-4h |
-| R1-8 | P2 | `tools/server/server-context.cpp:3494` | `common_speculative_process` Fehler setzt kein `has_err` → outer loop wiederholt Zustand | 1-2h |
-| R1-9 | P2 | `tools/server/server-context.cpp:304,366` | `can_batch_with`/`update_batch` prüft nicht ob `(1+n_draft)*n_slots` in batch-Allokation passt | 2-4h |
+| R1-4 | ✅ P1 | `tools/server/server-context.cpp:1054-1075` | MTP-Draft-Kontext aus model_tgt ohne Assistant-Head → 0% Acceptance. **Gefixst: `llama_model_n_layer_nextn()` API + Server-Check** (Commit `4e794de07`) | 2-4h |
+| R1-5 | ✅ P2 | `common/speculative.cpp:1098` | `llama_get_embeddings_nextn_ith` nicht auf nullptr geprüft. **Gefixst** (Commit `5e2bb1da7`) | 1h |
+| R1-6 | ✅ P2 | `common/speculative.cpp:846,1167` | `last_n_drafted` wird geschrieben aber nie gelesen. **Gefixst: entfernt** (Commit `5e2bb1da7`) | 30min |
+| R1-7 | ✅ P2 | `tools/server/server-context.cpp:3400-3446` | llama_decode Retry-Schleife: n_batch→0 Endlosschleife. **Gefixst: n_batch<1 guard** (Commit `5e2bb1da7`) | 2-4h |
+| R1-8 | ✅ P2 | `tools/server/server-context.cpp:3494` | `common_speculative_process` Fehler setzt kein has_err. **Gefixst: slots werden released** (Commit `5e2bb1da7`) | 1-2h |
+| R1-9 | ☐ P2 | `tools/server/server-context.cpp:304,366` | `can_batch_with`/`update_batch` prüft nicht ob `(1+n_draft)*n_slots` in batch-Allokation passt | 2-4h |
 
 ### Review 2: Vulkan + TurboQuant (review-kimi)
 
 | # | Prio | Datei | Issue | Aufwand |
 |---|------|-------|-------|---------|
-| R2-1 | P1 | `ggml-turbo-quant.c:288,381` | CPU-TurboQuant: `blocks_per_group == 0` bei `group_size == 64` (QK_TURBO3==128) → still falsche Ergebnisse | 2-4h |
-| R2-2 | P1 | `ggml-vulkan.cpp:15182-15212` | Pipeline-Cache-Speicherung außerhalb mutex → Race Condition bei Shutdown | 4-8h |
-| R2-3 | P1 | `tests/test-turbo-quant.c` | Test deckt Bugs nicht ab (nur d=128, keine Assertions, kein group_size=64, kein Legacy-Pfad) | 4-8h |
-| R2-4 | P2 | `ggml-common.h:283-345` | Block-Größen-Kommentare falsch (turbo3_0: 50B nicht 14B, turbo2_0: 34B nicht 10B) | 30min |
-| R2-5 | P2 | `ggml-turbo-quant.c:28,281,376` | Redundante `extern`-Deklaration von `turbo3_cpu_wht_group_size` | 15min |
-| R2-6 | P2 | `ggml-turbo-quant.c` | `assert(k % QK_TURBO3 == 0)` statt Laufzeit-Validierung → OOB in Release-Builds möglich | 2-4h |
+| R2-1 | ✅ P1 | `ggml-turbo-quant.c:288,381` | CPU-TurboQuant: `blocks_per_group == 0` bei `group_size == 64`. **Gefixst: group_size >= QK_TURBO3/2 forciert** (Commit `4e794de07`) | 2-4h |
+| R2-2 | ☐ P1 | `ggml-vulkan.cpp:15182-15212` | Pipeline-Cache-Speicherung außerhalb mutex → Race Condition bei Shutdown | 4-8h |
+| R2-3 | ☐ P1 | `tests/test-turbo-quant.c` | Test deckt Bugs nicht ab (nur d=128, keine Assertions, kein group_size=64, kein Legacy-Pfad) | 4-8h |
+| R2-4 | ✅ P2 | `ggml-common.h:283-345` | Block-Größen-Kommentare falsch. **Gefixst** (Commit `17ad34409`) | 30min |
+| R2-5 | ✅ P2 | `ggml-turbo-quant.c:28,281,376` | Redundante `extern`-Deklaration. **Gefixst: entfernt** (Commit `17ad34409`) | 15min |
+| R2-6 | ☐ P2 | `ggml-turbo-quant.c` | `assert(k % QK_TURBO3 == 0)` statt Laufzeit-Validierung → OOB in Release-Builds möglich | 2-4h |
 
 ### Review 3: expert-overlap Tool (review-swe)
 
 | # | Prio | Datei | Issue | Aufwand |
 |---|------|-------|-------|---------|
-| R3-1 | P1 | `expert-overlap.cpp:222-225` | CLI-Parsing: `std::stoi` wirft unbehandelte Exceptions bei nicht-numerischen Args | 1-2h |
-| R3-2 | P1 | `expert-overlap.cpp:226-227` | `--type-k`/`--type-v` parsen String als `atoi` → `"f16"` wird zu `GGML_TYPE_F32` (0) | 1-2h |
-| R3-3 | P2 | `expert-overlap.cpp:294` | `llama_vocab_n_tokens` jeden Generation-Step neu abgefragt (unnötig) | 15min |
-| R3-4 | P2 | `expert-overlap.cpp:283` | `chunk_size=128` bei `n_ubatch=512` sehr konservativ | 15min |
+| R3-1 | ✅ P1 | `expert-overlap.cpp:222-225` | CLI-Parsing: `std::stoi` wirft unbehandelte Exceptions. **Gefixst: try/catch + next_int helper** (Commit `17ad34409`) | 1-2h |
+| R3-2 | ✅ P1 | `expert-overlap.cpp:226-227` | `--type-k`/`--type-v` parsen String als `atoi`. **Gefixst: type_map mit Namen (f16, turbo3, etc.)** (Commit `17ad34409`) | 1-2h |
+| R3-3 | ✅ P2 | `expert-overlap.cpp:294` | `llama_vocab_n_tokens` jeden Step neu abgefragt. **Gefixst: einmalig vor Loop** (Commit `aea0de044`) | 15min |
+| R3-4 | ✅ P2 | `expert-overlap.cpp:283` | `chunk_size=128` bei `n_ubatch=512`. **Gefixst: chunk_size = n_ubatch** (Commit `aea0de044`) | 15min |
 
 ### Bereits gefixst (Commit `5ec9bcf13`)
 
