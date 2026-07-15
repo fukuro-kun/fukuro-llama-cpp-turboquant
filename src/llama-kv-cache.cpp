@@ -3025,14 +3025,14 @@ int llama_kv_cache::ea_compress(const llama_cparams & cparams, llama_seq_id seq_
         return 0;
     }
 
-    // Validate compression_ratio range
-    if (cparams.ea.compression_ratio > 1.0f) {
-        LLAMA_LOG_WARN("[ea_compress] compression_ratio=%.2f > 1.0, clamping to 1.0\n", cparams.ea.compression_ratio);
-    }
+    // Ensure n_local >= 1 to protect the just-decoded token
+    const int n_sink  = cparams.ea.n_sink;
+    const int n_local = std::max(1, cparams.ea.n_local);
     const float ratio = std::min(cparams.ea.compression_ratio, 1.0f);
 
     // Collect populated (position, cell_index) pairs for this sequence
-    const auto & cells = v_cells[seq_to_stream[seq_id]];
+    auto & cells = v_cells[seq_to_stream[seq_id]];
+    auto & head  = v_heads[seq_to_stream[seq_id]];
     std::vector<std::pair<llama_pos, uint32_t>> populated;
     for (uint32_t i = 0; i < cells.size(); i++) {
         if (!cells.is_empty(i) && cells.seq_has(i, seq_id)) {
@@ -3048,7 +3048,7 @@ int llama_kv_cache::ea_compress(const llama_cparams & cparams, llama_seq_id seq_
     std::sort(populated.begin(), populated.end());
 
     const int n_tokens = (int)populated.size();
-    const int n_eligible = std::max(0, n_tokens - cparams.ea.n_sink - cparams.ea.n_local);
+    const int n_eligible = std::max(0, n_tokens - n_sink - n_local);
     const int n_to_prune = std::min((int)(ratio * n_eligible), n_eligible);
 
     if (n_to_prune <= 0) {
@@ -3060,20 +3060,27 @@ int llama_kv_cache::ea_compress(const llama_cparams & cparams, llama_seq_id seq_
     // MVP heuristic: prune oldest tokens from the eligible range.
     // Eligible range = [n_sink, n_tokens - n_local) (0-indexed in sorted order)
     // Prune the first n_to_prune tokens in this range (oldest non-protected).
+    // Use direct cells.seq_rm() with cell index (O(1) per token, not O(n_cells)).
     int n_pruned = 0;
+    uint32_t new_head = cells.size();
     for (int j = 0; j < n_to_prune; j++) {
-        const int idx = cparams.ea.n_sink + j;
+        const int idx = n_sink + j;
         if (idx >= (int)populated.size()) break;
 
-        const llama_pos pos = populated[idx].first;
-        seq_rm(seq_id, pos, pos + 1);
+        const uint32_t cell_idx = populated[idx].second;
+        cells.seq_rm(cell_idx, seq_id);
+        new_head = std::min(new_head, cell_idx);
         n_pruned++;
     }
 
-    LLAMA_LOG_DEBUG("[ea_compress] seq=%d: n_tokens=%d, n_eligible=%d, pruned=%d/%d (ratio=%.2f, sink=%d, local=%d, cov=%d, vnorm=%d)\n",
+    // Update head to first freed slot (speeds up next find_slot)
+    if (new_head != cells.size() && new_head < head) {
+        head = new_head;
+    }
+
+    LLAMA_LOG_DEBUG("[ea_compress] seq=%d: n_tokens=%d, n_eligible=%d, pruned=%d/%d (ratio=%.2f, sink=%d, local=%d)\n",
                     seq_id, n_tokens, n_eligible, n_pruned, n_to_prune,
-                    cparams.ea.compression_ratio, cparams.ea.n_sink, cparams.ea.n_local,
-                    cparams.ea.use_covariance, cparams.ea.use_vnorm);
+                    cparams.ea.compression_ratio, n_sink, n_local);
 
     return n_pruned;
 }

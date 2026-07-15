@@ -8,7 +8,10 @@
 #include "llama-io.h"
 #include "llama-memory.h"
 #include "llama-memory-hybrid.h"
+#include "llama-memory-hybrid-iswa.h"
 #include "llama-kv-cache.h"
+#include "llama-kv-cache-iswa.h"
+#include "llama-kv-cache-dsa.h"
 #include "llama-mmap.h"
 #include "llama-model.h"
 #include "llama-ext.h"
@@ -2091,30 +2094,49 @@ int llama_context::decode(const llama_batch & batch_inp) {
     //synchronize();
 
     // Expected Attention KV Cache Compression — post-hoc pruning
-    // Only during decode (n_tokens_all == 1 typically), not during prefill
-    if (cparams.ea.enabled && n_tokens_all <= cparams.n_ubatch) {
-        // Get the kv_cache from the memory module
-        llama_kv_cache * kv = nullptr;
-        auto * mem_hybrid = dynamic_cast<llama_memory_hybrid *>(memory.get());
-        if (mem_hybrid) {
-            kv = mem_hybrid->get_mem_attn();
-        } else {
-            kv = dynamic_cast<llama_kv_cache *>(memory.get());
+    // Only during pure decode: every token is an output (not prefill) and
+    // at most one token per sequence (batched decode, not batched prefill).
+    if (cparams.ea.enabled && !cparams.embeddings && n_outputs_all == n_tokens_all) {
+        // Collect unique seq_ids from the batch
+        std::set<llama_seq_id> seq_ids;
+        for (int32_t i = 0; i < batch_inp.n_tokens; ++i) {
+            const int ns = batch_inp.n_seq_id ? batch_inp.n_seq_id[i] : 1;
+            for (int32_t s = 0; s < ns; ++s) {
+                const llama_seq_id seq_id = batch_inp.seq_id ? batch_inp.seq_id[i][s] : 0;
+                seq_ids.insert(seq_id);
+            }
         }
 
-        if (kv) {
-            // Collect unique seq_ids from the batch
-            std::set<llama_seq_id> seq_ids;
-            for (int32_t i = 0; i < batch_inp.n_tokens; ++i) {
-                const int ns = batch_inp.n_seq_id ? batch_inp.n_seq_id[i] : 1;
-                for (int32_t s = 0; s < ns; ++s) {
-                    const llama_seq_id seq_id = batch_inp.seq_id ? batch_inp.seq_id[i][s] : 0;
-                    seq_ids.insert(seq_id);
+        // Only run if at most 1 token per sequence (decode, not prefill)
+        if ((int)seq_ids.size() >= n_tokens_all) {
+            // Get the kv_cache from the memory module (supports all cache types)
+            llama_kv_cache * kv = nullptr;
+            auto * mem_hybrid = dynamic_cast<llama_memory_hybrid *>(memory.get());
+            if (mem_hybrid) {
+                kv = mem_hybrid->get_mem_attn();
+            } else {
+                auto * mem_hybrid_iswa = dynamic_cast<llama_memory_hybrid_iswa *>(memory.get());
+                if (mem_hybrid_iswa) {
+                    kv = mem_hybrid_iswa->get_mem_attn()->get_base();
+                } else {
+                    auto * kv_iswa = dynamic_cast<llama_kv_cache_iswa *>(memory.get());
+                    if (kv_iswa) {
+                        kv = kv_iswa->get_base();
+                    } else {
+                        auto * kv_dsa = dynamic_cast<llama_kv_cache_dsa *>(memory.get());
+                        if (kv_dsa) {
+                            kv = kv_dsa->get_mla();
+                        } else {
+                            kv = dynamic_cast<llama_kv_cache *>(memory.get());
+                        }
+                    }
                 }
             }
 
-            for (const auto & seq_id : seq_ids) {
-                kv->ea_compress(cparams, seq_id);
+            if (kv) {
+                for (const auto & seq_id : seq_ids) {
+                    kv->ea_compress(cparams, seq_id);
+                }
             }
         }
     }

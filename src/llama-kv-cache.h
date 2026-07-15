@@ -206,7 +206,7 @@ public:
     void apply_ubatch(const slot_info & sinfo, const llama_ubatch & ubatch);
 
     // Expected Attention KV Cache Compression (arXiv:2510.00636)
-    // Phase 2d: Post-hoc pruning after decode. Removes lowest-score KV pairs.
+    // Phase 2d: Post-hoc pruning after decode. Removes oldest eligible KV pairs.
     // MVP uses oldest-first heuristic; Phase 3 will integrate EA scoring.
     // Returns the number of tokens actually pruned (0 if EA disabled).
     int ea_compress(const llama_cparams & cparams, llama_seq_id seq_id);
