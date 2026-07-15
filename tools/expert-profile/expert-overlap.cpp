@@ -306,8 +306,8 @@ int main(int argc, char ** argv) {
 
     printf("Processing %zu prompt tokens...\n", tokens.size());
 
-    // Process prompt in chunks to avoid memory issues
-    int chunk_size = 128;
+    // Process prompt in chunks (n_ubatch size for efficiency)
+    int chunk_size = cparams.n_ubatch;
     for (int offset = 0; offset < (int) tokens.size(); offset += chunk_size) {
         int n = std::min(chunk_size, (int) tokens.size() - offset);
         llama_batch batch = llama_batch_get_one(tokens.data() + offset, n);
@@ -319,6 +319,14 @@ int main(int argc, char ** argv) {
     }
 
     // Generate tokens one by one (greedy: pick argmax from logits)
+    const llama_vocab * vocab = llama_get_model(ctx) ? llama_model_get_vocab(llama_get_model(ctx)) : nullptr;
+    if (!vocab) {
+        LOG_ERR("failed to get vocab\n");
+        llama_free(ctx); llama_model_free(model); llama_backend_free();
+        return 1;
+    }
+    const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+
     printf("Generating %d tokens (greedy)...\n", n_predict);
     for (int i = 0; i < n_predict; ++i) {
         float * logits = llama_get_logits_ith(ctx, -1);
@@ -326,12 +334,6 @@ int main(int argc, char ** argv) {
             LOG_ERR("failed to get logits for token %d\n", i);
             break;
         }
-        const llama_vocab * vocab = llama_get_model(ctx) ? llama_model_get_vocab(llama_get_model(ctx)) : nullptr;
-        if (!vocab) {
-            LOG_ERR("failed to get vocab for token %d\n", i);
-            break;
-        }
-        int32_t n_vocab = llama_vocab_n_tokens(vocab);
         llama_token new_token = 0;
         float max_logit = -1e30f;
         for (int32_t t = 0; t < n_vocab; ++t) {
