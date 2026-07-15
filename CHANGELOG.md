@@ -8,6 +8,18 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-15
 
+### #69/#70 MoE Cache Prediction — Phase 1 Heuristic Implementiert
+
+- **feat: MoE Cache Heuristic Eviction Policy** — Neue Eviction-Policy in `moe-cache.cu` neben LRU. Aktivierbar via `GGML_CUDA_MOE_CACHE_POLICY=heuristic`. Algorithmus: `score = 0.7*(1/(age+1)) + 0.3*(freq/max_freq)`, evict slot mit niedrigstem Score. Inspiriert von FlashMoE (arXiv:2601.17063). Phase 1 des kombinierten FlashMoE+ST-MoE Design-Dokuments. Default bleibt LRU.
+- **docs: MoE Cache Prediction Design** — `docs/fork/2026-07-15_MOE_CACHE_PREDICTION_DESIGN.md`. FlashMoE + ST-MoE kombiniert. Phase 1 (Heuristic, 2-3 Tage), Phase 2 (FlashMoE FFN, 2-3 Wochen), Phase 3 (THT Prefetch, 1-2 Wochen). CCT skipped wegen 6.6% Cross-Layer-Overlap.
+
+### Code-Review Sweep Abschluss — alle 19 Items erledigt
+
+- **fix: R1-9** — `server-context.cpp`: `update_batch` bekommt `n_batch_capacity` Parameter und limitiert `spec_draft` bei drohendem Batch-Overflow
+- **fix: R2-2** — `ggml-vulkan.cpp`: Pipeline-Cache-Speicherung komplett unter `device->mutex` (Vulkan erfordert externe Sync für Pipeline-Cache-Objekte)
+- **fix: R2-3** — `test-turbo-quant.c`: 17 Tests mit Assertions (turbo2/3/4, multi-block d=256/512, NaN/Inf edge cases). In CMake registriert.
+- **fix: R2-6** — `ggml-turbo-quant.c`: `assert()` → `GGML_ASSERT()` (immer aktiv, auch in Release-Builds)
+
 ### Code-Review Sweep + Expected Attention Phase 1
 
 - **review: 3x Code-Review (review-swe, review-kimi, review-swe)** — 3 parallele Review-Subagents prüften Spec-Decoding/MTP/Server, Vulkan/TurboQuant und expert-overlap Tool. Ergebnisse: 3 P0, 15 P1, 14 P2. Alle 3 P0 und 13/19 P1+P2 in dieser Session gefixst.
