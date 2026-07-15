@@ -7,6 +7,8 @@
 #include "llama-batch.h"
 #include "llama-io.h"
 #include "llama-memory.h"
+#include "llama-memory-hybrid.h"
+#include "llama-kv-cache.h"
 #include "llama-mmap.h"
 #include "llama-model.h"
 #include "llama-ext.h"
@@ -16,6 +18,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <set>
 #include <stdexcept>
 
 //
@@ -2086,6 +2089,35 @@ int llama_context::decode(const llama_batch & batch_inp) {
 
     // wait for the computation to finish (automatically done when obtaining the model output)
     //synchronize();
+
+    // Expected Attention KV Cache Compression — post-hoc pruning
+    // Only during decode (n_tokens_all == 1 typically), not during prefill
+    if (cparams.ea.enabled && n_tokens_all <= cparams.n_ubatch) {
+        // Get the kv_cache from the memory module
+        llama_kv_cache * kv = nullptr;
+        auto * mem_hybrid = dynamic_cast<llama_memory_hybrid *>(memory.get());
+        if (mem_hybrid) {
+            kv = mem_hybrid->get_mem_attn();
+        } else {
+            kv = dynamic_cast<llama_kv_cache *>(memory.get());
+        }
+
+        if (kv) {
+            // Collect unique seq_ids from the batch
+            std::set<llama_seq_id> seq_ids;
+            for (int32_t i = 0; i < batch_inp.n_tokens; ++i) {
+                const int ns = batch_inp.n_seq_id ? batch_inp.n_seq_id[i] : 1;
+                for (int32_t s = 0; s < ns; ++s) {
+                    const llama_seq_id seq_id = batch_inp.seq_id ? batch_inp.seq_id[i][s] : 0;
+                    seq_ids.insert(seq_id);
+                }
+            }
+
+            for (const auto & seq_id : seq_ids) {
+                kv->ea_compress(cparams, seq_id);
+            }
+        }
+    }
 
     return 0;
 }

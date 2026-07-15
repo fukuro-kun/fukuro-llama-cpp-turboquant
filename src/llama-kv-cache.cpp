@@ -3009,44 +3009,71 @@ void llama_kv_cache_context::set_input_v_rot(ggml_tensor * dst) const {
     kv->set_input_v_rot(dst);
 }
 
-// Expected Attention KV Cache Compression — Phase 2c Stub
-// Validates parameters and computes how many tokens WOULD be pruned.
-// No actual pruning yet — Phase 2d will implement the pruning logic.
+// Expected Attention KV Cache Compression — Phase 2d
+// Post-hoc pruning after decode. Removes KV pairs based on position heuristic.
+// MVP: oldest-first eviction (prune oldest eligible tokens, protect sink+local).
+// Phase 3 will integrate EA scoring (mean/covariance from query history).
 // Not threadsafe — caller must hold the same synchronization as for seq_rm/seq_add.
-int llama_kv_cache::ea_compress_stub(const llama_cparams & cparams, llama_seq_id seq_id) const {
+int llama_kv_cache::ea_compress(const llama_cparams & cparams, llama_seq_id seq_id) {
     if (!cparams.ea.enabled || cparams.ea.compression_ratio <= 0.0f) {
         return 0;
     }
 
     // Validate seq_id bounds
     if (seq_id < 0 || (uint32_t)seq_id >= cparams.n_seq_max) {
-        LLAMA_LOG_WARN("[ea_compress_stub] invalid seq_id=%d (n_seq_max=%u)\n", seq_id, cparams.n_seq_max);
+        LLAMA_LOG_WARN("[ea_compress] invalid seq_id=%d (n_seq_max=%u)\n", seq_id, cparams.n_seq_max);
         return 0;
     }
 
     // Validate compression_ratio range
     if (cparams.ea.compression_ratio > 1.0f) {
-        LLAMA_LOG_WARN("[ea_compress_stub] compression_ratio=%.2f > 1.0, clamping to 1.0\n", cparams.ea.compression_ratio);
+        LLAMA_LOG_WARN("[ea_compress] compression_ratio=%.2f > 1.0, clamping to 1.0\n", cparams.ea.compression_ratio);
     }
     const float ratio = std::min(cparams.ea.compression_ratio, 1.0f);
 
-    // Count populated cells for this sequence
+    // Collect populated (position, cell_index) pairs for this sequence
     const auto & cells = v_cells[seq_to_stream[seq_id]];
-    int n_tokens = 0;
+    std::vector<std::pair<llama_pos, uint32_t>> populated;
     for (uint32_t i = 0; i < cells.size(); i++) {
         if (!cells.is_empty(i) && cells.seq_has(i, seq_id)) {
-            n_tokens++;
+            populated.push_back({cells.pos_get(i), i});
         }
     }
 
-    // Compute how many would be pruned (clamped to valid range)
+    if (populated.empty()) {
+        return 0;
+    }
+
+    // Sort by position (ascending)
+    std::sort(populated.begin(), populated.end());
+
+    const int n_tokens = (int)populated.size();
     const int n_eligible = std::max(0, n_tokens - cparams.ea.n_sink - cparams.ea.n_local);
     const int n_to_prune = std::min((int)(ratio * n_eligible), n_eligible);
 
-    LLAMA_LOG_DEBUG("[ea_compress_stub] seq=%d: n_tokens=%d, n_eligible=%d, would_prune=%d (ratio=%.2f, sink=%d, local=%d, cov=%d, vnorm=%d)\n",
-                    seq_id, n_tokens, n_eligible, n_to_prune,
+    if (n_to_prune <= 0) {
+        LLAMA_LOG_DEBUG("[ea_compress] seq=%d: n_tokens=%d, n_eligible=%d, n_to_prune=0 (nothing to prune)\n",
+                        seq_id, n_tokens, n_eligible);
+        return 0;
+    }
+
+    // MVP heuristic: prune oldest tokens from the eligible range.
+    // Eligible range = [n_sink, n_tokens - n_local) (0-indexed in sorted order)
+    // Prune the first n_to_prune tokens in this range (oldest non-protected).
+    int n_pruned = 0;
+    for (int j = 0; j < n_to_prune; j++) {
+        const int idx = cparams.ea.n_sink + j;
+        if (idx >= (int)populated.size()) break;
+
+        const llama_pos pos = populated[idx].first;
+        seq_rm(seq_id, pos, pos + 1);
+        n_pruned++;
+    }
+
+    LLAMA_LOG_DEBUG("[ea_compress] seq=%d: n_tokens=%d, n_eligible=%d, pruned=%d/%d (ratio=%.2f, sink=%d, local=%d, cov=%d, vnorm=%d)\n",
+                    seq_id, n_tokens, n_eligible, n_pruned, n_to_prune,
                     cparams.ea.compression_ratio, cparams.ea.n_sink, cparams.ea.n_local,
                     cparams.ea.use_covariance, cparams.ea.use_vnorm);
 
-    return n_to_prune;
+    return n_pruned;
 }

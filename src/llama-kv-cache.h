@@ -206,10 +206,10 @@ public:
     void apply_ubatch(const slot_info & sinfo, const llama_ubatch & ubatch);
 
     // Expected Attention KV Cache Compression (arXiv:2510.00636)
-    // Phase 2c: Stub — validates parameters and logs, no actual pruning yet.
-    // Phase 2d will implement the pruning logic using llama_expected_attention.
-    // Returns the number of tokens that would be pruned (0 if EA disabled).
-    int ea_compress_stub(const llama_cparams & cparams, llama_seq_id seq_id) const;
+    // Phase 2d: Post-hoc pruning after decode. Removes lowest-score KV pairs.
+    // MVP uses oldest-first heuristic; Phase 3 will integrate EA scoring.
+    // Returns the number of tokens actually pruned (0 if EA disabled).
+    int ea_compress(const llama_cparams & cparams, llama_seq_id seq_id);
 
     //
     // input API
