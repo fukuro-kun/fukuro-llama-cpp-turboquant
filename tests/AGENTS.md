@@ -36,6 +36,7 @@ Beispiele:
 - `test-gguf`
 - `test-speculative-mtp`
 - `test-turbo-quant`
+- `test-expected-attention`
 - `test-tokenizer-0`, `test-tokenizer-1-bpe`, `test-tokenizer-1-spm`
 
 ### Alle Tests bauen und laufen lassen
