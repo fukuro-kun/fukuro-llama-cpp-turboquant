@@ -51,30 +51,17 @@ Zwei komplementäre Ansätze zur Verbesserung des MoE-Expert-Caches:
 
 ## Phased Implementation Plan
 
-### Phase 1: Simplified Heuristic (Option B) — 2-3 Tage
+### Phase 1: Simplified Heuristic (Option B) — ✅ Implementiert
 
-**Statt FFN sofort zu implementieren, erst einfache Heuristik testen:**
+**Status:** Vollständig implementiert in `ggml/src/ggml-cuda/moe-cache.cu`.
+- `moe_cache_slot` hat `freq` und `last_access` Felder
+- `POLICY_HEURISTIC` mit score = alpha*(1/(age+1)) + beta*(freq/max_freq), alpha=0.7, beta=0.3
+- Aktivierung via `GGML_CUDA_MOE_CACHE_POLICY=heuristic`
+- Eviction: Slot mit niedrigstem Score wird evicted (nicht LRU-Head)
+- max_freq wird bei Eviction des heißesten Slots recomputet
+- tick wird einmal pro plan() Call advanced (vermeidet Iterations-Order-Bias)
 
-```c
-// Ersetzt LRU eviction durch gewichtete Summe
-float eviction_score(const moe_cache_slot & s) {
-    // recency: 1/age (jünger = höherer Score = behalten)
-    // frequency: access_count / max_access_count
-    return alpha * (1.0f / (age + 1)) + beta * (freq / max_freq);
-}
-// Evict slot mit niedrigstem score
-```
-
-**Vorteile:**
-- Kein Training nötig
-- Schnell implementiert (1-2 Dateien)
-- Validiert ob Recency+Frequency Kombination hilft
-- Wenn >5% Speedup → FFN lohnt sich
-
-**Dateien:**
-- `moe-cache.cu`: `moe_cache_lru_remove` → `moe_cache_score_evict`
-- `moe-cache.cuh`: Neue Felder in `moe_cache_slot` (age, freq)
-- CLI: `--moe-cache-policy lru|heuristic`
+**Ausstehend:** Benchmark `heuristic` vs `lru` auf Styx um Speedup zu validieren.
 
 ### Phase 2: FlashMoE FFN Cache-Replacement — 2-3 Wochen
 
