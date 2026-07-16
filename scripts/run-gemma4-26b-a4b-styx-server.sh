@@ -8,6 +8,9 @@
 #   - MoE-Offloading mit --n-cpu-moe 20 (20 Expert-Layer auf CPU)
 #   - MTP: AUS (Q4_0 Draft bremst -14% auf Styx, siehe Benchmark 2026-07-10)
 #   - Pinning/Prefetch: AN (GGML_CUDA_REGISTER_HOST=1)
+#   - Prompt-Cache: --cache-ram 16384 (16 GB), --cache-reuse 256,
+#     --slot-cache-key-similarity 0.5, --slot-cache-key-min-prefix 64
+#     (wie Uranus, angepasst an 32 GB RAM mit Whisper-Service)
 #
 # Endpunkte:
 #   OpenAI API:  http://styx:18080/v1/chat/completions
@@ -45,6 +48,13 @@ TOP_P="${TOP_P:-0.95}"
 TOP_K="${TOP_K:-64}"
 PARALLEL="${PARALLEL:-1}"
 
+# Prompt-Cache (wie Uranus, angepasst für 32 GB RAM + Whisper-Service)
+# 16 GB cache-ram: sicher bei 27 GB available (llama 9.5 GB + Whisper 2.2 GB = 11.7 GB)
+CACHE_RAM="${CACHE_RAM:-16384}"
+CACHE_REUSE="${CACHE_REUSE:-256}"
+CACHE_KEY_SIMILARITY="${CACHE_KEY_SIMILARITY:-0.5}"
+CACHE_KEY_MIN_PREFIX="${CACHE_KEY_MIN_PREFIX:-64}"
+
 # MTP (Speculative Decoding) — standardmäßig AUS
 # Q4_0 Draft: ~50% Acceptance aber -14% Speed (Draft konkurriert mit Expert-Prefetch)
 MTP="${MTP:-0}"
@@ -53,6 +63,7 @@ SPEC_DRAFT_N_MAX="${SPEC_DRAFT_N_MAX:-3}"
 echo "=== Gemma-4 26B-A4B QAT Server auf Styx ==="
 echo "Target: $MAIN"
 echo "ctx=${CTX} (224k), ngl=${NGL}, n-cpu-moe=${N_CPU_MOE}, cache=${CTK}/${CTV}"
+echo "Prompt-Cache: ram=${CACHE_RAM}MB, reuse=${CACHE_REUSE}, key-sim=${CACHE_KEY_SIMILARITY}, min-prefix=${CACHE_KEY_MIN_PREFIX}"
 echo "Pinning: GGML_CUDA_REGISTER_HOST=${GGML_CUDA_REGISTER_HOST}"
 echo "Prefetch: GGML_SCHED_PREFETCH_EXPERTS=${GGML_SCHED_PREFETCH_EXPERTS} (slots=${GGML_SCHED_PREFETCH_SLOTS})"
 if [[ "$MTP" == "1" ]]; then
@@ -106,6 +117,10 @@ if [[ "$MTP" == "1" ]]; then
         --temp "$TEMP" \
         --top-p "$TOP_P" \
         --top-k "$TOP_K" \
+        --cache-ram "$CACHE_RAM" \
+        --cache-reuse "$CACHE_REUSE" \
+        --slot-cache-key-similarity "$CACHE_KEY_SIMILARITY" \
+        --slot-cache-key-min-prefix "$CACHE_KEY_MIN_PREFIX" \
         --metrics \
         --slots \
         --log-timestamps \
@@ -128,6 +143,10 @@ else
         --temp "$TEMP" \
         --top-p "$TOP_P" \
         --top-k "$TOP_K" \
+        --cache-ram "$CACHE_RAM" \
+        --cache-reuse "$CACHE_REUSE" \
+        --slot-cache-key-similarity "$CACHE_KEY_SIMILARITY" \
+        --slot-cache-key-min-prefix "$CACHE_KEY_MIN_PREFIX" \
         --metrics \
         --slots \
         --log-timestamps \
