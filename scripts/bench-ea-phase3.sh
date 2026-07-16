@@ -35,7 +35,8 @@ REPS="${REPS:-1}"
 THREADS="${THREADS:-4}"
 
 # Context lengths to test (pp,tg pairs)
-PG_ARGS="-pg 4096,128 -pg 16384,128 -pg 65536,128 -pg 131072,128"
+# Override via PG_ARGS env var for custom matrices
+PG_ARGS="${PG_ARGS:--pg 512,128 -pg 4096,128 -pg 16384,128 -pg 32768,128}"
 
 echo "# EA Phase 3 Benchmark — $(basename $MODEL)" >&2
 echo "# GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'unknown')" >&2
