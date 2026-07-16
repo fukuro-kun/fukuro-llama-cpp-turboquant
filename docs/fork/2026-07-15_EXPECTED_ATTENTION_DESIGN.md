@@ -129,7 +129,7 @@ Zwei kritische Bugs im K-Cache-Readout von `ea_compress()` wurden gefunden und b
 
 ## Empfehlung
 
-**Integration sinnvoll.** Phase 1 auf CPU + Mean-only beschränken (niedrigstes Risiko), Phase 2 für GPU-Optimierung und Covariance. Die Orthogonalität zu TurboQuant macht es zur idealen Ergänzung — keine Konkurrenz, sondern Multiplikator.
+**Integration sinnvoll.** Phase 3 (Mean-only) ist implementiert und getestet (614 Unit-Tests). Covariance (Phase 4) ist depriorisiert — für Gemma 4 (QK-Norm) bringt es <0.1% Accuracy-Gewinn bei 128× mehr Rechnung. Nächster Schritt: GPU-Backend-Optimierung (CUDA/Vulkan) für den EA-Scoring-Pfad, der aktuell CPU-only single-threaded ist.
 
 ## Referenzen
 
