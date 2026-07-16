@@ -63,7 +63,49 @@ llama_init_from_model: failed to initialize the context:
  
 ## Untersuchungs-Plan
  
-- [ ] `ggml-backend.cpp`: Wie werden Tensors Backend zugewiesen?
-- [ ] `llama-graph.cpp`: Server-Graph vs. CLI-Graph Unterschiede
+- [x] `ggml-backend.cpp`: Wie werden Tensors Backend zugewiesen? — Siehe `ggml_backend_sched_backend_id_from_cur` (Zeilen 913-968). Input-Tensoren (GGML_TENSOR_FLAG_INPUT) werden immer auf CPU gelegt (Zeile 937-940).
+- [x] `llama-graph.cpp`: Server-Graph vs. CLI-Graph Unterschiede — Server Default: `n_parallel = 4` (Multi-Slot), CLI: `n_seq_max = 1`
 - [ ] Prufen, ob turbo4 FA-Tensor ein spezielles Alignment braucht
 - [ ] Test: `llama-server` mit `--batch-size 1` (vereinfachter Graph)
+- [ ] Test: `llama-server -np 1` mit turbo4 (Hypothese A bestätigen)
+
+## Root-Cause-Analyse (2026-07-15 Tiefen-Recherche)
+
+### Vulkan FA-Support: turbo4 ist erlaubt
+
+`ggml-vulkan.cpp` Zeilen 17124-17127: `fa_kv_ok()` gibt `true` für `GGML_TYPE_TURBO4_0` zurück. Der Vulkan-Backend **sagt** er unterstützt turbo4 FA. Das Problem liegt nicht im Vulkan-Support-Check.
+
+### auto_fa Check verwendet synthetischen Graph
+
+`llama-context.cpp` Zeile 517:
+```cpp
+auto * gf = graph_reserve(1, n_seqs, n_outputs, mctx.get(), true);
+```
+
+Der Check verwendet `n_tokens = 1` (minimaler Graph). Der echte Server-Betrieb verwendet `n_tokens` von 512-8192+ (Prefill) bzw. `n_seqs` (Decode). Der synthetische Graph repräsentiert möglicherweise nicht die echte Backend-Zuweisung.
+
+### Drei Hypothesen
+
+**Hypothese A (wahrscheinlich):** `n_seqs > 1` (Server Default: 4) verursacht einen anderen Graph mit Input-Tensoren die auf CPU gelegt werden. Die Backend-Expansion (Pass 2) kann den FA-Tensor nicht auf Vulkan ziehen weil er von einem CPU-Input abhängt.
+
+**Hypothese B:** `n_tokens = 1` im auto_fa Check vs. `n_tokens > 1` im echten Betrieb. Andere Tensor-Shapes könnten andere Scheduler-Entscheidungen provozieren.
+
+**Hypothese C:** Scheduler-Reset zwischen auto_fa Check und echter Graph-Reservierung ändert die Backend-Zuweisung.
+
+### Test-Plan (Priorität)
+
+1. **`llama-server -np 1` mit turbo4** — wenn das funktioniert → Hypothese A bestätigt
+2. **`llama-server -np 1 -c 2048` mit turbo4** — Minimal-Konfiguration
+3. **Vergleich: `llama-cli` mit `-np 4`** — wenn das crasht → Hypothese A bestätigt (CLI mit Multi-Slot reproduziert Server-Bug)
+
+### Fix-Vorschläge
+
+**Fix 1 (empfohlen, minimal):** auto_fa Check mit realistischerem `n_tokens`:
+```cpp
+const uint32_t n_tokens_check = std::max(cparams.n_ubatch, 32u);
+auto * gf = graph_reserve(n_tokens_check, n_seqs, n_outputs, mctx.get(), true);
+```
+
+**Fix 2 (komplex):** Backend-Assignment für FA-Tensoren erzwingen — quantized KV muss auf demselben Device wie Layer-Gewichte liegen.
+
+**Fix 3 (generisch):** Scheduler-Logik anpassen — Input-Tensoren die Teil einer FA-Op mit quantized KV sind, nicht auf CPU legen.
