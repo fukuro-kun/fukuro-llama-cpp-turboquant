@@ -247,7 +247,7 @@ Fuer alle Gemma-4 Modelle (sofern kein begruendeter Spezialfall vorliegt):
 |---------|--------|---------|
 | **Memory Pinning** | ✅ In `feature/thecodacus-pinning` | `GGML_CUDA_REGISTER_HOST=1` — cudaHostRegister für mmap-pages. Verhindert OS-Paging der Expert-Gewichte im System-RAM. +19-23% pp bei MoE-Offloading. Portiert von `thecodacus/llama.cpp` Commit `20f5994`. |
 | **Async Expert Prefetch** | ✅ In `feature/thecodacus-pinning` | `GGML_SCHED_PREFETCH_EXPERTS=1` (default 3 Slots) — Overlap Expert-Upload mit GPU-Compute durch zweite Backend-Instanz. +43-67% pp zusätzlich zum Pinning. Portiert von Commits `1163cb3`+`5f83fbb`. |
-| **Kombiniert** | ✅ Getestet | Pinning+Prefetch zusammen: **+72-106% pp, +30% tg** auf GTX 1070 mit 26B-A4B MoE-Offloading. Siehe `docs/fork/2026-07-08_SOLO_SESSION_REPORT.md`. |
+| **Kombiniert** | ✅ Getestet | Pinning+Prefetch zusammen: **+72-106% pp, +30% tg** auf GTX 1070 mit 26B-A4B MoE-Offloading. Siehe `docs/fork/archive/sessions/2026-07-08_SOLO_SESSION_REPORT.md`. |
 
 **Wichtig:** Diese Optimierungen wirken NUR bei partiellem GPU-Offload von MoE-Modellen (Experten auf CPU). Bei vollständigem GPU-Offload (z.B. E4B) gibt es keine H2D-Copies → kein Effekt.
 
