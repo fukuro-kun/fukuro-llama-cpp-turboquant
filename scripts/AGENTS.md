@@ -57,6 +57,7 @@
 | `bench-vulkan-kv-cache.sh` | Vulkan KV-Cache Benchmark: turbo3/3, turbo3/4, turbo4/4, f16 bei pp512-8192 mit 26B-A4B. GTT-Cleanup zwischen Tests. Siehe [docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md](../docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md). |
 | `bench-qwen-udt-matrix-local.sh` | Lokale Matrix-Benchmarks fuer Qwen UDT. |
 | `bench-qwen-udt-quality.sh` | Qualitaetsbewertung fuer Qwen UDT. |
+| `bench-ea-phase3.sh` | EA Phase 3 Benchmark: EA disabled vs enabled bei 4k/16k/64k/128k Kontextlängen. Nutzt `LLAMA_ARG_EA_RATIO` env var. Siehe [docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md](../docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md). |
 
 **Benchmark-Best-Practices (gelernt aus InferenzQuelle):**
 
