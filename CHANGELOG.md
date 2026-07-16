@@ -6,6 +6,15 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-16
+
+### Prompt-Cache für Styx + Mars + Router-Fix
+
+- **feat: `start-styx-26b-server.sh`** — Schlankes Start-Skript im Uranus-Stil. Prompt-Cache: `--cache-ram 16384` (16 GB), `--cache-reuse 256`, `--slot-cache-key-similarity 0.5`, `--slot-cache-key-min-prefix 64`. systemd `MemoryMax=12G` entfernt (hatte Cache verhungert). pandora-voice-service (Whisper) läuft parallel (2.2 GB RSS).
+- **feat: `start-mars-26b-server.sh`** — Gleiches für Mars/phobos (Vulkan). Konservative 6 GB `--cache-ram` (unified memory APU, 28 GB LXC-RAM). Bei 2 Slots ist Cache-Reuse besonders wertvoll.
+- **fix: InferenzQuelle Router (janus:8010)** — Styx-Endpoint korrigiert: `gemma-4-12b-it-IQ4_NL.gguf` → `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf`. Router neu gestartet, beide Endpoints healthy.
+- **docs: Trilium-Notes aktualisiert** — Styx-Note `Gd40xnFc79JK` (26B+Cache), phobos-Note `o6jGT8Qwqm4y` (Prompt-Cache Sektion). LOKAL.md Deployment-Tabelle aktualisiert.
+
 ## 2026-07-15 (Session 2)
 
 ### Doku-Aufräumarbeit + TURBO4 Bug-Analyse
