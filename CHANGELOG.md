@@ -6,6 +6,18 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-15 (Session 2)
+
+### Doku-Aufräumarbeit + TURBO4 Bug-Analyse
+
+- **refactor: docs/fork Aufräumarbeit** — 30→10 aktive Dateien, 35 archiviert. Struktur: `archive/rca/` (5 Bug-Analysen), `archive/benchmarks/` (3), `archive/sessions/` (7), `archive/research/` (4+Index), `archive/plans/` (14). ROADMAP: 21 Plan-Referenzen aktualisiert. AGENTS.md: Referenzen auf archivierte Dateien aktualisiert.
+- **feat: llama-bench EA-Env-Var-Support** — `llama-bench` liest `LLAMA_ARG_EA_RATIO/FUTURE/SINK/LOCAL` env vars. Neues Skript `scripts/bench-ea-phase3.sh`.
+- **refactor: EA Header-Cleanup** — Ungenutztes `#include <string>` entfernt, Phasen-Kommentare aktualisiert, Covariance-Hinweis ergänzt.
+- **docs: TURBO4 Server Bug Root-Cause-Analyse** — Vulkan `fa_kv_ok()` unterstützt turbo4 (return true). Problem: Scheduler legt Input-Tensoren auf CPU (ggml-backend.cpp Zeile 937-940), bei `n_seqs > 1` (Server Default: 4) entsteht Mismatch. Drei Hypothesen, Test-Plan (`-np 1`), drei Fix-Vorschläge dokumentiert.
+- **docs: EA Covariance Recherche** — arXiv:2510.00636 Ablation Table 4: Für Gemma 4 (QK-Norm) bringt Covariance <0.1% Gain bei 128× mehr Rechnung. Mean-only sufficient. Phase 4 depriorisiert.
+- **fix: unused variable 'd' in test_head_aggregation_max** — Compiler-Warning beseitigt.
+- **skill: solo-session Regel 15 + Fallstrick 12** — "Sinnvolle Parallelarbeit beim Warten" und "Active Looping" dokumentiert. Root Cause: Agent wartete 75+ min auf Benchmark und drehte sich im Kreis.
+
 ## 2026-07-15
 
 ### #19 Expected Attention Phase 3 — Intelligent EA Scoring
