@@ -1,6 +1,6 @@
 #include "llama-kv-cache.h"
 
-// TODO(Phase 2d): needed for ea_compress() implementation
+// needed for ea_compress() implementation (Expected Attention Phase 3)
 #include "llama-expected-attention.h"
 #include "llama-impl.h"
 #include "llama-io.h"

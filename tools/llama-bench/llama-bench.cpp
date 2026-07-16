@@ -468,6 +468,12 @@ static void print_usage(int /* argc */, char ** argv) {
     printf("  -nopo, --no-op-offload <0|1>                (default: 0)\n");
     printf("  --no-host <0|1>                             (default: %s)\n", join(cmd_params_defaults.no_host, ",").c_str());
     printf("\n");
+    printf("EA (Expected Attention) — via environment variables:\n");
+    printf("  LLAMA_ARG_EA_RATIO <0.0-1.0>               KV cache pruning ratio (default: 0.0 = disabled)\n");
+    printf("  LLAMA_ARG_EA_FUTURE <n>                     RoPE prediction horizon (default: 512)\n");
+    printf("  LLAMA_ARG_EA_SINK <n>                       protected initial tokens (default: 4)\n");
+    printf("  LLAMA_ARG_EA_LOCAL <n>                      protected recent tokens (default: 128)\n");
+    printf("\n");
     printf(
         "Multiple values can be given for each parameter by separating them with ','\n"
         "or by specifying the parameter multiple times. Ranges can be given as\n"
@@ -1381,6 +1387,20 @@ struct cmd_params_instance {
         cparams.embeddings      = embeddings;
         cparams.op_offload      = !no_op_offload;
         cparams.swa_full        = false;
+
+        // EA Phase 3: read env vars for benchmarking (LLAMA_ARG_EA_RATIO etc.)
+        if (const char * ea_ratio = std::getenv("LLAMA_ARG_EA_RATIO")) {
+            cparams.ea_compression_ratio = std::stof(ea_ratio);
+        }
+        if (const char * ea_future = std::getenv("LLAMA_ARG_EA_FUTURE")) {
+            cparams.ea_n_future_positions = std::stoi(ea_future);
+        }
+        if (const char * ea_sink = std::getenv("LLAMA_ARG_EA_SINK")) {
+            cparams.ea_n_sink = std::stoi(ea_sink);
+        }
+        if (const char * ea_local = std::getenv("LLAMA_ARG_EA_LOCAL")) {
+            cparams.ea_n_local = std::stoi(ea_local);
+        }
 
         return cparams;
     }

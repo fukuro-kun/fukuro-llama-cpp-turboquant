@@ -4,7 +4,7 @@
 **ROADMAP-Item:** #19
 **Paper:** arXiv:2510.00636
 **Referenz:** NVIDIA kvpress (Apache 2.0)
-**Status:** Phase 3 (Intelligent EA Scoring) implementiert — 2026-07-16
+**Status:** Phase 3 (Intelligent EA Scoring) implementiert — 2026-07-15
 
 ## Zusammenfassung
 
@@ -79,7 +79,7 @@ Expected Attention ist eine training-freie KV-Cache-Compression-Methode, die KV-
 - [x] NeoX + Interleaved RoPE Konventionen
 - [x] GQA Query-Head-Mapping (`h * n_gqa`)
 - [x] Value-Norm Rescaling implementiert
-- [x] Unit-Tests (227/227 grün) + Smoke-Test (Gemma 4 12B CPU)
+- [x] Unit-Tests (614/614 grün) + Smoke-Test (Gemma 4 12B CPU)
 - [x] **TurboQuant+EA Kombination** (Phase 3 — WHT-Forward auf μ' angewendet, Domain-Mismatch gelöst)
 - [ ] CUDA/Vulkan Backend-Optimierung
 - [ ] Benchmarks (Accuracy, Memory, Speed) — auf Styx (GPU)
@@ -105,11 +105,19 @@ Expected Attention ist eine training-freie KV-Cache-Compression-Methode, die KV-
 ## Bekannte Limitationen (Phase 3)
 
 1. **V-norm nur bei Flash Attention:** Value-Norm Rescaling ist nur aktiv wenn `v_trans == false` (d.h. Flash Attention enabled). Ohne Flash Attention ist V transposed und die K-Style-Stride-Leselogik greift nicht — vnorm wird deaktiviert.
-2. **Covariance-Term:** Nur Mean-only-Modus aktiv (`use_covariance=false` hardcoded). Covariance O(d²) ist für Phase 4 geplant.
+2. **Covariance-Term:** Nur Mean-only-Modus aktiv (`use_covariance=false` hardcoded). Covariance O(d²) ist für Phase 4 geplant. **Recherche 2026-07-15 (arXiv:2510.00636 Ablation Table 4):** Für Gemma 4 (QK-Normalization) bringt Covariance <0.1% Accuracy-Gewinn bei 128× mehr Rechnung (O(d²)=16K vs O(d)=128 floats pro Head). Empfehlung: Mean-only beibehalten, Covariance nur optional für Llama-Modelle ohne QK-Norm. Phase 4 priorisiert CUDA/Vulkan Backend-Optimierung statt Covariance.
 3. **RoPE-Parameter:** `freq_scale`, `freq_factors`, `ext_factor`, `attn_factor` und per-Layer `rope_freq_base` werden nicht an `ea_average_rope` übergeben. Nur `theta_base` aus `cparams.rope_freq_base`. Bei Modellen mit nicht-standard RoPE-Parametern kann die Vorhersage ungenau sein.
 4. **RoPE-Mode:** Nur NEOX und Interleaved (NORM). `MROPE`, `IMROPE`, `VISION`, `NONE` fallen auf Interleaved zurück.
 5. **EA-Buffer-Init:** Rolling Buffer wird mit Layer-0 Dimensionen (`n_head_kv`, `head_dim`) initialisiert. Layer mit abweichenden Dimensionen (SWA) werden stillschweigend übersprungen. Korrekt wäre lazy per-Layer Initialisierung.
-6. **GPU-Tests:** Nur CPU Smoke-Test durchgeführt. GPU-Tests müssen auf Styx laufen (AGENTS.md GPU-Regel).
+6. **GPU-Tests:** Nur CPU Smoke-Test durchgeführt. GPU-Tests auf Styx laufen (Benchmark 2026-07-15, siehe `docs/fork/2026-07-15_EA_PHASE3_GPU_BENCHMARK.md`).
+
+## Review-Fixes (Round 3, 2026-07-15)
+
+Zwei kritische Bugs im K-Cache-Readout von `ea_compress()` wurden gefunden und behoben:
+
+1. **cell_stride unpadded (P0):** `cell_stride` verwendete `hparams.n_embd_k_gqa(il)` (unpadded) statt `k_tensor->nb[1]` (padded). Bei TurboQuant mit `head_dim` ≠ Vielfaches von 128 wurden K-Rows mit falschem Stride gelesen.
+2. **Stream-Dimension fehlt (P0):** Offset-Formel erweitert auf `s*stream_stride + cell_idx*cell_stride + h*head_stride` mit `stream_stride = k_tensor->nb[2]`. Gleicher Fix für V-Tensor (vnorm-Pfad).
+3. **WHT-Tests gestärkt (P1):** Reference-Equality-Test (unabhängige Sign-Array-Kopien) und `scale_inv`-Pfad-Test hinzugefügt. Testzahl 358 → 614.
 
 ## Relevanz für Fork-Systeme
 
