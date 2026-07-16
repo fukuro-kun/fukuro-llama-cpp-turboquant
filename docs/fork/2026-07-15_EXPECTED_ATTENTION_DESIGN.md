@@ -109,7 +109,7 @@ Expected Attention ist eine training-freie KV-Cache-Compression-Methode, die KV-
 3. **RoPE-Parameter:** `freq_scale`, `freq_factors`, `ext_factor`, `attn_factor` und per-Layer `rope_freq_base` werden nicht an `ea_average_rope` übergeben. Nur `theta_base` aus `cparams.rope_freq_base`. Bei Modellen mit nicht-standard RoPE-Parametern kann die Vorhersage ungenau sein.
 4. **RoPE-Mode:** Nur NEOX und Interleaved (NORM). `MROPE`, `IMROPE`, `VISION`, `NONE` fallen auf Interleaved zurück.
 5. **EA-Buffer-Init:** Rolling Buffer wird mit Layer-0 Dimensionen (`n_head_kv`, `head_dim`) initialisiert. Layer mit abweichenden Dimensionen (SWA) werden stillschweigend übersprungen. Korrekt wäre lazy per-Layer Initialisierung.
-6. **GPU-Tests:** Nur CPU Smoke-Test durchgeführt. GPU-Tests auf Styx laufen (Benchmark 2026-07-15, siehe `docs/fork/2026-07-15_EA_PHASE3_GPU_BENCHMARK.md`).
+6. **GPU-Tests:** CPU Smoke-Test bestanden (Gemma 4 12B). GPU-Benchmark auf Styx (GTX 1070) läuft — Baseline (EA disabled) zeigt pp512=371 t/s, tg128=24 t/s, pp4096=220 t/s. EA-enabled Vergleich ausstehend.
 
 ## Review-Fixes (Round 3, 2026-07-15)
 
