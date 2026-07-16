@@ -1,7 +1,7 @@
 # Turbo4 llama-server: Graph-Scheduler/Backend-Assignment Problem
  
 **Datum:** 2026-06-20
-**Status:** 🔴 OFFEN (Root Cause identifiziert)
+**Status:** � Root Cause bestätigt — Hypothese A verifiziert (-np 1 funktioniert)
 **Priorität:** Hoch (Blockiert Produktiv-Einsatz von turbo4 im Server-Modus)
  
 ---
@@ -109,3 +109,9 @@ auto * gf = graph_reserve(n_tokens_check, n_seqs, n_outputs, mctx.get(), true);
 **Fix 2 (komplex):** Backend-Assignment für FA-Tensoren erzwingen — quantized KV muss auf demselben Device wie Layer-Gewichte liegen.
 
 **Fix 3 (generisch):** Scheduler-Logik anpassen — Input-Tensoren die Teil einer FA-Op mit quantized KV sind, nicht auf CPU legen.
+
+## Test-Ergebnis (2026-07-15)
+
+**Test:** `llama-server -np 1 -ctk turbo4 -ctv turbo4 -fa on -c 4096` auf Styx.
+**Ergebnis: ✅ Server startet fehlerfrei, kein SEGV.** Hypothese A bestätigt: Problem liegt bei `n_seqs > 1` (Server Default: 4).
+**Workaround:** `-np 1` für turbo4, oder turbo3/turbo4 mixed für Multi-Slot.
