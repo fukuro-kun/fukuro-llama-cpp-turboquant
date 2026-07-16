@@ -585,7 +585,6 @@ static void test_ea_scoring_neox_mode() {
 // Test: Maximum head aggregation — verify that max over heads selects
 // the most important tokens across heterogeneous heads
 static void test_head_aggregation_max() {
-    const int d = 4;
     const int n_tokens = 10;
     const int n_heads = 3;
 
