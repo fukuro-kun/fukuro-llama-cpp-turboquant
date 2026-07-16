@@ -1,11 +1,12 @@
-// Expected Attention KV Cache Compression — Phase 1 (CPU Math)
+// Expected Attention KV Cache Compression — Phase 3 (Intelligent EA Scoring)
 // Paper: arXiv:2510.00636
 //
 // Implementation notes:
-// - All math is CPU-only, single-threaded (Phase 1)
+// - All math is CPU-only, single-threaded (Phase 3)
 // - Uses simple loops (no BLAS) for clarity and portability
 // - Covariance is O(d^2) per head — expensive for large head_dim
 // - Mean-only mode (use_covariance=false) is O(d) and much faster
+// - Covariance deferred to Phase 4 (Gemma 4 QK-Norm → <0.1% Gain, siehe Design-Doc)
 
 #include "llama-expected-attention.h"
 

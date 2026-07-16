@@ -1,6 +1,6 @@
 #pragma once
 
-// Expected Attention KV Cache Compression — Phase 1 (CPU Math)
+// Expected Attention KV Cache Compression — Phase 3 (Intelligent EA Scoring)
 // Paper: arXiv:2510.00636
 // ROADMAP-Item: #19
 //
@@ -9,11 +9,10 @@
 //
 // Phase 1: Standalone CPU-Mathematik ohne KV-Cache-Integration.
 // Phase 2: Integration in llama_kv_cache (Pruning-Logik).
-// Phase 3: TurboQuant-Kombination + GPU-Optimierung.
+// Phase 3: TurboQuant-Kombination (WHT-Forward) + Intelligent EA Scoring.
 
 #include <cstdint>
 #include <vector>
-#include <string>
 
 namespace llama_expected_attention {
 
