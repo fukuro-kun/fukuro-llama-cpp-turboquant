@@ -52,7 +52,25 @@
 | E4B | 1203 | 256 | 89.2 | 9.0 | 41.8s |
 | **26B-A4B** | 1203 | 256 | 75.1 | **10.0** | 41.6s |
 
-**2 Slots haben keinen Performance-Nachteil** — identisch zu 1 Slot. 128k gesamt (2×64k) funktionieren problemlos.
+### 2 Slots / 256k gesamt (128k pro Slot) — wie Mars!
+
+| Modell | Prompt tokens | Gen tokens | pp t/s | tg t/s | RAM available |
+|--------|---------------|------------|--------|--------|---------------|
+| **26B-A4B** | 1203 | 256 | 75.2 | **10.0** | **40 GB** |
+
+**256k (2×128k) funktioniert problemlos** — identische Performance zu 64k/128k. Danach sind noch 40 GB RAM frei. Mars ist bei 28 GB RAM am Limit, Venus hat massiv Reserven.
+
+### RAM-Bilanz: 26B-A4B auf Venus (f16 KV)
+
+| Konfiguration | RAM benutzt | RAM available |
+|--------------|-------------|---------------|
+| Idle (kein Server) | 2.2 GB | 59 GB |
+| 64k, 1 Slot | ~21 GB | 40 GB |
+| 128k, 2 Slots (2×64k) | ~21 GB | 40 GB |
+| **256k, 2 Slots (2×128k)** | ~22 GB | **40 GB** |
+| 256k + 16 GB Prompt-Cache | ~22 GB | 40 GB |
+
+**Venus kann die Mars-Konfiguration (256k, 2×128k) erreichen** — mit f16 statt turbo3/4, aber mit 40 GB RAM-Reserve. Mars hat insgesamt nur 28 GB und ist am Limit.
 
 ## Überraschung: 26B-A4B ist beim tg schneller als E4B
 
@@ -67,19 +85,19 @@ Beide Modelle haben ~4B aktive Parameter (A4B = Active 4B). Der 26B-A4B ist beim
 
 ## Vergleich: Alle Hosts im LAN
 
-| Host | GPU | Modell | tg t/s | pp t/s (512) | Kontext | KV-Cache |
-|------|-----|--------|--------|-------------|---------|----------|
-| **Venus** | AMD Vega iGPU (GCN) | 26B-A4B QAT (13.3 GB) | **10.0** | 77 | 64k (128k 2-Slot) | f16 |
-| **Mars/phobos** | Radeon 760M (RDNA3) | 26B-A4B QAT (14.2 GB) | **26-27** | 37-40 | 256k | turbo3/4 |
-| **Styx** | GTX 1070 (Pascal) | 26B-A4B QAT (14.2 GB) | **27** | 35 | 224k | turbo3/4 |
+| Host | GPU | Modell | tg t/s | pp t/s (512) | Kontext | KV-Cache | RAM |
+|------|-----|--------|--------|-------------|---------|----------|-----|
+| **Venus** | AMD Vega iGPU (GCN) | 26B-A4B QAT (13.3 GB) | **10.0** | 77 | **256k (2×128k)** | f16 | 62 GB (40 frei) |
+| **Mars/phobos** | Radeon 760M (RDNA3) | 26B-A4B QAT (14.2 GB) | **26-27** | 37-40 | 256k (2×128k) | turbo3/4 | 28 GB (am Limit) |
+| **Styx** | GTX 1070 (Pascal) | 26B-A4B QAT (14.2 GB) | **27** | 35 | 224k | turbo3/4 | 8 GB VRAM |
 
-Venus ist 2.5-2.7x langsamer bei tg als Mars/Styx. Grund: Venus' iGPU (AMD Vega, GCN) hat deutlich weniger Compute-Throughput als RDNA3 oder Pascal. Aber: Venus hat 62 GB RAM und kann 128k Kontext (2×64k) mit f16 KV problemlos halten — mehr als Styx (224k turbo3/4, aber nur 8 GB VRAM).
+Venus ist 2.5-2.7x langsamer bei tg als Mars/Styx (GCN iGPU vs RDNA3/Pascal). Aber: Venus erreicht die gleiche 256k-Kontext-Konfiguration wie Mars, mit f16 KV (statt turbo3/4) und hat danach noch 40 GB RAM frei. Mars ist bei 28 GB RAM am Limit.
 
 ## Fazit
 
-- **26B-A4B auf Venus: 10.0 t/s tg, 73-77 t/s pp** (f16 KV, 64k Kontext) — schneller UND intelligenter als E4B
+- **26B-A4B auf Venus: 10.0 t/s tg, 73-77 t/s pp** (f16 KV, 256k Kontext) — schneller UND intelligenter als E4B
 - **E4B auf Venus: 9.0 t/s tg, 89-92 t/s pp** (f16 KV, 64k Kontext) — etwas schneller bei PP aber langsamer bei tg
 - **f16 KV ist auf Venus die richtige Wahl** — turbo3/4 ist auf GCN 35-54% langsamer bei PP
-- **2 Slots à 64k (128k gesamt) funktionieren** — kein Performance-Verlust, kein OOM
-- **64k Kontext ist kein Problem** — 62 GB RAM sind mehr als genug für f16 KV
+- **256k Kontext (2×128k) funktioniert** — wie Mars, mit 40 GB RAM-Reserve
+- **Mars-Konfiguration erreichbar** — gleiche 256k/2-Slot-Konfiguration, f16 statt turbo3/4
 - **WoWLAN-Service gefixt** (Race Condition phy0) + `venus-suspend` Wrapper-Skript installiert
