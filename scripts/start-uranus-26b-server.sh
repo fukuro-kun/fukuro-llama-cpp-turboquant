@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
 # Uranus llama-server für InferenzQuelle Router.
 # Gemma-4 26B-A4B QAT, MoE-Offload, turbo3/4 KV-Cache.
-# 2 Instanzen (eine pro GPU), adaptiv: VLM geladen → GPU1 nur 1 Slot.
+# 1 Instanz auf GPU 0, 2 Slots × 128k. GPU 1 frei für VLM/FLUX.
 #
 # Rasch auf-/abbaubar:
 #   Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-uranus-26b-server.sh
 #   Stop:  bash ~/git/fukuro-llama-cpp-turboquant/scripts/stop-uranus-26b-server.sh
 #
-# Cache-Konfiguration (wie Styx, angepasst an 128 GB RAM + 2x 16 GB VRAM):
+# Cache-Konfiguration (wie Styx, angepasst an 128 GB RAM + 16 GB VRAM):
 #   --cache-ram 32768        32 GB CPU-RAM für serialisierte KV-States (128 GB available)
 #   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key automatisch)
 #
-# MoE-Offload (--n-cpu-moe 10): 10 Experten pro Instanz auf CPU.
+# MoE-Offload (--n-cpu-moe 10): 10 Experten auf CPU, Rest auf GPU.
 #   Ohne MoE-Offload: 14.2 GB Modell → nur 1.8 GB für KV-Cache → zu wenig für 128k/Slot.
 #   Mit 10 MoE-Offload: ~8 GB auf GPU → ~8 GB für KV-Cache → 2x128k möglich.
 #
-#   WICHTIG — CPU-MoE-Bottleneck (erfahren 2026-07-18):
-#   Pro parallelem Request werden die CPU-MoE-Layer berechnet.
-#   2 Instanzen × 2 Slots × 10 MoE = 40 MoE-Berechnungen pro Token-Schritt auf 8 CPU-Kernen.
-#   Das ist der Flaschenhals, nicht die GPU!
-#   - 1 Request aktiv:  1×10 = 10 MoE-Schritte → ~40 t/s (GPU-dominiert)
-#   - 4 Requests parallel: 4×10 = 40 MoE-Schritte → ~2.7 t/s (CPU-dominiert)
-#   - Vergleich styx (1 Slot, 20 MoE): 1×20 = 20 → 7.3 t/s
-#   --n-cpu-moe 20 (alt) war schlimmer: 4×20 = 80 → 1.6 t/s.
-#   Nie wieder --n-cpu-moe 20 bei 2 Instanzen mit mehreren Slots!
+#   WICHTIG — CPU-Konkurrenz bei 2 Instanzen (erfahren 2026-07-18):
+#   2 unabhängige llama-server Prozesse auf EINER CPU überlasten sich gegenseitig,
+#   selbst wenn nur 1 Instanz aktiv generiert! Die idle Instanz verbraucht CPU für
+#   MoE-Prefetch (GGML_SCHED_PREFETCH_EXPERTS=1), Cache-Updates, Slot-Management.
+#   - 2 Instanzen, 1 Request aktiv: 3.5 t/s (CPU 100%, load 15.5)
+#   - 1 Instanz, 1 Request aktiv:   45 t/s (CPU 11%, load 1.0)
+#   - 1 Instanz, 2 Requests parallel: 30 t/s pro Slot (CPU 53%, load 4.3)
+#   Das ist ein 13x Speedup! Nie wieder 2 Instanzen auf einer CPU mit MoE-Offload.
+#   GPU 1 bleibt frei für VLM (GLM-4.6V-Flash) und FLUX-Server.
 #
-# Architecture: 2 unabhängige llama-server Instanzen (kein Tensor-Parallelism).
-#   Instanz 1: GPU 0 (-dev CUDA0), Port 18080, 2 Slots × 128k
-#   Instanz 2: GPU 1 (-dev CUDA1), Port 18082, 1-2 Slots × 128k (adaptiv je nach VLM)
+# Architecture: 1 llama-server Instanz auf GPU 0.
+#   Port 18080, 2 Slots × 128k Kontext.
+#   GPU 1: VLM (Port 18081) + FLUX (Port 18083), ungenutzt für 26B.
 
 set -euo pipefail
 
@@ -36,10 +36,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER="${SERVER:-${ROOT}/build/bin/llama-server}"
 MAIN="${MAIN_GGUF:-/media/fukuro/raid5/modelle/gemma-4-26B-A4B-it/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}"
 HOST="${HOST:-0.0.0.0}"
-PORT0="${PORT0:-18080}"
-PORT1="${PORT1:-18082}"
-CTX="${CTX:-262144}"          # 256k total, aufgeteilt auf Slots
+PORT="${PORT:-18080}"
+CTX="${CTX:-262144}"             # 256k total, aufgeteilt auf 2 Slots = 128k je
+SLOTS="${SLOTS:-2}"
 CACHE_RAM="${CACHE_RAM:-32768}"  # 32 GB CPU prompt-cache (128 GB RAM available)
+MOE="${MOE:-10}"                 # 10 MoE-Layer auf CPU
 
 # --- Modell-Check ---
 if [[ ! -f "$SERVER" ]]; then
@@ -51,41 +52,9 @@ if [[ ! -f "$MAIN" ]]; then
   exit 1
 fi
 
-# --- Port-Checks ---
-for port in "$PORT0" "$PORT1"; do
-  if lsof -ti:"$port" >/dev/null 2>&1; then
-    echo "error: port $port already in use (lsof -ti:$port)" >&2; exit 1
-  fi
-done
-
-# --- GPU 1: freie VRAM prüfen (adaptiv) ---
-# VLM (GLM-4.6V-Flash) auf GPU1 hält ~6 GB VRAM auch im Idle (--sleep-idle-seconds).
-# FLUX-Server hält ebenfalls ~400 MB. Beide zusammen ~6.5 GB.
-# Mit --n-cpu-moe 10 braucht das 26B-Modell ~13 GB auf GPU → passt NICHT neben VLM!
-# Mit --n-cpu-moe 20 braucht es ~5 GB → passt neben VLM (7.5 GB frei).
-# Logik: freie VRAM auf GPU1 messen → MoE-Offload + Slots adaptiv setzen.
-GPU1_FREE_MB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i 1 2>/dev/null | tr -d ' ' || echo "0")
-echo "GPU 1: ${GPU1_FREE_MB} MiB frei"
-
-# Schwellwerte:
-#   > 14000 MiB frei → keine Konkurrenz → --n-cpu-moe 10, 2 Slots (schnell)
-#   7000-14000 MiB   → VLM/FLUX aktiv → --n-cpu-moe 20, 1 Slot (CPU-limitiert aber stabil)
-#   < 7000 MiB       → kritisch → --n-cpu-moe 30, 1 Slot (Notfall-Modus)
-if [[ "$GPU1_FREE_MB" -gt 14000 ]]; then
-  MOE1=10
-  SLOTS1=2
-  CTX1=262144   # 2 Slots × 128k
-  echo "GPU 1: volle VRAM → --n-cpu-moe 10, 2 Slots × 128k (schnell)"
-elif [[ "$GPU1_FREE_MB" -gt 7000 ]]; then
-  MOE1=20
-  SLOTS1=1
-  CTX1=131072   # 1 Slot × 128k
-  echo "GPU 1: VLM/FLUX aktiv → --n-cpu-moe 20, 1 Slot × 128k (CPU-limitiert, stabil)"
-else
-  MOE1=30
-  SLOTS1=1
-  CTX1=131072   # 1 Slot × 128k
-  echo "GPU 1: VRAM kritisch (< 7 GB frei) → --n-cpu-moe 30, 1 Slot × 128k (Notfall)"
+# --- Port-Check ---
+if lsof -ti:"$PORT" >/dev/null 2>&1; then
+  echo "error: port $PORT already in use (lsof -ti:$PORT)" >&2; exit 1
 fi
 
 # --- thecodacus MoE-Optimierungen ---
@@ -95,15 +64,15 @@ export GGML_SCHED_PREFETCH_SLOTS="${GGML_SCHED_PREFETCH_SLOTS:-2}"
 
 cd "$ROOT"
 
-# --- Instanz 1: GPU 0, Port 18080, 2 Slots × 128k ---
-echo "Starte Instanz 1 (GPU 0, Port $PORT0, 2 Slots × 128k)..."
+# --- Instanz: GPU 0, Port 18080, 2 Slots × 128k ---
+echo "Starte llama-server (GPU 0, Port $PORT, $SLOTS Slots × $((CTX/SLOTS/1024))k, --n-cpu-moe $MOE)..."
 setsid "$SERVER" \
   -m "$MAIN" \
-  --host "$HOST" --port "$PORT0" \
+  --host "$HOST" --port "$PORT" \
   -dev CUDA0 \
-  -c "$CTX" -ngl 999 --n-cpu-moe 10 \
+  -c "$CTX" -ngl 999 --n-cpu-moe "$MOE" \
   -ctk turbo3 -ctv turbo4 -fa on \
-  --parallel 2 -np 2 --cont-batching \
+  --parallel "$SLOTS" -np "$SLOTS" --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram "$CACHE_RAM" \
   --cache-reuse 256 \
@@ -112,39 +81,18 @@ setsid "$SERVER" \
   --metrics --slots \
   --log-timestamps --log-prefix \
   > /tmp/uranus-26b-gpu0.log 2>&1 &
-PID0=$!
-echo "  PID: $PID0, Log: /tmp/uranus-26b-gpu0.log"
+PID=$!
+echo "  PID: $PID, Log: /tmp/uranus-26b-gpu0.log"
 
-# --- Instanz 2: GPU 1, Port 18082, adaptiv Slots ---
-echo "Starte Instanz 2 (GPU 1, Port $PORT1, $SLOTS1 Slot(s) × 128k)..."
-setsid "$SERVER" \
-  -m "$MAIN" \
-  --host "$HOST" --port "$PORT1" \
-  -dev CUDA1 \
-  -c "$CTX1" -ngl 999 --n-cpu-moe "$MOE1" \
-  -ctk turbo3 -ctv turbo4 -fa on \
-  --parallel "$SLOTS1" -np "$SLOTS1" --cont-batching \
-  --temp 1.0 --top-p 0.95 --top-k 64 \
-  --cache-ram "$CACHE_RAM" \
-  --cache-reuse 256 \
-  --slot-cache-key-similarity 0.5 \
-  --slot-cache-key-min-prefix 64 \
-  --metrics --slots \
-  --log-timestamps --log-prefix \
-  > /tmp/uranus-26b-gpu1.log 2>&1 &
-PID1=$!
-echo "  PID: $PID1, Log: /tmp/uranus-26b-gpu1.log"
-
-# --- Health-Check (warten bis beide ready) ---
+# --- Health-Check (warten bis ready) ---
 echo
 echo "Warte auf Health-Check (max 120s)..."
 READY=0
 for i in $(seq 1 120); do
-  H0=$(curl -s --connect-timeout 2 http://127.0.0.1:$PORT0/health 2>/dev/null || echo "")
-  H1=$(curl -s --connect-timeout 2 http://127.0.0.1:$PORT1/health 2>/dev/null || echo "")
-  if [[ "$H0" == *"ok"* ]] && [[ "$H1" == *"ok"* ]]; then
+  H=$(curl -s --connect-timeout 2 http://127.0.0.1:$PORT/health 2>/dev/null || echo "")
+  if [[ "$H" == *"ok"* ]]; then
     READY=1
-    echo "  Beide Instanzen healthy nach ${i}s"
+    echo "  Healthy nach ${i}s"
     break
   fi
   sleep 1
@@ -152,21 +100,18 @@ done
 
 if [[ "$READY" == "0" ]]; then
   echo "WARNUNG: Health-Check nicht bestanden nach 120s"
-  echo "  GPU0 ($PORT0): ${H0:-keine Antwort}"
-  echo "  GPU1 ($PORT1): ${H1:-keine Antwort}"
-  echo "  Logs: /tmp/uranus-26b-gpu0.log, /tmp/uranus-26b-gpu1.log"
-  echo "  PIDs: $PID0, $PID1 (noch laufend)"
+  echo "  ($PORT): ${H:-keine Antwort}"
+  echo "  Log: /tmp/uranus-26b-gpu0.log"
+  echo "  PID: $PID (noch laufend)"
   exit 1
 fi
 
-# --- PIDs speichern für Stop-Skript ---
-echo "$PID0" > /tmp/uranus-26b-gpu0.pid
-echo "$PID1" > /tmp/uranus-26b-gpu1.pid
+# --- PID speichern für Stop-Skript ---
+echo "$PID" > /tmp/uranus-26b-gpu0.pid
 
 echo
 echo "=== Uranus 26B-A4B Server gestartet ==="
-echo "  Instanz 1: http://0.0.0.0:$PORT0  (GPU 0, 2 Slots × 128k)  PID $PID0"
-echo "  Instanz 2: http://0.0.0.0:$PORT1  (GPU 1, $SLOTS1 Slot(s) × 128k, --n-cpu-moe $MOE1)  PID $PID1"
+echo "  http://0.0.0.0:$PORT  (GPU 0, $SLOTS Slots × $((CTX/SLOTS/1024))k, --n-cpu-moe $MOE)  PID $PID"
 echo
 echo "Stop: bash ~/git/fukuro-llama-cpp-turboquant/scripts/stop-uranus-26b-server.sh"
-echo "Logs: tail -f /tmp/uranus-26b-gpu0.log /tmp/uranus-26b-gpu1.log"
+echo "Log:  tail -f /tmp/uranus-26b-gpu0.log"
