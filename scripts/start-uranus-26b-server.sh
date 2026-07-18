@@ -58,28 +58,34 @@ for port in "$PORT0" "$PORT1"; do
   fi
 done
 
-# --- VLM-Status auf GPU 1 prüfen (adaptiv) ---
-# VLM (GLM-4.6V-Flash) läuft auf Port 18081, -dev CUDA1.
-# Wenn VLM ein Modell geladen hat → GPU1 hat weniger VRAM → nur 1 Slot.
-# Wenn VLM entladen/leer → GPU1 hat volle VRAM → 2 Slots.
-VLM_LOADED=0
-if curl -s --connect-timeout 2 http://127.0.0.1:18081/props >/dev/null 2>&1; then
-  # VLM läuft — prüfe ob ein Slot aktiv ist
-  VLM_SLOTS=$(curl -s --connect-timeout 2 http://127.0.0.1:18081/slots 2>/dev/null | \
-    python3 -c "import json,sys; d=json.load(sys.stdin); print(sum(1 for s in d if s.get('is_processing',False)))" 2>/dev/null || echo "0")
-  if [[ "$VLM_SLOTS" != "0" ]]; then
-    VLM_LOADED=1
-  fi
-fi
+# --- GPU 1: freie VRAM prüfen (adaptiv) ---
+# VLM (GLM-4.6V-Flash) auf GPU1 hält ~6 GB VRAM auch im Idle (--sleep-idle-seconds).
+# FLUX-Server hält ebenfalls ~400 MB. Beide zusammen ~6.5 GB.
+# Mit --n-cpu-moe 10 braucht das 26B-Modell ~13 GB auf GPU → passt NICHT neben VLM!
+# Mit --n-cpu-moe 20 braucht es ~5 GB → passt neben VLM (7.5 GB frei).
+# Logik: freie VRAM auf GPU1 messen → MoE-Offload + Slots adaptiv setzen.
+GPU1_FREE_MB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i 1 2>/dev/null | tr -d ' ' || echo "0")
+echo "GPU 1: ${GPU1_FREE_MB} MiB frei"
 
-if [[ "$VLM_LOADED" == "1" ]]; then
-  SLOTS1=1
-  CTX1=131072   # 1 Slot × 128k
-  echo "VLM ist auf GPU 1 aktiv ($VLM_SLOTS Slots belegt) → Instanz 2: 1 Slot × 128k"
-else
+# Schwellwerte:
+#   > 14000 MiB frei → keine Konkurrenz → --n-cpu-moe 10, 2 Slots (schnell)
+#   7000-14000 MiB   → VLM/FLUX aktiv → --n-cpu-moe 20, 1 Slot (CPU-limitiert aber stabil)
+#   < 7000 MiB       → kritisch → --n-cpu-moe 30, 1 Slot (Notfall-Modus)
+if [[ "$GPU1_FREE_MB" -gt 14000 ]]; then
+  MOE1=10
   SLOTS1=2
   CTX1=262144   # 2 Slots × 128k
-  echo "VLM nicht aktiv → Instanz 2: 2 Slots × 128k"
+  echo "GPU 1: volle VRAM → --n-cpu-moe 10, 2 Slots × 128k (schnell)"
+elif [[ "$GPU1_FREE_MB" -gt 7000 ]]; then
+  MOE1=20
+  SLOTS1=1
+  CTX1=131072   # 1 Slot × 128k
+  echo "GPU 1: VLM/FLUX aktiv → --n-cpu-moe 20, 1 Slot × 128k (CPU-limitiert, stabil)"
+else
+  MOE1=30
+  SLOTS1=1
+  CTX1=131072   # 1 Slot × 128k
+  echo "GPU 1: VRAM kritisch (< 7 GB frei) → --n-cpu-moe 30, 1 Slot × 128k (Notfall)"
 fi
 
 # --- thecodacus MoE-Optimierungen ---
@@ -115,7 +121,7 @@ setsid "$SERVER" \
   -m "$MAIN" \
   --host "$HOST" --port "$PORT1" \
   -dev CUDA1 \
-  -c "$CTX1" -ngl 999 --n-cpu-moe 10 \
+  -c "$CTX1" -ngl 999 --n-cpu-moe "$MOE1" \
   -ctk turbo3 -ctv turbo4 -fa on \
   --parallel "$SLOTS1" -np "$SLOTS1" --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
@@ -160,7 +166,7 @@ echo "$PID1" > /tmp/uranus-26b-gpu1.pid
 echo
 echo "=== Uranus 26B-A4B Server gestartet ==="
 echo "  Instanz 1: http://0.0.0.0:$PORT0  (GPU 0, 2 Slots × 128k)  PID $PID0"
-echo "  Instanz 2: http://0.0.0.0:$PORT1  (GPU 1, $SLOTS1 Slot(s) × 128k)  PID $PID1"
+echo "  Instanz 2: http://0.0.0.0:$PORT1  (GPU 1, $SLOTS1 Slot(s) × 128k, --n-cpu-moe $MOE1)  PID $PID1"
 echo
 echo "Stop: bash ~/git/fukuro-llama-cpp-turboquant/scripts/stop-uranus-26b-server.sh"
 echo "Logs: tail -f /tmp/uranus-26b-gpu0.log /tmp/uranus-26b-gpu1.log"
