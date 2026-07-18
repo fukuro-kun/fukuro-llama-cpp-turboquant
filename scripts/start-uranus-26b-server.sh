@@ -12,9 +12,19 @@
 #   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key automatisch)
 #
-# MoE-Offload (--n-cpu-moe 20): 20 Experten auf CPU, nur Shared Layers auf GPU.
+# MoE-Offload (--n-cpu-moe 10): 10 Experten pro Instanz auf CPU.
 #   Ohne MoE-Offload: 14.2 GB Modell → nur 1.8 GB für KV-Cache → zu wenig für 128k/Slot.
-#   Mit MoE-Offload: ~5 GB Shared auf GPU → ~11 GB für KV-Cache → 2x128k möglich.
+#   Mit 10 MoE-Offload: ~8 GB auf GPU → ~8 GB für KV-Cache → 2x128k möglich.
+#
+#   WICHTIG — CPU-MoE-Bottleneck (erfahren 2026-07-18):
+#   Pro parallelem Request werden die CPU-MoE-Layer berechnet.
+#   2 Instanzen × 2 Slots × 10 MoE = 40 MoE-Berechnungen pro Token-Schritt auf 8 CPU-Kernen.
+#   Das ist der Flaschenhals, nicht die GPU!
+#   - 1 Request aktiv:  1×10 = 10 MoE-Schritte → ~40 t/s (GPU-dominiert)
+#   - 4 Requests parallel: 4×10 = 40 MoE-Schritte → ~2.7 t/s (CPU-dominiert)
+#   - Vergleich styx (1 Slot, 20 MoE): 1×20 = 20 → 7.3 t/s
+#   --n-cpu-moe 20 (alt) war schlimmer: 4×20 = 80 → 1.6 t/s.
+#   Nie wieder --n-cpu-moe 20 bei 2 Instanzen mit mehreren Slots!
 #
 # Architecture: 2 unabhängige llama-server Instanzen (kein Tensor-Parallelism).
 #   Instanz 1: GPU 0 (-dev CUDA0), Port 18080, 2 Slots × 128k
@@ -85,7 +95,7 @@ setsid "$SERVER" \
   -m "$MAIN" \
   --host "$HOST" --port "$PORT0" \
   -dev CUDA0 \
-  -c "$CTX" -ngl 999 --n-cpu-moe 20 \
+  -c "$CTX" -ngl 999 --n-cpu-moe 10 \
   -ctk turbo3 -ctv turbo4 -fa on \
   --parallel 2 -np 2 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
@@ -105,7 +115,7 @@ setsid "$SERVER" \
   -m "$MAIN" \
   --host "$HOST" --port "$PORT1" \
   -dev CUDA1 \
-  -c "$CTX1" -ngl 999 --n-cpu-moe 20 \
+  -c "$CTX1" -ngl 999 --n-cpu-moe 10 \
   -ctk turbo3 -ctv turbo4 -fa on \
   --parallel "$SLOTS1" -np "$SLOTS1" --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
