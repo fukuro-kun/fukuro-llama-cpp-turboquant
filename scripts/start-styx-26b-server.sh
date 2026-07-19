@@ -2,6 +2,13 @@
 # Styx llama-server für InferenzQuelle + pandora-voice-service.
 # Gemma-4 26B-A4B QAT, MoE-Offload, turbo3/4 KV-Cache.
 #
+# Kontext: 196608 (196k) statt 224k — Stabilität (2026-07-19):
+#   Bei 224k vollem Kontext würde RSS 31.4 GB > 31 GB RAM → Swap → CPU-I/O
+#   → verstärkt MoE-Bottleneck → 503 Service Unavailable (beobachtet 13:58).
+#   196k: RSS ~28.4 GB, 2.6 GB Reserve, Swap-Risiko MITTEL statt HOCH.
+#   tg/pp kaum beeinflusst (CPU-MoE dominiert, SWA liest nur Window).
+#   Reserve gewinnt wenn Kontext meist <100k belegt ist (Router-Chat, Eval).
+#
 # Cache-Konfiguration (wie Uranus, angepasst an 32 GB RAM):
 #   --cache-ram 16384        16 GB CPU-RAM für serialisierte KV-States
 #                            (27 GB available — llama 9.5 GB + Whisper 2.2 GB = 11.7 GB)
@@ -42,7 +49,7 @@ cd "$ROOT"
 exec "$SERVER" \
   -m "$MAIN" \
   --host "$HOST" --port "$PORT" \
-  -c 229376 -ngl 999 --n-cpu-moe 20 \
+  -c 196608 -ngl 999 --n-cpu-moe 20 \
   -ctk turbo3 -ctv turbo4 -fa on \
   --parallel 1 -np 1 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \

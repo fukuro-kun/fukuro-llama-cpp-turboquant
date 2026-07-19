@@ -6,6 +6,12 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-19
+
+### Styx Kontext 224k → 196k (Stabilität)
+
+- **fix: Styx Kontext von 224k auf 196k reduziert** — Bei 224k vollem Kontext würde RSS 31.4 GB > 31 GB RAM → Swap → CPU-I/O → verstärkt MoE-Bottleneck → 503 Service Unavailable (beobachtet 2026-07-19 13:58, Router failover-t zu phobos). 196k: RSS ~28.4 GB, 2.6 GB Reserve, Swap-Risiko MITTEL statt HOCH. tg/pp kaum beeinflusst (CPU-MoE dominiert, SWA liest nur Window). Trade-off: 28k Kontext weniger (12.5%), aber gratis Stabilität da Kontext meist <100k belegt ist (Router-Chat, Eval). Start-Skript `start-styx-26b-server.sh` aktualisiert, Service-Description aktualisiert, Styx neu gebaut + gestartet, `n_ctx=196608` verifiziert.
+
 ## 2026-07-16
 
 ### Prompt-Cache für Styx + Mars + Router-Fix
