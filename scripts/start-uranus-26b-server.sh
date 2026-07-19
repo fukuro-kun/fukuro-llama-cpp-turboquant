@@ -37,10 +37,10 @@ SERVER="${SERVER:-${ROOT}/build/bin/llama-server}"
 MAIN="${MAIN_GGUF:-/media/fukuro/raid5/modelle/gemma-4-26B-A4B-it/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-18080}"
-CTX="${CTX:-262144}"             # 256k total, aufgeteilt auf 2 Slots = 128k je
+CTX="${CTX:-262144}"             # 256k total, aufgeteilt auf SLOTS = je Slot
 SLOTS="${SLOTS:-2}"
 CACHE_RAM="${CACHE_RAM:-32768}"  # 32 GB CPU prompt-cache (128 GB RAM available)
-MOE="${MOE:-10}"                 # 10 MoE-Layer auf CPU
+MOE="${MOE:-10}"                 # 10 MoE-Layer auf CPU (Default, wird bei wenig VRAM erhöht)
 
 # --- Modell-Check ---
 if [[ ! -f "$SERVER" ]]; then
@@ -55,6 +55,45 @@ fi
 # --- Port-Check ---
 if lsof -ti:"$PORT" >/dev/null 2>&1; then
   echo "error: port $PORT already in use (lsof -ti:$PORT)" >&2; exit 1
+fi
+
+# --- VRAM-Check + adaptive Konfiguration ---
+# GPU0 freier VRAM bestimmt die Konfiguration. Wenn andere Prozesse (Training,
+# VLM, FLUX) VRAM belegen, reduzieren wir Slots/MoE adaptiv statt zu crashen.
+#
+# Tabelle (freier VRAM auf GPU0):
+#   >= 12 GB → 2 Slots × 128k, MoE 10  (Default, volle Kapazität)
+#   >=  8 GB → 1 Slot  × 128k, MoE 10  (1 Slot, Standard-MoE)
+#   >=  6 GB → 1 Slot  × 128k, MoE 15  (mehr MoE auf CPU, weniger VRAM)
+#   >=  4 GB → 1 Slot  × 128k, MoE 20  (max MoE-Offload, knappes VRAM)
+#   <   4 GB → Fehler, nicht starten   (zu wenig für Modell + KV-Cache)
+#
+# Override: SLOTS/MOE/CTX als env vars setzen überspringt die Adaption.
+ADAPTIVE=${ADAPTIVE:-1}
+if [[ "$ADAPTIVE" == "1" ]]; then
+  VRAM_FREE_MIB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i 0 2>/dev/null | head -1 | tr -d ' ')
+  if [[ -z "$VRAM_FREE_MIB" ]]; then
+    echo "WARNUNG: nvidia-smi nicht verfügbar, überspringe VRAM-Check" >&2
+  else
+    VRAM_FREE_GIB=$((VRAM_FREE_MIB / 1024))
+    echo "VRAM-Check: GPU0 hat ${VRAM_FREE_GIB} GB frei"
+    if   (( VRAM_FREE_GIB >= 12 )); then
+      SLOTS=2; MOE=10; CTX=262144   # 2×128k, Standard
+    elif (( VRAM_FREE_GIB >= 8  )); then
+      SLOTS=1; MOE=10; CTX=131072   # 1×128k, Standard-MoE
+    elif (( VRAM_FREE_GIB >= 6  )); then
+      SLOTS=1; MOE=15; CTX=131072   # 1×128k, mehr MoE auf CPU
+    elif (( VRAM_FREE_GIB >= 4  )); then
+      SLOTS=1; MOE=20; CTX=131072   # 1×128k, max MoE-Offload
+    else
+      echo "error: nur ${VRAM_FREE_GIB} GB VRAM frei auf GPU0 (mindestens 4 GB nötig)" >&2
+      echo "  Belegung:" >&2
+      nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader >&2 || true
+      echo "  Lösung: Training/VLM/FLUX stoppen oder mehr MoE-Offload (MOE=20) manuell setzen" >&2
+      exit 2
+    fi
+    echo "  → Adaptiv: SLOTS=$SLOTS, MOE=$MOE, CTX=$CTX ($((CTX/1024))k)"
+  fi
 fi
 
 # --- thecodacus MoE-Optimierungen ---
