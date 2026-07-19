@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
+#include <cstdlib>
 #include <iomanip>
 #include <map>
 #include <cinttypes>
@@ -840,6 +841,18 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
     std::vector<std::vector<float>> verify_h;
     std::vector<int32_t> verify_h_rows;
 
+    // Adaptive skip after consecutive zero-accept batches: when MTP head consistently
+    // mispredicts (e.g. on numbers/code/rare tokens during long generation), drafting
+    // costs ~10ms but yields no accepted tokens. Detect this and fall back to plain
+    // verify-only for one batch; reset skip on next non-empty accept.
+    // Off by default (env unset / 0). Set LLAMA_MTP_SKIP_STREAK_THRESHOLD to 1..32 to enable.
+    size_t          prev_n_acc_drafts   = 0;
+    int             zero_accept_streak  = 0;
+    int             skip_streak_threshold = 0;
+    // After a skip-streak verify-only batch, do not count the next draft() as another
+    // zero-accept miss (otherwise threshold==1 skips every round forever).
+    bool            skip_streak_last_draft = false;
+
     // Per-seq draft length from the last draft() call, used in accept() to
     // roll back ctx_dft's recurrent state past the AR draft's redundant
     // pre-advancement before process() mirrored the verify batch.
@@ -909,6 +922,15 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
 
         verify_h.assign(n_seq, {});
         verify_h_rows.assign(n_seq, 0);
+
+        // Optional: after N consecutive zero-accept MTP batches, skip drafting for one verify-only batch.
+        if (const char * e = std::getenv("LLAMA_MTP_SKIP_STREAK_THRESHOLD")) {
+            const int v = std::atoi(e);
+            if (v >= 1 && v <= 32) {
+                skip_streak_threshold = v;
+                LOG_INF("%s: - skip_streak_threshold=%d (LLAMA_MTP_SKIP_STREAK_THRESHOLD)\n", __func__, skip_streak_threshold);
+            }
+        }
     }
 
     ~common_speculative_impl_draft_mtp() override {
@@ -947,6 +969,23 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
                     "Drafts may degrade.\n",
                     __func__, (int) pos_max, N - 1);
         }
+
+        // New request / prompt: do not leak skip-streak state from the previous generation.
+        skip_streak_last_draft = false;
+    }
+
+    // Projected skip on the next draft() call, without mutating zero_accept_streak.
+    bool mtp_would_skip_next_draft() const {
+        if (skip_streak_threshold <= 0) {
+            return false;
+        }
+        if (skip_streak_last_draft) {
+            return false;
+        }
+        const int proj = (n_call_draft > 0)
+                ? (n_acc_drafts == prev_n_acc_drafts ? zero_accept_streak + 1 : 0)
+                : zero_accept_streak;
+        return proj >= skip_streak_threshold;
     }
 
     bool process(const llama_batch & batch_in) override {
@@ -1044,6 +1083,35 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
 
     void draft(common_speculative_draft_params_vec & dparams) override {
         auto & ctx_dft = params.ctx_dft;
+
+        // Detect zero-accept of previous draft batch: n_acc_drafts only increments when
+        // common_speculative_accept is called with n_accepted>0. So if it didn't move
+        // since our previous draft() return, the previous batch produced 0 accepted drafts.
+        if (n_call_draft > 0) {
+            if (skip_streak_last_draft) {
+                skip_streak_last_draft = false;
+            } else if (n_acc_drafts == prev_n_acc_drafts) {
+                ++zero_accept_streak;
+            } else {
+                zero_accept_streak = 0;
+            }
+        }
+        // After threshold consecutive misses, skip MTP draft for one batch — drafting
+        // would cost ~10ms with no benefit; better to let server do a single-token
+        // verify (baseline path).
+        if (skip_streak_threshold > 0 && zero_accept_streak >= skip_streak_threshold) {
+            // Reset streak after one skip; if next batch still misses (streak resumes), we'll skip again.
+            zero_accept_streak = 0;
+            skip_streak_last_draft = true;
+            prev_n_acc_drafts  = n_acc_drafts;
+            LOG_DBG("%s: skip-streak triggered — returning empty draft (verify-only batch)\n", __func__);
+            for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
+                if (dparams[seq_id].drafting) {
+                    dparams[seq_id].result->clear();
+                }
+            }
+            return;
+        }
 
         common_batch_clear(batch);
 
@@ -1169,6 +1237,9 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
                 dp.result->clear();
             }
         }
+
+        // Snapshot accepted-draft counter for next call's zero-accept detection.
+        prev_n_acc_drafts = n_acc_drafts;
     }
 
     void accept(llama_seq_id seq_id, uint16_t n_accepted, bool /*is_other*/) override {

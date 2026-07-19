@@ -8,6 +8,10 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-19
 
+### Adaptive MTP (#28) wiederhergestellt — Rebase-Verlust behoben
+
+- **feat: `LLAMA_MTP_SKIP_STREAK_THRESHOLD` in `common/speculative.cpp` re-applien** — Der Adaptive MTP skip-streak Mechanismus war in Commit `88bd4f052` (2026-06-23, diffusion-gemma-v2 Squash) voll implementiert, ging aber bei dem AtomicBot-Sync-Squash (`394963e4f`, 2026-06-23) verloren und wurde im MTP 0% Fix (`4cff93d80`, 2026-06-24) nicht re-applien. Die Doku (`MTP.md`, `docs/speculative.md`, `README.md`) beschrieb weiterhin das Feature — ROADMAP #28 war als ✅ markiert, aber der Code fehlte. Re-Applien auf den neuen `common_speculative_impl_draft_mtp` Struct (multi-seq refactor seit dem Verlust): Member-Variablen (`prev_n_acc_drafts`, `zero_accept_streak`, `skip_streak_threshold`, `skip_streak_last_draft`), `getenv("LLAMA_MTP_SKIP_STREAK_THRESHOLD")` im Konstruktor, `mtp_would_skip_next_draft()` Helper, skip-check + streak-update in `draft()`, reset in `begin()`. Build verifiziert (llama-common + llama-server). ROADMAP #28 → ✅, M4 → ✅.
+
 ### Doku-vs-Code Prüfung (doku-pruefung Skill, 3 Subagents)
 
 - **docs: AGENTS.md Styx 196k nachgetragen** — Kontext-Tabelle und Sektions-Überschrift standen noch auf 224k. Services-Tabelle um Venus + Uranus ergänzt, veraltete Skript-Namen (`run-gemma4-26b-a4b-*-server.sh`) durch aktuelle (`start-*-26b-server.sh`) ersetzt. EA Phase 3 (`src/llama-expected-attention.cpp`) in Schlüsseldateien-Tabelle aufgenommen. Qwen NextN-Referenz korrigiert (`qwen35.cpp`/`qwen35moe.cpp` sind Dense/MoE, nicht NextN). GPU-Datum aktualisiert.

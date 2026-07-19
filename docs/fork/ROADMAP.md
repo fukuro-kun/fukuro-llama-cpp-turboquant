@@ -28,7 +28,7 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | **M1** | Quick-Win-Welle | #1-5 (kombiniert) | ✅ abgeschlossen (#2✅, #4✅, #5✅, #1❌) |
 | **M2** | Vulkan-Offensive | #6, #7, #9, #10, #12 | ✅ evaluiert (#6✅ bereits integriert, #7✅ bereits integriert, #9❌, #10❌, #12✅ bereits integriert) |
 | **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ✅ abgeschlossen (#3✅, #13❌, #14⏭️, #15❌, #37✅, #40⏭️) |
-| **M4** | Speculative Decoding v2 | #11, #28 | ⏭️ teilweise (#11✅ bereits integriert, #28⏭️ Doku vorhanden, Code-Implementierung fehlt) |
+| **M4** | Speculative Decoding v2 | #11, #28 | ✅ (#11✅ bereits integriert, #28✅ wiederhergestellt 2026-07-19) |
 | **M5** | Coopmat2 + Multi-GPU | #12, #20, #21 | ⏳ teilweise (#12✅ bereits integriert, #20✅ bereits integriert, #21 offen) |
 | **M6** | Forschung | #17, #18, #19, #25, #26, #27, #29, #30, #39, #41-#55, #69-#87 | ☐ offen (Research-Sweep #4: 2026-07-14) |
 
@@ -138,7 +138,7 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 25 | ☐ | llama.cpp 2026 Rewrite Merge | Alle | 3-4 Monate | mainline | später | 2.1x Durchsatz 70B, 1.4x 7B |
 | 26 | ☐ | Q-Filters / LagKV / MiniCache | Alle | 1-2 Mo/Methode | GitHub (qfilters) | später | 5-32x KV compression |
 | 27 | ☐ | Pre-Attention Expert Prediction | Styx, Mars | 4-6 Wochen | Forschung | später | 15% accuracy improvement |
-| 28 | ⏭️ | Adaptive MTP Speculative Decoding | Alle | 2-4 Wochen | PR #22931 (closed) | — | verhindert MTP-Regression — **PR #22931 wurde closed (Draft), wäre auch nicht kompatibel (upstream draft-mtp vs Fork gemma4-assistant). Doku in `MTP.md` und `docs/speculative.md` beschreibt `LLAMA_MTP_SKIP_STREAK_THRESHOLD` env var (1-32) + skip-streak Mechanismus, Skripte referenzieren sie — ABER Code-Implementierung fehlt (grep in src/ common/ ggml/ findet keine Referenz). Doku beschreibt geplantes Feature, nicht implementiertes. Entweder implementieren oder Doku als "geplant" markieren.** |
+| 28 | ✅ | Adaptive MTP Speculative Decoding | Alle | 2-4 Wochen | PR #22931 (closed) | — | verhindert MTP-Regression — **PR #22931 wurde closed (Draft), wäre auch nicht kompatibel (upstream draft-mtp vs Fork gemma4-assistant). Implementiert in `common/speculative.cpp` via `LLAMA_MTP_SKIP_STREAK_THRESHOLD` env var (1-32): nach N consecutive zero-accept MTP batches skippt der Driver eine Draft-Iteration (verify-only), reset bei non-empty accept. Hysterese via `skip_streak_last_draft` verhindert threshold=1 Oszillation. ✅ Wiederhergestellt 2026-07-19: Code war in Commit `88bd4f052` (2026-06-23) voll implementiert, ging bei AtomicBot-Sync-Squash (`394963e4f`, 2026-06-23) verloren und wurde im MTP 0% Fix (`4cff93d80`, 2026-06-24) nicht re-applien. Re-applien auf neuen `common_speculative_impl_draft_mtp` Struct (multi-seq refactor). Build verifiziert.** |
 | 29 | ☐ | FastKV: Token-Selective Propagation | Alle | 2-3 Monate | GitHub (fastkv) | später | 1.82x prefill, 2.87x decode |
 | 30 | ☐ | Speculative Expert Prefetching (MoE-SpeQ) | Styx, Mars | 2-3 Monate | Forschung | später | 2.34x offloading speedup |
 | 46 | ☐ | SpecMD Least-Stale Expert Prefetching | Styx, Hydra | 4-6 Wochen | arXiv:2508.21706 | später | 85x weniger misses, 34.7% TTFT — **Recherche 2026-07-12** |
