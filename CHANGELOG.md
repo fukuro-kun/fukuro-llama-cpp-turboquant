@@ -8,6 +8,13 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-19
 
+### Doku-vs-Code Prüfung (doku-pruefung Skill, 3 Subagents)
+
+- **docs: AGENTS.md Styx 196k nachgetragen** — Kontext-Tabelle und Sektions-Überschrift standen noch auf 224k. Services-Tabelle um Venus + Uranus ergänzt, veraltete Skript-Namen (`run-gemma4-26b-a4b-*-server.sh`) durch aktuelle (`start-*-26b-server.sh`) ersetzt. EA Phase 3 (`src/llama-expected-attention.cpp`) in Schlüsseldateien-Tabelle aufgenommen. Qwen NextN-Referenz korrigiert (`qwen35.cpp`/`qwen35moe.cpp` sind Dense/MoE, nicht NextN). GPU-Datum aktualisiert.
+- **docs: common/AGENTS.md NextN-Referenz korrigiert** — `qwen35-nextn.cpp`/`qwen35moe-nextn.cpp` existieren nicht, NextN-Logik ist in `qwen3next.cpp`.
+- **docs: ROADMAP.md M3-Status bereinigt** — Item #6 fälschlich in M3 aufgeführt (gehört zu M2). 5 tote Plan-Links entfernt (SESSION_PLAN_*-Dateien nie erstellt, Features direkt integriert). **#28 Adaptive MTP: ✅→⏭️** — Doku beschreibt `LLAMA_MTP_SKIP_STREAK_THRESHOLD` env var, aber Code-Implementierung fehlt (grep in src/ common/ ggml/ findet keine Referenz). M4-Status entsprechend aktualisiert. **#88 MTP+TP-Test: ☐→⏭️** — Uranus durch vorleser-Training blockiert.
+- **Subagent-Fehler korrigiert:** Subagent schlug `200704 (196k)` vor — 196k = 196608, nicht 200704. Subagent schlug vor alle LOKAL.md-Commit-Stände auf `5c9381a31` zu setzen — Remote-Hosts sind real noch auf älteren Ständen (styx: bd66d726c, phobos: b758dff3c, venus: 70a727dc5), LOKAL.md spiegelt Realität wider.
+
 ### Styx Kontext 224k → 196k (Stabilität)
 
 - **fix: Styx Kontext von 224k auf 196k reduziert** — Bei 224k vollem Kontext würde RSS 31.4 GB > 31 GB RAM → Swap → CPU-I/O → verstärkt MoE-Bottleneck → 503 Service Unavailable (beobachtet 2026-07-19 13:58, Router failover-t zu phobos). 196k: RSS ~28.4 GB, 2.6 GB Reserve, Swap-Risiko MITTEL statt HOCH. tg/pp kaum beeinflusst (CPU-MoE dominiert, SWA liest nur Window). Trade-off: 28k Kontext weniger (12.5%), aber gratis Stabilität da Kontext meist <100k belegt ist (Router-Chat, Eval). Start-Skript `start-styx-26b-server.sh` aktualisiert, Service-Description aktualisiert, Styx neu gebaut + gestartet, `n_ctx=196608` verifiziert.

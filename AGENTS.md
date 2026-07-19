@@ -101,7 +101,7 @@ Falls Treffer → Bereinigen!
 
 **Verbindliche Regel:** Python-Pakete werden **nur** via `uv` verwaltet. Nie `pip install --break-system-packages`, nie systemweite Python-Installationen ohne Isolation. Details (Installation, Pfade, zentrale venv) in `LOKAL.md` → "uv und Python-Umgebungen".
 
-### GPU-Nutzungs-Regel (kritisch!) aktuell am 8.7.2026
+### GPU-Nutzungs-Regel (kritisch!) aktuell am 19.7.2026
 
 **Auf Dev-Host (Dev-Host) wird die GPU von anderen Projekten genutzt (xtts-api, InferenzQuelle).**
 
@@ -125,9 +125,9 @@ Falls Treffer → Bereinigen!
     - ✅ **turbo4 KV-Cache funktioniert:** `--cache-type-k turbo4 --cache-type-v turbo4` (~3.8x Kompression)
     - ⚠️ **FlashAttention nur fuer turbo4 aktiv:** turbo3 FA ist DEAKTIVIERT (glslc hängt in infinite optimizer loop bei SPIR-V Generation, `vulkan-shaders-gen.cpp` Zeilen 692-704 auskommentiert). turbo3 fällt auf scalar Attention-Pfad zurück. turbo4 FA aktiv via `flash_attn_cm1.comp`.
     - ✅ **turbo3/turbo4 (mixed) ist die optimale Vulkan-Konfiguration** (Benchmark 2026-07-09, 26B-A4B, pp512-8192 + pp96k-128k): turbo3 K hat geringeren Dequant-Overhead (3.125 bit vs 4.25 bit), turbo4 V hat höhere Präzision (4.25 bit). Bei pp@96k-128k ist turbo3/4 **+31% schneller** als turbo4/4, bei tg gleichauf (±0.5%). Empfehlung: **K=turbo3, V=turbo4**. Siehe `docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`.
-    - ✅ **188k-"Klippe" geklärt (12.07.2026):** Die scharfe Performance-Klippe bei ~188k Kontext war **kein Vulkan-Backend-Bug**, sondern ein **OOM-Artefakt bei konkurrierenden GPU-Prozessen**. Zwei llama-server gleichzeitig → GTT-Overflow (2×16 GB > 26 GB GTT) → OOM-Kill → GPU-Buffer-Eviction → 0.10 t/s. Solo-Betrieb mit 224k Kontext funktioniert einwandfrei (28-32 t/s). **Regel:** Niemals zwei llama-server gleichzeitig auf derselben GPU. Die 180k-Grenze ist obsolet. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` (RCA Update) und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
+    - ✅ **188k-"Klippe" geklärt (12.07.2026):** Die scharfe Performance-Klippe bei ~188k Kontext war **kein Vulkan-Backend-Bug**, sondern ein **OOM-Artefakt bei konkurrierenden GPU-Prozessen**. Zwei llama-server gleichzeitig → GTT-Overflow (2×16 GB > 26 GB GTT) → OOM-Kill → GPU-Buffer-Eviction → 0.10 t/s. Solo-Betrieb mit bis zu 256k Kontext funktioniert einwandfrei (28-32 t/s). **Regel:** Niemals zwei llama-server gleichzeitig auf derselben GPU. Die 180k-Grenze ist obsolet. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` (RCA Update) und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
 
-### Produktiv-Standard (seit 2026-07-10): QAT + 224k Kontext
+### Produktiv-Standard (seit 2026-07-10): QAT + 196k Kontext (Styx seit 2026-07-19)
 
 **Modell:** `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf` (14.2G) — QAT (Quantization-Aware Training) von Unsloth. ersetzt `google_gemma-4-26B-A4B-it-IQ4_NL.gguf` (14.7G) als Standard.
 
@@ -140,15 +140,17 @@ Falls Treffer → Bereinigen!
 | System | Altes Limit (IQ4_NL) | Neues Limit (QAT) | Produktiv-ctx | Limit-Grund |
 |--------|---------------------|-------------------|---------------|-------------|
 | Mars (AMD APU, LXC phobos) | ~~180k~~ (obsolet) | **256k (lädt)** | **262144 (256k), 2×128k Slots** | RAM (30GB) — voll ausgenutzt, Modell-Maximum erreicht. Altes "256k OOM" war IQ4_NL + konkurrierende Server |
-| Styx (GTX 1070) | 160k | 224k (lädt) | **229376 (224k)** | VRAM (8GB) — CUDA OOM bei 245k |
+| Styx (GTX 1070) | 160k | 224k (lädt) | **196608 (196k, seit 2026-07-19)** | VRAM (8GB) + RAM (31GB) — 224k volles Ctx → RSS 31.4GB > 31GB RAM → Swap → MoE-Bottleneck → 503. 196k: RSS ~28.4GB, 2.6GB Reserve. Siehe `scripts/start-styx-26b-server.sh` |
 
 Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (256K) als Maximum in der GGUF.
 
 **MTP Q4_0 Draft: AUS** auf beiden Systemen. Q4_0 Draft (48-57% Acceptance) bremst: Mars -2.4%, Styx -14%. Siehe `docs/fork/2026-07-10_QAT_MTP_Q4_0_BENCHMARK.md`.
 
 **Services:**
-- Mars: `scripts/run-gemma4-26b-a4b-mars-server.sh` — läuft **im LXC 240 (phobos)** als `~/.config/systemd/user/llama-server.service` (seit 12.07.2026, bare-metal Service gestoppt)
-- Styx: `scripts/run-gemma4-26b-a4b-styx-server.sh` + `scripts/llama-server-styx-26b-a4b.service`
+- Mars: `scripts/start-mars-26b-server.sh` — läuft **im LXC 240 (phobos)** als `~/.config/systemd/user/llama-server.service` (seit 12.07.2026, bare-metal Service gestoppt)
+- Styx: `scripts/start-styx-26b-server.sh` als `llama-server-styx.service` (system, Port 18080, 196k Ctx seit 2026-07-19)
+- Venus: `scripts/start-venus-26b-server.sh` als `llama-server-venus.service` (system, Port 18080, 256k Ctx, 2 Slots, Vulkan — seit 16.07.2026, Suspend 08-13h)
+- Uranus: `scripts/start-uranus-26b-server.sh` / `scripts/stop-uranus-26b-server.sh` (user service, Port 18080, 1 Instanz, MoE-Offload 10 — seit 15.07.2026)
 
 ### Build-System
 
@@ -203,10 +205,12 @@ Fuer alle Gemma-4 Modelle (sofern kein begruendeter Spezialfall vorliegt):
 |---------|-----------------|
 | TurboQuant KV/Weights | `ggml/src/ggml-turbo-quant.c`, `src/llama-quant.cpp` |
 | Gemma 4 MTP | `src/models/gemma4-assistant.cpp`, `src/llama-context.cpp`, `common/speculative.cpp` |
-| Qwen 3.x NextN | `src/models/qwen3next.cpp`, `src/models/qwen35.cpp`, `src/models/qwen35moe.cpp` |
+| Qwen 3.x NextN | `src/models/qwen3next.cpp`, `common/speculative.cpp` |
+| Qwen 3.5 Dense/MoE | `src/models/qwen35.cpp`, `src/models/qwen35moe.cpp` |
 | Multimodal + Spec | `tools/server/server-context.cpp`, `docs/speculative.md` |
 | DiffusionGemma | `src/models/diffusion-gemma.cpp`, `src/llama-model.cpp`, `tools/diffusion-cli/` |
 | Vulkan-WHT | `ggml/src/ggml-vulkan/vulkan-shaders/fwht.comp`, `ggml/src/ggml-vulkan/ggml-vulkan.cpp` |
+| Expected Attention (EA Phase 3) | `src/llama-expected-attention.cpp`, `src/llama-expected-attention.h`, `src/llama-context.cpp` |
 | GGUF-Konvertierung | `convert_hf_to_gguf.py` |
 
 ### DiffusionGemma — Status & Bekannte Probleme

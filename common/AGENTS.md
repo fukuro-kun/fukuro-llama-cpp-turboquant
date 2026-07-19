@@ -41,7 +41,7 @@
 Dies ist der zentrale Draft-Treiber des Forks. Bei Arbeit hier:
 
 1. **MTP (Gemma 4):** Pruefe Interaktion mit `src/models/gemma4-assistant.cpp` und `src/llama-context.cpp`.
-2. **NextN (Qwen):** Pruefe Interaktion mit `src/models/qwen35-nextn.cpp` / `qwen35moe-nextn.cpp`.
+2. **NextN (Qwen):** Pruefe Interaktion mit `src/models/qwen3next.cpp`.
 3. **Verifizierung:** Spekulativen Benchmark laufen lassen (`llama-bench` mit `--draft` bzw. Server-Endpoint testen).
 
 ### Aenderungen an `arg.cpp` / `arg.h`
