@@ -8,6 +8,14 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-19
 
+### M5 (Coopmat2 + Multi-GPU) ✅ abgeschlossen — #21 PagedAttention verworfen
+
+- **eval: #21 PagedAttention / Paged KV Cache → ❌ verworfen** — Tiefen-Recherche PR #22569 (ggml-org/llama.cpp): DRAFT, dirty (Merge-Konflikte), 2+ Monate inaktiv (zuletzt 2026-05-10), kein Maintainer-Feedback, 48 Dateien +4029 Zeilen. Der 2.5x-Durchsatz entsteht bei **247 concurrent sequences** (vLLM-Cloud-Serving-Design nach Kwon et al. 2023). Unser Edge/LAN-Setup fährt `-np 1` (Styx) bzw. `-np 2` (Uranus) — bei 1-2 sequences ist Paged **~3% langsamer** (479 vs 496 tok/s, reiner Overhead). CUDA-only Fokus (Author explizit), Mars (Vulkan/RDNA3) und Venus (Vulkan/GCN) würden nicht profitieren. TurboQuant (turbo3/turbo4, 3-4 bit KV-Kompression) ist die richtige KV-Optimierung für unseren Use-Case: komprimiert KV-Daten direkt statt nur Allokation zu managen. Konkurrenz-PRs #17579 (Collaborator, closed 2026-07-11) und #14070 (closed 2025-06-08) — upstream scheint nicht committed zu PagedAttention. **M5 → ✅ abgeschlossen** (#12✅, #20✅, #21❌).
+
+### Adaptive MTP (#28) Live-Test auf Styx ✅
+
+- **test: skip_streak Mechanismus auf Styx verifiziert** — Produktiver Service gestoppt, Test-Server mit `LLAMA_MTP_SKIP_STREAK_THRESHOLD=2` + `--spec-type draft-mtp` + Draft-Modell `drafts/gemma-4-26b-a4b-it-assistant.Q4_K_M.gguf` gestartet (ctx=32768, Vulkan/CUDA). Log bestätigt `skip_streak_threshold=2 (LLAMA_MTP_SKIP_STREAK_THRESHOLD)` im Konstruktor. Request "20 zufällige 6-stellige Zahlen" (300 tokens): **10+ `skip-streak triggered — returning empty draft (verify-only batch)` Events** in den Logs, MTP acceptance 40-63% (realistisch für 26B-A4B). skip_streak triggert korrekt bei zero-accept Serien und kehrt nach einem verify-only Batch zurück. Produktiver Service danach wiederhergestellt (196k ctx, health ok). Styx Commit: `7e39ea44d`.
+
 ### Adaptive MTP (#28) wiederhergestellt — Rebase-Verlust behoben
 
 - **feat: `LLAMA_MTP_SKIP_STREAK_THRESHOLD` in `common/speculative.cpp` re-applien** — Der Adaptive MTP skip-streak Mechanismus war in Commit `88bd4f052` (2026-06-23, diffusion-gemma-v2 Squash) voll implementiert, ging aber bei dem AtomicBot-Sync-Squash (`394963e4f`, 2026-06-23) verloren und wurde im MTP 0% Fix (`4cff93d80`, 2026-06-24) nicht re-applien. Die Doku (`MTP.md`, `docs/speculative.md`, `README.md`) beschrieb weiterhin das Feature — ROADMAP #28 war als ✅ markiert, aber der Code fehlte. Re-Applien auf den neuen `common_speculative_impl_draft_mtp` Struct (multi-seq refactor seit dem Verlust): Member-Variablen (`prev_n_acc_drafts`, `zero_accept_streak`, `skip_streak_threshold`, `skip_streak_last_draft`), `getenv("LLAMA_MTP_SKIP_STREAK_THRESHOLD")` im Konstruktor, `mtp_would_skip_next_draft()` Helper, skip-check + streak-update in `draft()`, reset in `begin()`. Build verifiziert (llama-common + llama-server). ROADMAP #28 → ✅, M4 → ✅.
