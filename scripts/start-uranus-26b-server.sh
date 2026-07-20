@@ -69,8 +69,8 @@ fi
 #
 # Tabelle (freier VRAM auf GPU0):
 #   >= 12 GB → 2 Slots × 128k, MoE 5   (Default, volle Kapazität, +31% Speed)
-#   >=  8 GB → 1 Slot  × 128k, MoE 5   (1 Slot, Standard-MoE)
-#   >=  6 GB → 1 Slot  × 128k, MoE 15  (VRAM-Knappheit: mehr MoE auf CPU)
+#   >=  8 GB → 2 Slots × 128k, MoE 10  (2 Slots bleiben, mehr MoE-Offload für VRAM-Reserve)
+#   >=  6 GB → 1 Slot  × 128k, MoE 15  (VRAM-Knappheit: 1 Slot, mehr MoE auf CPU)
 #   >=  4 GB → 1 Slot  × 128k, MoE 20  (VRAM-Knappheit: max MoE-Offload)
 #   <   4 GB → Fehler, nicht starten   (zu wenig für Modell + KV-Cache)
 #
@@ -86,7 +86,7 @@ if [[ "$ADAPTIVE" == "1" ]]; then
     if   (( VRAM_FREE_GIB >= 12 )); then
       SLOTS=2; MOE=5; CTX=262144    # 2×128k, Default (Lasttest 2026-07-21: 122k Tokens stabil, 732 MiB Reserve)
     elif (( VRAM_FREE_GIB >= 8  )); then
-      SLOTS=1; MOE=5; CTX=131072    # 1×128k, Standard-MoE (Lasttest zeigt MoE 5 ist sicher)
+      SLOTS=2; MOE=10; CTX=262144   # 2×128k, mehr MoE-Offload für VRAM-Reserve bei paralleler GPU-Nutzung
     elif (( VRAM_FREE_GIB >= 6  )); then
       SLOTS=1; MOE=15; CTX=131072   # 1×128k, VRAM-Knappheit: mehr MoE auf CPU
     elif (( VRAM_FREE_GIB >= 4  )); then
