@@ -846,11 +846,14 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
     // costs ~10ms but yields no accepted tokens. Detect this and fall back to plain
     // verify-only for one batch; reset skip on next non-empty accept.
     // Off by default (env unset / 0). Set LLAMA_MTP_SKIP_STREAK_THRESHOLD to 1..32 to enable.
+    // Note: threshold=1 produces a Draft/Skip/Draft/Skip cycle (every other batch skipped),
+    // which is the intended behavior — use threshold>=2 to avoid oscillation.
     size_t          prev_n_acc_drafts   = 0;
     int             zero_accept_streak  = 0;
     int             skip_streak_threshold = 0;
     // After a skip-streak verify-only batch, do not count the next draft() as another
-    // zero-accept miss (otherwise threshold==1 skips every round forever).
+    // zero-accept miss (otherwise threshold==1 would skip every round permanently
+    // instead of every other round).
     bool            skip_streak_last_draft = false;
 
     // Per-seq draft length from the last draft() call, used in accept() to
@@ -925,9 +928,10 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
 
         // Optional: after N consecutive zero-accept MTP batches, skip drafting for one verify-only batch.
         if (const char * e = std::getenv("LLAMA_MTP_SKIP_STREAK_THRESHOLD")) {
-            const int v = std::atoi(e);
-            if (v >= 1 && v <= 32) {
-                skip_streak_threshold = v;
+            char * end = nullptr;
+            const long v = std::strtol(e, &end, 10);
+            if (end != e && v >= 1 && v <= 32) {
+                skip_streak_threshold = (int) v;
                 LOG_INF("%s: - skip_streak_threshold=%d (LLAMA_MTP_SKIP_STREAK_THRESHOLD)\n", __func__, skip_streak_threshold);
             }
         }
@@ -971,21 +975,10 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
         }
 
         // New request / prompt: do not leak skip-streak state from the previous generation.
-        skip_streak_last_draft = false;
-    }
-
-    // Projected skip on the next draft() call, without mutating zero_accept_streak.
-    bool mtp_would_skip_next_draft() const {
-        if (skip_streak_threshold <= 0) {
-            return false;
-        }
-        if (skip_streak_last_draft) {
-            return false;
-        }
-        const int proj = (n_call_draft > 0)
-                ? (n_acc_drafts == prev_n_acc_drafts ? zero_accept_streak + 1 : 0)
-                : zero_accept_streak;
-        return proj >= skip_streak_threshold;
+        // Reset all streak state so the first draft of a new prompt starts clean.
+        prev_n_acc_drafts   = n_acc_drafts;
+        zero_accept_streak  = 0;
+        skip_streak_last_draft = true; // do not count the first draft as a zero-accept miss
     }
 
     bool process(const llama_batch & batch_in) override {
