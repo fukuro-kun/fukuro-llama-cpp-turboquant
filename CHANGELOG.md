@@ -22,6 +22,8 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 - **ops: Styx auf `db31bd05c` aktualisiert** — `git pull`, CUDA-Build, Service restarted, health ok. LOKAL.md Deployment-Tabelle aktualisiert.
 
+- **bench: #69 FlashMoE Heuristic Benchmark → ❌ NO-GO** — Styx (GTX 1070, 26B-A4B QAT, -ncmoe 20, turbo3/4, FA, Budget=512MB, Reserve=256MB): LRU tg128=28.16±0.92 t/s (39.7% hit, 320 slots), Heuristic tg128=27.28±0.75 t/s (39.9% hit, 320 slots) → **Heuristic -3.1% langsamer als LRU**, 5%-Speedup-Schwelle deutlich verfehlt. Hit-Rate identisch → Heuristic trifft dieselben Eviction-Entscheidungen wie LRU. Throttle=1 → Bail-out für beide Policies (Cache-Overhead > CPU-Path). Root Cause: α=0.7/β=0.3 Frequency korreliert stark mit Recency auf tg128-Runs. **Phase 2 (FlashMoE FFN) ❌ verworfen** — wenn schon einfache Heuristic kein Win, ist FFN skeptisch. Paper's 2.6× bezieht sich auf SSD-Offloading (nicht CPU-Offload wie Styx). #69 → ❌. **Voraussetzung für #71 und #18 erfüllt** (beide können jetzt starten). Siehe `docs/fork/2026-07-15_MOE_CACHE_PREDICTION_DESIGN.md`.
+
 ## 2026-07-19
 
 ### M5 (Coopmat2 + Multi-GPU) ✅ abgeschlossen — #21 PagedAttention verworfen

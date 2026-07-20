@@ -51,7 +51,7 @@ Zwei komplementäre Ansätze zur Verbesserung des MoE-Expert-Caches:
 
 ## Phased Implementation Plan
 
-### Phase 1: Simplified Heuristic (Option B) — ✅ Implementiert
+### Phase 1: Simplified Heuristic (Option B) — ✅ Implementiert + ❌ Benchmark No-Go
 
 **Status:** Vollständig implementiert in `ggml/src/ggml-cuda/moe-cache.cu`.
 - `moe_cache_slot` hat `freq` und `last_access` Felder
@@ -61,11 +61,46 @@ Zwei komplementäre Ansätze zur Verbesserung des MoE-Expert-Caches:
 - max_freq wird bei Eviction des heißesten Slots recomputet
 - tick wird einmal pro plan() Call advanced (vermeidet Iterations-Order-Bias)
 
-**Ausstehend:** Benchmark `heuristic` vs `lru` auf Styx um Speedup zu validieren.
+**Benchmark 2026-07-21 (Styx, GTX 1070, 26B-A4B QAT, -ncmoe 20, turbo3/4, FA, Budget=512MB, Reserve=256MB):**
 
-### Phase 2: FlashMoE FFN Cache-Replacement — 2-3 Wochen
+| Run | Policy | Test | t/s | Hit-Rate | Slots | Anmerkung |
+|-----|--------|------|-----|----------|-------|-----------|
+| 1 | LRU (Default) | pp512 | 368.26 ± 3.67 | — | — | Cache bei PP deaktiviert (decode-only) |
+| 1 | LRU (Default) | tg128 | 24.05 ± 0.94 | — | 0 | Cache **aus** (budget 0 MB auto) |
+| 2 | LRU | tg128 | **28.16 ± 0.92** | 39.7% | 320 | Cache an (Budget 512MB) |
+| 3 | Heuristic | tg128 | **27.28 ± 0.75** | 39.9% | 320 | Cache an (Budget 512MB) |
+| 5 | LRU, throttle=1 | tg128 | 22.26 ± 4.17 | 26.9% | 320 | Bail-out (cache-engaged 1326us vs 539us pure-CPU) |
+| 6 | Heuristic, throttle=1 | tg128 | 19.66 ± 3.80 | 13-16% | 320 | Bail-out (cache-engaged 1597us vs 615us pure-CPU) |
 
-**Wenn Phase 1 >5% Speedup zeigt:**
+**Ergebnis:** Heuristic ist **-3.1% langsamer** als LRU bei gleicher Hit-Rate (39.9% vs 39.7%). 5%-Speedup-Schwelle **deutlich verfehlt**.
+
+**Root Cause Analyse:**
+- Hit-Rate nahezu identisch (39.7% vs 39.9%) → Heuristic trifft dieselben Eviction-Entscheidungen wie LRU auf diesem Workload
+- Heuristic-Overhead: plan=5.8us (vs LRU 5.2us), +0.6us/Node × 22824 Nodes = +13.7ms/Run → bei ~810s Run-Zeit vernachlässigbar
+- Tatsächlicher Speedup-Verlust stammt vermutlich aus leicht veränderten Eviction-Patterns die zu schlechterer Locality führen (Heuristic evicted nach Score, nicht nach reinem Age → kann heiße Slots mit niedrigem freq evicten)
+- Throttle ist essenziell: throttle=1 → Cache bail-out für beide Policies (Cache-Overhead > CPU-Path)
+
+**Schlussfolgerung:** Auf Styx mit Gemma-4 26B-A4B (128 Experten, Top-4, QAT) und 512MB Cache-Budget ist LRU bereits nah an optimal für diesen Workload. Die Heuristic mit α=0.7/β=0.3 bringt keinen Mehrwert — die Frequency-Komponente korreliert stark mit Recency auf kurzen tg128-Runs.
+
+### Phase 2: FlashMoE FFN Cache-Replacement — ❌ NO-GO
+
+**Entscheidung 2026-07-21:** Phase 2 wird **nicht durchgeführt**.
+
+**Begründung:**
+- Phase 1 Heuristic zeigt **-3.1%** statt der benötigten >+5% → Go-Bedingung nicht erfüllt
+- FlashMoE FFN wäre eine komplexere Version derselben Idee (score = f(recency, frequency) mit ML statt Hand-Formula) → wenn schon die einfache Heuristic keinen Win bringt, ist auch die FFN-Version skeptisch zu betrachten
+- Paper's 2.6×-Speedup bezieht sich auf **SSD-Offloading** (FlashMoE Paper) — bei CPU-Offload (Styx) ist die Transfer-Latenz niedriger, der Cache-Optimierung-Hebel kleiner
+- Aufwand (2-3 Wochen) steht in keinem Verhältnis zum erwarteten Negativ-Ergebnis
+
+**Phase 2 → ❌ verworfen.** ROADMAP #69 Status: 🔬 Phase 1 ✅ → ❌ (Heuristic implementiert aber kein Speedup, Phase 2 No-Go).
+
+### Phase 3: ST-MoE Temporal Prefetching — ⏭️ später
+
+**Status:** Design 2026-07-15 (THT viable, CCT ❌ bei 6.6% Cross-Layer-Overlap). Unabhängig von Phase 2 — ST-MoE ist **Prefetching** (WANN laden?), nicht Eviction (WER bleibt?). Kann auch ohne FlashMoE umgesetzt werden.
+
+**Aufwand:** 2-3 Wochen (THT only, CCT skippen).
+
+**Bedingung:** Wenn #71 (CPU-GPU Collaborative MoE) oder #18 (DALI Cache-Policy) keinen ausreichenden Speedup bringen, THT als nächste Prefetch-Optimierung.
 
 1. **Woche 1:** FFN-Inferenz-Engine (C++, hand-rolled MLP, 2→8→1)
    - Input: (1/r_t_norm, f_t_norm)
