@@ -12,9 +12,12 @@
 #   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key automatisch)
 #
-# MoE-Offload (--n-cpu-moe 10): 10 Experten auf CPU, Rest auf GPU.
+# MoE-Offload (--n-cpu-moe 6): 6 Experten auf CPU, Rest auf GPU.
 #   Ohne MoE-Offload: 14.2 GB Modell → nur 1.8 GB für KV-Cache → zu wenig für 128k/Slot.
-#   Mit 10 MoE-Offload: ~8 GB auf GPU → ~8 GB für KV-Cache → 2x128k möglich.
+#   Mit 6 MoE-Offload: ~10 GB auf GPU → ~6 GB für KV-Cache → 2x128k möglich.
+#   Benchmark 2026-07-20 (GPU-isoliert): MoE 6 = 53.4 t/s (+26% vs MoE 10),
+#   PP 159 t/s (+85%). Sichere Reserve (1746 MiB) für 128k-Kontexte unter Volllast.
+#   Override: MOE=4 (aggressiv, +49% tg, OOM-Risiko bei 128k) oder MOE=10 (konservativ).
 #
 #   WICHTIG — CPU-Konkurrenz bei 2 Instanzen (erfahren 2026-07-18):
 #   2 unabhängige llama-server Prozesse auf EINER CPU überlasten sich gegenseitig,
@@ -42,7 +45,7 @@ PORT="${PORT:-18080}"
 CTX="${CTX:-262144}"             # 256k total, aufgeteilt auf SLOTS = je Slot
 SLOTS="${SLOTS:-2}"
 CACHE_RAM="${CACHE_RAM:-32768}"  # 32 GB CPU prompt-cache (128 GB RAM available)
-MOE="${MOE:-10}"                 # 10 MoE-Layer auf CPU (Default, wird bei wenig VRAM erhöht)
+MOE="${MOE:-6}"                  # 6 MoE-Layer auf CPU (Default, wird bei wenig VRAM erhöht)
 
 # --- Modell-Check ---
 if [[ ! -f "$SERVER" ]]; then
@@ -64,8 +67,8 @@ fi
 # VLM, FLUX) VRAM belegen, reduzieren wir Slots/MoE adaptiv statt zu crashen.
 #
 # Tabelle (freier VRAM auf GPU0):
-#   >= 12 GB → 2 Slots × 128k, MoE 10  (Default, volle Kapazität)
-#   >=  8 GB → 1 Slot  × 128k, MoE 10  (1 Slot, Standard-MoE)
+#   >= 12 GB → 2 Slots × 128k, MoE 6   (Default, volle Kapazität, +26% Speed)
+#   >=  8 GB → 1 Slot  × 128k, MoE 6   (1 Slot, Standard-MoE)
 #   >=  6 GB → 1 Slot  × 128k, MoE 15  (mehr MoE auf CPU, weniger VRAM)
 #   >=  4 GB → 1 Slot  × 128k, MoE 20  (max MoE-Offload, knappes VRAM)
 #   <   4 GB → Fehler, nicht starten   (zu wenig für Modell + KV-Cache)
@@ -80,9 +83,9 @@ if [[ "$ADAPTIVE" == "1" ]]; then
     VRAM_FREE_GIB=$((VRAM_FREE_MIB / 1024))
     echo "VRAM-Check: GPU0 hat ${VRAM_FREE_GIB} GB frei"
     if   (( VRAM_FREE_GIB >= 12 )); then
-      SLOTS=2; MOE=10; CTX=262144   # 2×128k, Standard
+      SLOTS=2; MOE=6; CTX=262144    # 2×128k, Default (Benchmark 2026-07-20: +26% tg vs MoE 10)
     elif (( VRAM_FREE_GIB >= 8  )); then
-      SLOTS=1; MOE=10; CTX=131072   # 1×128k, Standard-MoE
+      SLOTS=1; MOE=6; CTX=131072    # 1×128k, Standard-MoE
     elif (( VRAM_FREE_GIB >= 6  )); then
       SLOTS=1; MOE=15; CTX=131072   # 1×128k, mehr MoE auf CPU
     elif (( VRAM_FREE_GIB >= 4  )); then
