@@ -1,4 +1,5 @@
 #include "llama.h"
+#include "chat.h"
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -366,6 +367,31 @@ int main(int argc, char ** argv) {
     }
     fprintf(stderr, "  Canvas length: %d\n", canvas_length);
 
+    // ================================================================================================
+    // Chat-Template: Prompt automatisch formatieren (falls im Modell vorhanden)
+    // ================================================================================================
+    std::string formatted_prompt = prompt_text;
+    try {
+        common_chat_templates_ptr tmpls = common_chat_templates_init(model, "");
+        if (tmpls) {
+            common_chat_templates_inputs inputs;
+            inputs.messages.push_back({"user", prompt_text, {}, {}, "", ""});
+            inputs.add_generation_prompt = true;
+            inputs.use_jinja = true;
+            common_chat_params params = common_chat_templates_apply(tmpls.get(), inputs);
+            if (!params.prompt.empty()) {
+                formatted_prompt = params.prompt;
+                fprintf(stderr, "  Chat-Template angewendet.\n");
+            } else {
+                fprintf(stderr, "  Chat-Template leer, nutze Roh-Prompt.\n");
+            }
+        } else {
+            fprintf(stderr, "  Kein Chat-Template gefunden, nutze Roh-Prompt.\n");
+        }
+    } catch (const std::exception & e) {
+        fprintf(stderr, "  Chat-Template-Fehler (%s), nutze Roh-Prompt.\n", e.what());
+    }
+
     // ========================================================================
     // 2. Kontext erstellen
     // ========================================================================
@@ -386,7 +412,7 @@ int main(int argc, char ** argv) {
     // ========================================================================
     fprintf(stderr, "[3/4] Tokenizing...\n");
     std::vector<llama_token> prompt_tokens(4096);
-    int n_prompt = llama_tokenize(vocab, prompt_text, strlen(prompt_text),
+    int n_prompt = llama_tokenize(vocab, formatted_prompt.c_str(), formatted_prompt.length(),
                                   prompt_tokens.data(), prompt_tokens.size(), true, false);
     if (n_prompt < 0) {
         fprintf(stderr, "Error: Failed to tokenize\n");
