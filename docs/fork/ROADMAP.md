@@ -117,8 +117,8 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 24 | ❌ | HybriMoE: Hybrid CPU-GPU Scheduling | Styx | 6-8 Wochen | arXiv:2504.05897 | später | 1.33x prefill, 1.70x decode — **Eval 2026-07-15: ❌ ABLEHNEN. Architektur-Mismatch: HybriMoE führt Experten auf CPU aus (CPU-GPU-Hybrid), Fork hält Experten im VRAM (GPU-Cache). 1.33x/1.70x auf RTX A6000 (48GB), auf Styx (8GB, PCIe 3.0) Regression erwartet. Referenzcode auf kTransformers (nicht llama.cpp), 6-8 Wochen Portierung. Konflikt mit thecodacus Prefetch.** |
 | 41 | ❌ | GRKV: Global Regression KV Compression | Alle | 4-6 Wochen | arXiv:2605.31105 | später | training-free KV compression — **Eval 2026-07-15: ❌ ABLEHNEN. Ridge-Regression zu rechenintensiv für Pascal (keine Tensor Cores). Numerische Instabilität mit 3-4 bit TurboQuant KV-Cache. Kein Production-Referenzcode (nur Author-Repo, 1 Star). Marginaler Gewinn bei hohem Aufwand (2-3 Wochen).** |
 | 42 | ⏭️ | CapKV: Capacity-aware KV Eviction | Alle | 4-6 Wochen | arXiv:2604.25975 | später | information-theoretic eviction — **Eval 2026-07-15: ⏭️ VERSCHIEBEN (Phase 3+). Redundant zu Expected Attention (beide eviction-basiert). NVIDIA kvpress Referenzcode vorhanden (Apache-2.0). 1-2 Wochen Portierung. Aufwand lohnt erst wenn EA nicht ausreicht. Vergleich EA vs CapKV in Phase 3.** |
-| 43 | ☐ | SliderQuant: Sliding-layer PTQ | Alle | 4-6 Wochen | arXiv:2603.25284 | später | bessere Low-Bit-Quantisierung — **Recherche 2026-07-12** |
-| 44 | ☐ | Alloc-MoE: Budget-aware Expert Activation | Mars, Styx | 6-8 Wochen | arXiv:2604.08133 | später | 1.34x decode speedup — **Recherche 2026-07-12** |
+| 43 | ⏭️ | SliderQuant: Sliding-layer PTQ | Alle | 6-10 Wochen | arXiv:2603.25284 | später | bessere Low-Bit-Quantisierung — **Recherche 2026-07-12, Tiefen-Eval 2026-07-21: ⏭️ SPÄTER (conditional). SliderQuant ist PTQ, Fork nutzt QAT Q4_K_XL (methodisch überlegen, gleiche Begründung wie #22 GWQ). SliderQuant-Vorteile sind vs andere PTQ-Methoden (GPTQ, OmniQuant), nicht vs QAT — kein Quality-Edge zu erwarten. Referenzcode vorhanden (github.com/deep-optimization/SliderQuant, PyTorch) aber hilft nicht beim C++/Vulkan-Port. Vulkan-Kernel-Neuentwicklung hochriskant für Mars/Venus (turbo3-FA-Deaktivierung als Präzedenzfall). Hardware-Relevanz niedrig: QAT löst Low-Bit-Druck auf Styx bereits. Aufwand revidiert: 4-6 → 6-10 Wochen. Reaktivierung nur bei QAT-Lücke für spezifisches Zielmodell, CUDA-first, W4A4-Pfad (nicht W2A16 — Quality-Drop bei Math/Code inakzeptabel für Gemma 4).** |
+| 44 | ☐ | Alloc-MoE: Budget-aware Expert Activation | Mars, Styx | 3-4 Wochen (Phase 1) / 7-9 Wochen (vollständig) | arXiv:2604.08133 | später | 1.34x decode speedup — **Recherche 2026-07-12, Tiefen-Eval 2026-07-21: ☐ Machbar gestaffelt. Alloc-L (Layer-Level, DP + Sensitivity-Profiling) ist MVP mit 3-4 Wochen. Alloc-T (Token-Level) bringt bei Decode T=1 nichts — der 1.34× decode-Speedup stammt aus Alloc-L (reduziertes K), nicht Alloc-T. Synergie mit #40 (Freq-Tracking als Input) und #62 (Profiler-Infra). Kein Konflikt mit moe-cache.cu (synergistisch: weniger Aktivierungen = weniger Cache-Pressure). Styx profitiert klar (CPU-bound → halbe Aktivierungen = halbe CPU-Last). Mars nur Alloc-L (Alloc-T braucht Vulkan-Op, glslc-Risiko). Kein Referenzcode (vLLM-evaluiert, Pseudocode-Port). RISIKO: 17% Quality-Drop bei K=2 (Gemma 4 A4B) — für Produktiv-Server riskant, Quality-Benchmark mit K=2/K=3 vor Go. Per-Layer n_expert_used Refactoring in build_moe_ffn ist höchstes Architektur-Risiko. Aufwand revidiert: 6-8 → 3-4 Wo (Phase 1) / 5-6 Wo (CUDA) / 7-9 Wo (voll+Vulkan).** |
 | 45 | ❌ | CUDA Concurrent Streams QKV | Styx, Hydra | 1-2 Wochen | GGML_CUDA_GRAPH_OPT=1 | später | **Bereits im Fork (PR #16991). Benchmark 2026-07-13: (1) Uranus (RTX 4060 Ti 16GB, E4B voll auf GPU): tg2048 -10.7% mit CUDA Graphs (interleaved Node-Order bricht Graph-Capture), tg512 +1% ohne Graphs (Rauschen). (2) Styx (GTX 1070 8GB, 26B QAT MoE-Offload): kein Effekt — CPU-Offload erzeugt Split-Buffers → CUDA Graphs deaktiviert → Feature aktiviert gar nicht. Nur nutzbar bei single-GPU + voller Offload + CUDA-Graphs-kompatibel, und dann Regression.** |
 | 69 | 🔬 | FlashMoE: ML-based Cache Replacement | Styx, Hydra | 2-3 Wochen | arXiv:2601.17063 | Phase 1 ✅ | 2.6× speedup, 51% hit rate — **Phase 1 Heuristic ✅ Implementiert** in `ggml/src/ggml-cuda/moe-cache.cu`: `POLICY_HEURISTIC` mit score=alpha*(1/(age+1))+beta*(freq/max_freq), alpha=0.7, beta=0.3. Aktivierung via `GGML_CUDA_MOE_CACHE_POLICY=heuristic`. Ausstehend: Benchmark heuristic vs lru auf Styx. Phase 2 (FlashMoE FFN) nur wenn Heuristic >5% Speedup zeigt. Siehe `docs/fork/2026-07-15_MOE_CACHE_PREDICTION_DESIGN.md`. |
 | 70 | 🔬 | ST-MoE: Spatio-Temporal Prefetching | Styx, Hydra, Uranus | 2-3 Wochen | arXiv:2606.15453 | Phase 1 Design | 2.5× speedup, 85% prediction — **Phase 1 Design 2026-07-15**. THT (temporal) viable, CCT (spatial) ❌ wegen 6.6% Cross-Layer-Overlap. Phase 3 nach FlashMoE. |
@@ -242,21 +242,24 @@ Keine offenen Tier-2-Items mehr (#36 ❌ verworfen 2026-07-20). Direkt zu Tier-3
 
 ### Mittelfristig (M6, Tier 3 — 6-12 Wochen Solo-Agent):
 
-Nach Cost-Benefit sortiert (hoher ROI zuerst):
+Nach Cost-Benefit sortiert (hoher ROI zuerst). Tiefen-Evals 2026-07-20/21 abgeschlossen:
 
+**Machbar (gestaffelt, mit Solo-Plan):**
 1. **#71 Efficient CPU-GPU Collaborative MoE** — 2 Wochen, Styx/Hydra, N-index M-way set-associative cache. arXiv:2512.16473. ⏭️ später — Abhängigkeit von #69 Heuristic-Benchmark. Fork hat bereits 1883-Zeilen MoE-Cache, #71 ist Upgrade.
-2. **#76 CPU Backend Operator Fusion** — 3-4 Wochen, alle Systeme, reduziert Memory-Traffic CPU-Path. Diskussion #22315.
-3. **#74 Vulkan Descriptor Indexing (Bindless)** — 2-4 Wochen, Mars/Venus, reduziert Descriptor-Binding-Overhead.
-4. **#75 Non-blocking Pipeline Scheduling** — 3-4 Wochen, Uranus, reduziert Pipeline-Bubbles. PR #19922.
-5. **#18 DALI: Workload-Aware MoE Offloading** — 4-6 Wochen, Styx, intelligentes MoE-Offloading. arXiv:2602.03495.
-6. **#22 GWQ: Gradient-Aware Weight Quantization** — 4-6 Wochen, alle Systeme, 1.2x inference speedup. arXiv:2411.00850.
-7. **#23 DuoServe-MoE: Dual-Phase Expert Scheduling** — 6-8 Wochen, Styx, phase-spezifisches Prefetch. arXiv:2509.07379.
-8. **#43 SliderQuant: Sliding-layer PTQ** — 4-6 Wochen, alle Systeme, bessere Low-Bit-Quantisierung. arXiv:2603.25284.
-9. **#44 Alloc-MoE: Budget-aware Expert Activation** — 6-8 Wochen, Mars/Styx, 1.34x decode speedup. arXiv:2604.08133.
+2. **#44 Alloc-MoE: Budget-aware Expert Activation** — 3-4 Wochen (Phase 1 Alloc-L), Mars/Styx, 1.34× decode speedup. arXiv:2604.08133. ☐ machbar gestaffelt. Synergie mit #40 + #62. RISIKO: 17% Quality-Drop bei K=2, Quality-Benchmark vor Go.
+3. **#18 DALI: Workload-Aware MoE Offloading** — 2-3 Wochen (Phase 1 Cache-Policy) / 7-9 Wochen (vollständig), Styx, intelligentes MoE-Offloading. arXiv:2602.03495. ☐ machbar gestaffelt. MVP: POLICY_WORKLOAD nach #69 Benchmark. Synergie mit #40.
 
-### Verworfene Tier-3 Items (2026-07-20):
+**Später (Abhängigkeiten oder Risiko):**
+4. **#76 CPU Backend Operator Fusion** — 3-4 Wochen, alle Systeme. ⏭️ später — PR #20596 zeigt Regressionen auf Consumer-CPUs. Re-Eval wenn PR gemerged.
+5. **#75 Non-blocking Pipeline Scheduling** — 4-6 Wochen, Uranus. ⏭️ später — PR #19922 closed, Fork hat bereits Pipeline-Parallelismus. Konflikt mit #79 TP.
+6. **#23 DuoServe-MoE: Dual-Phase Expert Scheduling** — 7-10 Wochen, Styx. ⏭️ später — Bedingungen: #69 <5% UND #70 unzureichend.
+7. **#43 SliderQuant: Sliding-layer PTQ** — 6-10 Wochen, alle Systeme. ⏭️ später — nur bei QAT-Lücke für neues Zielmodell.
+
+### Verworfene Tier-3 Items (2026-07-20/21):
 - **#73 CascadeInfer** ❌ — Multi-Instance-Cluster-Scheduler (vLLM), Architektur-Mismatch zum Single-Instance-Fork
 - **#72 N4_0 Native 4-bit Float** ❌ — PR stale, kein Blackwell im Fleet, Accuracy-Regression vs Q4_0 auf Ada/Ampere
+- **#74 Vulkan Descriptor Indexing (Bindless)** ❌ — Redundant mit #85 Push Descriptors (✅ implementiert), <0.5% Speedup auf RADV
+- **#22 GWQ: Gradient-Aware Weight Quantization** ❌ — PTQ, Fork nutzt QAT Q4_K_XL (methodisch überlegen), 1.2× bezieht sich auf FP16 nicht Q4_K_XL, kein Referenzcode, Vulkan-Risiko
 
 ### Langfristig (M6, Tier 4 — 3+ Monate Solo-Agent):
 
