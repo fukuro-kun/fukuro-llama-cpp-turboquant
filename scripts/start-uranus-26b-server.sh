@@ -26,7 +26,9 @@
 #   Das ist ein 13x Speedup! Nie wieder 2 Instanzen auf einer CPU mit MoE-Offload.
 #   GPU 1 bleibt frei für VLM (GLM-4.6V-Flash) und FLUX-Server.
 #
-# Architecture: 1 llama-server Instanz auf GPU 0.
+# Architecture: 1 llama-server Instanz auf GPU 0 (physisch).
+#   CUDA_VISIBLE_DEVICES=0 isoliert den Prozess auf GPU 0 → kein CUDA-Context
+#   auf GPU 1 (spart ~2GB VRAM für VLM/FLUX). -dev CUDA0 nach Remapping.
 #   Port 18080, 2 Slots × 128k Kontext.
 #   GPU 1: VLM (Port 18081) + FLUX (Port 18083), ungenutzt für 26B.
 
@@ -95,6 +97,11 @@ if [[ "$ADAPTIVE" == "1" ]]; then
     echo "  → Adaptiv: SLOTS=$SLOTS, MOE=$MOE, CTX=$CTX ($((CTX/1024))k)"
   fi
 fi
+
+# --- GPU-Isolation ---
+# Physische GPU 0 isolieren → kein CUDA-Context auf GPU 1 (spart ~2GB VRAM
+# für VLM/FLUX). Nach Remapping ist -dev CUDA0 die einzige sichtbare GPU.
+export CUDA_VISIBLE_DEVICES=0
 
 # --- thecodacus MoE-Optimierungen ---
 export GGML_CUDA_REGISTER_HOST="${GGML_CUDA_REGISTER_HOST:-1}"
