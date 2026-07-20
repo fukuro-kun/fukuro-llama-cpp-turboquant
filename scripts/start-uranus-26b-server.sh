@@ -45,7 +45,7 @@ PORT="${PORT:-18080}"
 CTX="${CTX:-262144}"             # 256k total, aufgeteilt auf SLOTS = je Slot
 SLOTS="${SLOTS:-2}"
 CACHE_RAM="${CACHE_RAM:-32768}"  # 32 GB CPU prompt-cache (128 GB RAM available)
-MOE="${MOE:-6}"                  # 6 MoE-Layer auf CPU (Default, wird bei wenig VRAM erhöht)
+MOE="${MOE:-5}"                  # 5 MoE-Layer auf CPU (Default seit 2026-07-21, Lasttest 122k Tokens stabil, 732 MiB Reserve)
 
 # --- Modell-Check ---
 if [[ ! -f "$SERVER" ]]; then
@@ -83,7 +83,7 @@ if [[ "$ADAPTIVE" == "1" ]]; then
     VRAM_FREE_GIB=$((VRAM_FREE_MIB / 1024))
     echo "VRAM-Check: GPU0 hat ${VRAM_FREE_GIB} GB frei"
     if   (( VRAM_FREE_GIB >= 12 )); then
-      SLOTS=2; MOE=6; CTX=262144    # 2×128k, Default (Benchmark 2026-07-20: +26% tg vs MoE 10)
+      SLOTS=2; MOE=5; CTX=262144    # 2×128k, Default (Lasttest 2026-07-21: 122k Tokens stabil, 732 MiB Reserve)
     elif (( VRAM_FREE_GIB >= 8  )); then
       SLOTS=1; MOE=6; CTX=131072    # 1×128k, Standard-MoE
     elif (( VRAM_FREE_GIB >= 6  )); then
