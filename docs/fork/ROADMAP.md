@@ -1,7 +1,7 @@
 # ROADMAP — Fork-Beschleunigung
 
 **Erstellt:** 2026-07-11
-**Aktualisiert:** 2026-07-14 (Research-Sweep #4, #62 MoE REAP Profiling abgeschlossen, 8 neue Items #77-#87, #64 BSFA tiefen-evaluiert ❌)
+**Aktualisiert:** 2026-07-19 (M4 ✅ Adaptive MTP wiederhergestellt, M5 ✅ #21 PagedAttention verworfen, Priorisierung auf M6 aktualisiert)
 **Quelle:** [Optimierungs-Recherche 2026-07-11](2026-07-11_OPTIMIZATION_RESEARCH.md) + [Recherche 2026-07-12](2026-07-12_OPTIMIZATION_RESEARCH.md) (Web + arXiv, 4 parallele Subagents pro Sweep)
 **Hardware:** Mars (RDNA3/Vulkan/30GB), Styx (Pascal/CUDA/8GB), Hydra (Ampere/CUDA/8GB), Uranus (2x Ada/CUDA/32GB), Venus (GCN/Vulkan)
 **Ausschluss:** Treiber-Neuimplementierung, Kernel-Rekompilierung, Hopper-spezifische Features
@@ -234,30 +234,63 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 
 ## Priorisierung nach Cost-Benefit
 
-### Sofort umsetzbar (M1 — Quick-Win-Welle):
-1. **#6 MUL_MAT_ID Subgroup** — 1 Tag, bis +657% MoE PP auf AMD
-2. **#1 MTP Logits Copy** — 2-3h, +20% PP mit MTP
-3. **#2 Tensor Split Regex** — 1-2h, befreit 40% decode thread
-4. **#5 GTT Size Tuning** — 1h, mehr GPU-Speicher für Mars
-5. **#4 n-gram Decoding** — 0h, nur aktivieren
+**Stand 2026-07-19:** M1-M5 ✅ abgeschlossen. Verbleibend: M6 (Forschung, Tier 2-4). Die Priorisierung listet nur noch **offene** Items — evaluierte/verworfene Items (❌) sind in den Tier-Tabellen oben mit Begründung dokumentiert.
 
-### Diese / nächste Woche (M2 — Vulkan-Offensive):
-6. **#7 Vulkan FA Refactor** — 1 Woche, 10-20% scalar FA improvement
-7. **#9 Vulkan Shmem-Staging** — 2-3 Tage, >2.5x TG potenziell
-8. **#10 UMA Zero-Copy** — 1-2 Wochen, +112x transfer speed für Mars
+### Nächste Solo-Session (M6 Start, Tier 2):
 
-### Mittelfristig (M3 — MoE-Offloading v2):
-9. **#3 Pascal MMVQ** — 2-3 Tage, +3-6% decode auf Styx
-10. **#14 LFU Caching** — 2-3 Tage, 15-20% expert hit rate
-11. **#13 Two-Tier Expert Cache** — 1-2 Wochen, kritisch für Styx 8GB
-12. **#15 PipeShard** — 2-3 Wochen, VRAM-constrained MoE
+Die einzigen offenen Tier-2-Items (2-6 Wochen Solo-Agent):
 
-### Mittelfristig (M4 — Speculative Decoding v2):
-13. **#28 Adaptive MTP** — 1-2 Wochen, verhindert MTP-Regression
-14. **#11 EAGLE-3** — 2-3 Wochen, bis 6.5x speedup
+1. **#36 Auto Parameter Fitting TP** — 1-2 Wochen, Uranus, vereinfachte TP-Konfiguration. PR #22950 open (unstable). 3-4 Tage Aufwand nach PR-merge oder manueller Portierung. **Einziger Tier-2-Item der offen ist — erste Wahl für nächste Solo-Session.**
 
-### Langfristig (M5-M6):
-15. **#12 Coopmat2 RDNA3** — 2-3 Wochen, 2.5x FA multiply
-16. **#20 Tensor Parallelism** — 3-4 Wochen, 40% boost für Uranus
-17. **#17 HOBBIT** — 4-6 Wochen, 9.93x MoE offloading
+### Mittelfristig (M6, Tier 3 — 6-12 Wochen Solo-Agent):
+
+Nach Cost-Benefit sortiert (hoher ROI zuerst):
+
+2. **#73 CascadeInfer: Length-Aware Scheduling** — 2-3 Wochen, alle Systeme, 67% Latenz-Reduktion. Paper-only, kein Referenzcode.
+3. **#72 N4_0 Native 4-bit Float** — 2-3 Wochen, Uranus, +40% PP (Blackwell-bedingt — auf Ada evtl. weniger). PR #23572.
+4. **#71 Efficient CPU-GPU Collaborative MoE** — 3-4 Wochen, Styx/Hydra, N-index M-way set-associative cache. arXiv:2512.16473.
+5. **#76 CPU Backend Operator Fusion** — 3-4 Wochen, alle Systeme, reduziert Memory-Traffic CPU-Path. Diskussion #22315.
+6. **#74 Vulkan Descriptor Indexing (Bindless)** — 2-4 Wochen, Mars/Venus, reduziert Descriptor-Binding-Overhead.
+7. **#75 Non-blocking Pipeline Scheduling** — 3-4 Wochen, Uranus, reduziert Pipeline-Bubbles. PR #19922.
+8. **#18 DALI: Workload-Aware MoE Offloading** — 4-6 Wochen, Styx, intelligentes MoE-Offloading. arXiv:2602.03495.
+9. **#22 GWQ: Gradient-Aware Weight Quantization** — 4-6 Wochen, alle Systeme, 1.2x inference speedup. arXiv:2411.00850.
+10. **#23 DuoServe-MoE: Dual-Phase Expert Scheduling** — 6-8 Wochen, Styx, phase-spezifisches Prefetch. arXiv:2509.07379.
+11. **#43 SliderQuant: Sliding-layer PTQ** — 4-6 Wochen, alle Systeme, bessere Low-Bit-Quantisierung. arXiv:2603.25284.
+12. **#44 Alloc-MoE: Budget-aware Expert Activation** — 6-8 Wochen, Mars/Styx, 1.34x decode speedup. arXiv:2604.08133.
+
+### Langfristig (M6, Tier 4 — 3+ Monate Solo-Agent):
+
+Forschung mit hohem Potenzial aber sehr hohem Aufwand. Erst wenn Tier 3 erschöpft oder TurboQuant allein nicht mehr ausreicht.
+
+13. **#46 SpecMD Least-Stale Expert Prefetching** — 4-6 Wochen, Styx/Hydra, 85x weniger misses, 34.7% TTFT. arXiv:2508.21706.
+14. **#30 Speculative Expert Prefetching (MoE-SpeQ)** — 2-3 Monate, Styx/Mars, 2.34x offloading speedup.
+15. **#27 Pre-Attention Expert Prediction** — 4-6 Wochen, Styx/Mars, 15% accuracy improvement. ⚠️ Lizenz CC BY-NC-SA (Non-Commercial) — inkompatibel mit Fork-MIT.
+16. **#26 Q-Filters / LagKV / MiniCache** — 1-2 Mo/Methode, alle Systeme, 5-32x KV compression.
+17. **#29 FastKV: Token-Selective Propagation** — 2-3 Monate, alle Systeme, 1.82x prefill, 2.87x decode.
+18. **#25 llama.cpp 2026 Rewrite Merge** — 3-4 Monate, alle Systeme, 2.1x Durchsatz 70B, 1.4x 7B. Merge nach Abschluss aller geplanten Features.
+19. **#47 QUICK Bank Conflict Elimination** — 2-3 Monate, Hydra, bis 1.94x throughput. arXiv:2402.10076.
+20. **#48 FluxMoE Expert Paging** — 2-3 Monate, Styx/Hydra, kleineres Working Set. arXiv:2604.02715.
+21. **#49 STAR-KV: Low-rank KV Compression** — 3-4 Monate, alle Systeme, 75% KV compression, 6.9x attention. arXiv:2606.08382.
+22. **#50 VQKV: Vector Quantization KV Cache** — 2-3 Monate, alle Systeme, 82.8% KV compression. arXiv:2603.16435.
+23. **#51 CompilerKV: Offline Experience Compilation** — 2-3 Monate, alle Systeme, robuste Kompression. arXiv:2602.08686.
+24. **#52 SliceMoE: Bit-sliced Expert Caching** — 3-4 Monate, Mars/Styx, effiziente MoE-Caching. arXiv:2512.12990.
+25. **#53 MoBiE: Mixture of Binary Experts** — 3-4 Monate, Mars/Styx, 2x+ inference speedup. arXiv:2604.06798.
+26. **#54 DASH-Q: Ultra Low-Bit PTQ** — 3-4 Monate, alle Systeme, +7.01% accuracy ultra low-bit. arXiv:2604.13806.
+27. **#55 GOOSE: Anisotropic Speculation Trees** — 2-3 Monate, alle Systeme, höhere Acceptance Rate. arXiv:2604.02047.
+
+### Verschoben (⏭️) — Re-Eval fällig:
+
+Diese Items wurden verschoben und sollten re-evaluiert werden wenn sich die Blocker lösen:
+
+- **#8 Mixed Precision KV Cache** — verschoben bis FA mixed-type support
+- **#14 LFU Caching Policy** — verschoben, LFRU/SpecMD sind bessere Alternativen
+- **#33 Per-Quant MMVQ/MMQ Batch Threshold** — Kernlogik bereits vorhanden, Low-priority
+- **#38 Conf-KV: Confidence-aware KV Eviction** — verschoben bis TurboQuant-native Ansätze erschöpft
+- **#39 Talon: Adaptive Token Trees** — verschoben bis MTP+Tree-Hybrid oder EAGLE-3 Haupt-SD-Modus
+- **#40 MoE Load Balancing Expert Frequency** — Phase 1 implementiert, Phase 2 negativ evaluiert
+- **#58 KV Cache Size Limiting + Demand Paging** — verschoben bis PR #18747 merged (TurboQuant deckt es)
+- **#63 xKV: Cross-Layer KV-Cache Compression** — verschoben bis TurboQuant für 256k nicht ausreicht
+- **#65 Pre-Attention Expert Prediction** — verschoben bis Code veröffentlicht oder Lizenzwechsel
+- **#66 BucketServe: Dynamic Batching** — verschoben, Forschung
+- **#88 MTP + Tensor Parallelism Test** — blockiert durch vorleser-Training auf Uranus
 18. **#25 2026 Rewrite** — 4-6 Wochen, system-wide 1.4-2.1x
