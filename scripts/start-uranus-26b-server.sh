@@ -67,11 +67,16 @@ fi
 # GPU0 freier VRAM bestimmt die Konfiguration. Wenn andere Prozesse (Training,
 # VLM, FLUX) VRAM belegen, reduzieren wir Slots/MoE adaptiv statt zu crashen.
 #
-# Tabelle (freier VRAM auf GPU0):
-#   >= 12 GB → 2 Slots × 128k, MoE 5   (Default, volle Kapazität, +31% Speed)
-#   >=  8 GB → 2 Slots × 128k, MoE 10  (2 Slots bleiben, mehr MoE-Offload für VRAM-Reserve)
-#   >=  6 GB → 1 Slot  × 128k, MoE 15  (VRAM-Knappheit: 1 Slot, mehr MoE auf CPU)
-#   >=  4 GB → 1 Slot  × 128k, MoE 20  (VRAM-Knappheit: max MoE-Offload)
+# WICHTIG: Diese Logik läuft NUR beim Start (einmaliger nvidia-smi-Check).
+# Der Server passt sich zur Laufzeit NICHT an — wenn VRAM später frei wird
+# (z.B. VLM/FLUX stoppen), läuft der Server weiter mit der Start-Config.
+# Um von freigewordenem VRAM zu profitieren: Server neu starten.
+#
+# Tabelle (freier VRAM auf GPU0, ab dem Schwellwert gilt die jeweilige Config):
+#   ab 12 GB → 2 Slots × 128k, MoE 5   (Default, volle Kapazität, +31% Speed)
+#   ab  8 GB → 2 Slots × 128k, MoE 10  (2 Slots bleiben, mehr MoE-Offload für VRAM-Reserve)
+#   ab  6 GB → 1 Slot  × 128k, MoE 15  (VRAM-Knappheit: 1 Slot, mehr MoE auf CPU)
+#   ab  4 GB → 1 Slot  × 128k, MoE 20  (VRAM-Knappheit: max MoE-Offload)
 #   <   4 GB → Fehler, nicht starten   (zu wenig für Modell + KV-Cache)
 #
 # Override: SLOTS/MOE/CTX als env vars setzen überspringt die Adaption.
