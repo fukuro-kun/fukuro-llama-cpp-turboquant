@@ -6,6 +6,22 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-21
+
+### M6 Tier-3 Tiefen-Evals KOMPLETT (11/11 Items) + Rebase-Audit Fix
+
+- **fix: Chat-Template-Integration in `diffusion-cli.cpp` wiederhergestellt** — Rebase-Audit (Phase 1.1) fand: Der Chat-Template-Block (`common_chat_templates_apply`) wurde im AtomicBot-Sync-Squash (`394963e4f`) aus `tools/diffusion-cli/diffusion-cli.cpp` entfernt. In `88bd4f052` war der Block vorhanden, in master fehlte er — `prompt_text` wurde direkt tokenisiert statt via Chat-Template formatiert. Re-Applien + `try/catch` für Exception-Sicherheit (P1 aus Code-Review: `common_chat_templates_init/apply` können bei unparsebaren Templates werfen — ohne catch würde `std::terminate` das Programm abwürgen ohne das Modell freizugeben). Fallback auf Roh-Prompt bei Exception. Commit `506375f10`. Rebase-Audit Summary: keine weiteren Verluste gefunden (`common_speculative_*` refactored zu Multi-Impl-API, `llama_get_embeddings_pre_norm` umbenannt zu `_nextn` mit `masked`-Parameter, `ensure_sched_mtp` refactored, `gemma4_mtp_*` Helper in `graph::graph()` integriert, `diffusion-gemma-visual-server.cpp` war nie buildbar — dead code).
+
+- **eval: #36 Auto Parameter Fitting TP → ❌ verworfen** — PR #22950 ist Draft-Status, seit 2 Monaten stuck (letzte Aktivität 2026-05-16). Reviewer (JohannesGaessler) Bedenken: meta backend memory reporting incorrect → `-fit` reduziert context nicht korrekt. TP funktioniert manuell (#79 ✅, +23-32% tg auf Uranus). Auto-fit ist Convenience, nicht worth Portierung eines buggy Draft-PRs. Commit `128243fdb`.
+
+- **eval: 11 Tier-3 Tiefen-Evals (Phase 3, 3-Subagent-Wellen)** — Alle Tier-3 Items aus `docs/fork/ROADMAP.md` systematisch evaluiert (Paper-Recherche via arxiv-mcp, PR-Status via webfetch, Fork-Kompatibilität via grep, Hardware-Relevanz, Implementierungsaufwand). Ergebnisse:
+  - **❌ Verworfen (4):** #73 CascadeInfer (Multi-Instance-Cluster-Scheduler, Architektur-Mismatch), #72 N4_0 (PR stale, kein Blackwell im Fleet), #74 Vulkan Bindless (redundant mit #85 Push Descriptors ✅), #22 GWQ (PTQ, Fork nutzt QAT Q4_K_XL)
+  - **⏭️ Später (4):** #76 CPU Fusion (PR #20596 zeigt Regressionen auf Consumer-CPUs), #75 Pipeline Sched (PR #19922 closed, Konflikt mit #79 TP), #23 DuoServe (Bedingungen: #69 <5% UND #70 unzureichend), #43 SliderQuant (nur bei QAT-Lücke)
+  - **☐ Machbar gestaffelt (3):** #71 CPU-GPU MoE (2 Wo, nach #69 Benchmark), #18 DALI (MVP 2-3 Wo POLICY_WORKLOAD), #44 Alloc-MoE (MVP 3-4 Wo Alloc-L, 17% Quality-Drop-Risiko bei K=2)
+  - Aufwände revidiert (meist nach oben, da ROADMAP-Schätzungen zu optimistisch waren). Commits `db6cf13c2`, `7818943c1`, `b2a1f6b67`, `db31bd05c`.
+
+- **ops: Styx auf `db31bd05c` aktualisiert** — `git pull`, CUDA-Build, Service restarted, health ok. LOKAL.md Deployment-Tabelle aktualisiert.
+
 ## 2026-07-19
 
 ### M5 (Coopmat2 + Multi-GPU) ✅ abgeschlossen — #21 PagedAttention verworfen
