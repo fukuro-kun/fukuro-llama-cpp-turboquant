@@ -122,9 +122,9 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 45 | ❌ | CUDA Concurrent Streams QKV | Styx, Hydra | 1-2 Wochen | GGML_CUDA_GRAPH_OPT=1 | später | **Bereits im Fork (PR #16991). Benchmark 2026-07-13: (1) Uranus (RTX 4060 Ti 16GB, E4B voll auf GPU): tg2048 -10.7% mit CUDA Graphs (interleaved Node-Order bricht Graph-Capture), tg512 +1% ohne Graphs (Rauschen). (2) Styx (GTX 1070 8GB, 26B QAT MoE-Offload): kein Effekt — CPU-Offload erzeugt Split-Buffers → CUDA Graphs deaktiviert → Feature aktiviert gar nicht. Nur nutzbar bei single-GPU + voller Offload + CUDA-Graphs-kompatibel, und dann Regression.** |
 | 69 | 🔬 | FlashMoE: ML-based Cache Replacement | Styx, Hydra | 2-3 Wochen | arXiv:2601.17063 | Phase 1 ✅ | 2.6× speedup, 51% hit rate — **Phase 1 Heuristic ✅ Implementiert** in `ggml/src/ggml-cuda/moe-cache.cu`: `POLICY_HEURISTIC` mit score=alpha*(1/(age+1))+beta*(freq/max_freq), alpha=0.7, beta=0.3. Aktivierung via `GGML_CUDA_MOE_CACHE_POLICY=heuristic`. Ausstehend: Benchmark heuristic vs lru auf Styx. Phase 2 (FlashMoE FFN) nur wenn Heuristic >5% Speedup zeigt. Siehe `docs/fork/2026-07-15_MOE_CACHE_PREDICTION_DESIGN.md`. |
 | 70 | 🔬 | ST-MoE: Spatio-Temporal Prefetching | Styx, Hydra, Uranus | 2-3 Wochen | arXiv:2606.15453 | Phase 1 Design | 2.5× speedup, 85% prediction — **Phase 1 Design 2026-07-15**. THT (temporal) viable, CCT (spatial) ❌ wegen 6.6% Cross-Layer-Overlap. Phase 3 nach FlashMoE. |
-| 71 | ☐ | Efficient CPU-GPU Collaborative MoE | Styx, Hydra | 3-4 Wochen | arXiv:2512.16473 | später | N-index M-way set-associative cache — **Recherche 2026-07-13** |
-| 72 | ☐ | N4_0 Native 4-bit Float | Uranus | 2-3 Wochen | PR #23572 | später | +40% PP (Blackwell-bedingt) — **Recherche 2026-07-13** |
-| 73 | ☐ | CascadeInfer: Length-Aware Scheduling | Alle | 2-3 Wochen | arXiv:2512.19179 | später | 67% Latenz-Reduktion — **Recherche 2026-07-13** |
+| 71 | ☐ | Efficient CPU-GPU Collaborative MoE | Styx, Hydra | 2 Wochen | arXiv:2512.16473 | später | N-index M-way set-associative cache — **Recherche 2026-07-13, Tiefen-Eval 2026-07-20: Machbar aber ⏭️ SPÄTER. Fork hat bereits 1883-Zeilen MoE-Cache (moe-cache.cu, fully-associative + HashMap, LRU + heuristic policy, async fetch, CPU-miss-compute). #71 ist Upgrade auf set-associative (N×M Slots, LRU pro Set), kein Neubau. Referenzcode: github.com/elsa-lab/MoE-CPU-GPU-Collaborative-Inference (MIT, aber PyTorch). Aufwand revidiert: 3-4 Wochen → 2 Wochen (CUDA-only). Styx + Hydra profitieren (8GB VRAM, PCIe-Transfer-Bottleneck). Bedingung: erst nach #69 Heuristic-Benchmark (Konfundierung vermeiden). Kein Konflikt mit #40 (komplementär, #40-Tracking könnte Hash-Input liefern). Vulkan-Hosts profitieren nicht. Paper evaluiert auf RTX 4090 + 24 Cores (4.4× Speedup), auf 8GB eher 5-15%.** |
+| 72 | ❌ | N4_0 Native 4-bit Float | Uranus | 2-3 Wochen | PR #23572 | — | +40% PP (Blackwell-bedingt) — **Recherche 2026-07-13, Tiefen-Eval 2026-07-20: VERWORFEN. PR #23572 ist stale (7 Wochen keine Aktivität, kein Maintainer-Approval, NVFP4-Experte michaelw9999 lehnt ab: 'defective tensors'). N4_0 ist nur CLI-Alias für NVFP4 (6 Zeilen Cherry-Pick), kein neues Feature — Backend-Infrastruktur (GGML_TYPE_NVFP4, CUDA MMQ, Vulkan shaders) existiert bereits im Fork. Zero Hardware-Benefit: Kein Host im Fleet hat Blackwell (FP4 MMA nur auf RTX 50xx/GB100). Auf Ada/Ampere/Pascal: DP4A-Fallback, kein Speedup, Accuracy-Regression vs Q4_0 (KLD 0.089 vs 0.049). Konflikt mit QAT Q4_K_XL Produktiv-Setup. Reaktivierung: 30 Min Cherry-Pick wenn Blackwell-Host ins Fleet aufgenommen wird.** |
+| 73 | ❌ | CascadeInfer: Length-Aware Scheduling | Alle | 2-3 Wochen | arXiv:2512.19179 | — | 67% Latenz-Reduktion — **Recherche 2026-07-13, Tiefen-Eval 2026-07-20: VERWORFEN. Architektur-Mismatch: CascadeInfer ist Multi-Instance-Cluster-Scheduler (vLLM v0.9.1, 3000 LoC Python + 700 LoC C++), Fork ist Single-Instance. Kernmechanismen (LoadTracker, Coordinator, KV-Cache-Migration über Netzwerk) haben keine Entsprechung im Fork. 67%-Benefit nur unter Cluster-Load (16+ GPUs, hohe Request-Rate). Kein Host im LAN hat Multi-Instance-Setup. Kein Referenzcode verfügbar. Aufwand 2-3 MONATE, nicht 2-3 Wochen. Use-Case-Mismatch: Fork ist Einzel-/Wenig-Nutzer-Inferenz auf Consumer-Hardware.** |
 | 74 | ☐ | Vulkan Descriptor Indexing (Bindless) | Mars, Venus | 2-4 Wochen | nein | später | Reduziert Descriptor-Binding-Overhead — **Recherche 2026-07-13** |
 | 75 | ☐ | Non-blocking Pipeline Scheduling | Uranus | 3-4 Wochen | PR #19922 | später | Reduziert Pipeline-Bubbles — **Recherche 2026-07-13** |
 | 76 | ☐ | CPU Backend Operator Fusion | Alle | 3-4 Wochen | Diskussion #22315 | später | Reduziert Memory-Traffic CPU-Path — **Recherche 2026-07-13** |
@@ -244,17 +244,19 @@ Keine offenen Tier-2-Items mehr (#36 ❌ verworfen 2026-07-20). Direkt zu Tier-3
 
 Nach Cost-Benefit sortiert (hoher ROI zuerst):
 
-2. **#73 CascadeInfer: Length-Aware Scheduling** — 2-3 Wochen, alle Systeme, 67% Latenz-Reduktion. Paper-only, kein Referenzcode.
-3. **#72 N4_0 Native 4-bit Float** — 2-3 Wochen, Uranus, +40% PP (Blackwell-bedingt — auf Ada evtl. weniger). PR #23572.
-4. **#71 Efficient CPU-GPU Collaborative MoE** — 3-4 Wochen, Styx/Hydra, N-index M-way set-associative cache. arXiv:2512.16473.
-5. **#76 CPU Backend Operator Fusion** — 3-4 Wochen, alle Systeme, reduziert Memory-Traffic CPU-Path. Diskussion #22315.
-6. **#74 Vulkan Descriptor Indexing (Bindless)** — 2-4 Wochen, Mars/Venus, reduziert Descriptor-Binding-Overhead.
-7. **#75 Non-blocking Pipeline Scheduling** — 3-4 Wochen, Uranus, reduziert Pipeline-Bubbles. PR #19922.
-8. **#18 DALI: Workload-Aware MoE Offloading** — 4-6 Wochen, Styx, intelligentes MoE-Offloading. arXiv:2602.03495.
-9. **#22 GWQ: Gradient-Aware Weight Quantization** — 4-6 Wochen, alle Systeme, 1.2x inference speedup. arXiv:2411.00850.
-10. **#23 DuoServe-MoE: Dual-Phase Expert Scheduling** — 6-8 Wochen, Styx, phase-spezifisches Prefetch. arXiv:2509.07379.
-11. **#43 SliderQuant: Sliding-layer PTQ** — 4-6 Wochen, alle Systeme, bessere Low-Bit-Quantisierung. arXiv:2603.25284.
-12. **#44 Alloc-MoE: Budget-aware Expert Activation** — 6-8 Wochen, Mars/Styx, 1.34x decode speedup. arXiv:2604.08133.
+1. **#71 Efficient CPU-GPU Collaborative MoE** — 2 Wochen, Styx/Hydra, N-index M-way set-associative cache. arXiv:2512.16473. ⏭️ später — Abhängigkeit von #69 Heuristic-Benchmark. Fork hat bereits 1883-Zeilen MoE-Cache, #71 ist Upgrade.
+2. **#76 CPU Backend Operator Fusion** — 3-4 Wochen, alle Systeme, reduziert Memory-Traffic CPU-Path. Diskussion #22315.
+3. **#74 Vulkan Descriptor Indexing (Bindless)** — 2-4 Wochen, Mars/Venus, reduziert Descriptor-Binding-Overhead.
+4. **#75 Non-blocking Pipeline Scheduling** — 3-4 Wochen, Uranus, reduziert Pipeline-Bubbles. PR #19922.
+5. **#18 DALI: Workload-Aware MoE Offloading** — 4-6 Wochen, Styx, intelligentes MoE-Offloading. arXiv:2602.03495.
+6. **#22 GWQ: Gradient-Aware Weight Quantization** — 4-6 Wochen, alle Systeme, 1.2x inference speedup. arXiv:2411.00850.
+7. **#23 DuoServe-MoE: Dual-Phase Expert Scheduling** — 6-8 Wochen, Styx, phase-spezifisches Prefetch. arXiv:2509.07379.
+8. **#43 SliderQuant: Sliding-layer PTQ** — 4-6 Wochen, alle Systeme, bessere Low-Bit-Quantisierung. arXiv:2603.25284.
+9. **#44 Alloc-MoE: Budget-aware Expert Activation** — 6-8 Wochen, Mars/Styx, 1.34x decode speedup. arXiv:2604.08133.
+
+### Verworfene Tier-3 Items (2026-07-20):
+- **#73 CascadeInfer** ❌ — Multi-Instance-Cluster-Scheduler (vLLM), Architektur-Mismatch zum Single-Instance-Fork
+- **#72 N4_0 Native 4-bit Float** ❌ — PR stale, kein Blackwell im Fleet, Accuracy-Regression vs Q4_0 auf Ada/Ampere
 
 ### Langfristig (M6, Tier 4 — 3+ Monate Solo-Agent):
 
