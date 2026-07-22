@@ -5841,10 +5841,12 @@ static bool ggml_backend_cuda_device_reset(ggml_backend_dev_t dev) {
     }
 #endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 
-    if (cudaSetDevice(dev_ctx->device) != cudaSuccess) {
-        cudaError_t err = cudaGetLastError();
-        GGML_LOG_WARN("%s: cudaSetDevice(%d) failed: %s\n", __func__, dev_ctx->device, cudaGetErrorString(err));
-        return false;
+    {
+        cudaError_t err = cudaSetDevice(dev_ctx->device);
+        if (err != cudaSuccess) {
+            GGML_LOG_WARN("%s: cudaSetDevice(%d) failed: %s\n", __func__, dev_ctx->device, cudaGetErrorString(err));
+            return false;
+        }
     }
 
     cudaError_t err = cudaDeviceReset();

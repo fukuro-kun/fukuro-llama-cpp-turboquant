@@ -198,8 +198,8 @@ struct server_slot {
     size_t n_sent_text = 0; // number of sent text character
 
     int64_t t_print_last = 0;
-    int64_t t_start_process_prompt;
-    int64_t t_start_generation;
+    int64_t t_start_process_prompt = 0;
+    int64_t t_start_generation = 0;
 
     double t_prompt_processing = 0.0; // ms
     double t_token_generation = 0.0;  // ms
