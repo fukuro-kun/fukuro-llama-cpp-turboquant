@@ -86,7 +86,7 @@ struct server_slot {
     std::array<llama_context *, 2> mtgt = {nullptr, nullptr}; // [0] for main context, [1] for optional draft context
 
     // speculative decoding
-    common_speculative * spec;
+    common_speculative * spec = nullptr;
 
     llama_tokens spec_draft;
     llama_tokens spec_prompt;
@@ -123,7 +123,7 @@ struct server_slot {
     bool has_new_line   = false;
     bool truncated      = false;
 
-    stop_type stop;
+    stop_type stop = STOP_TYPE_NONE;
 
     std::string stopping_word;
 
@@ -192,7 +192,7 @@ struct server_slot {
 
     common_sampler_ptr smpl;
 
-    llama_token sampled; // in speculative mode, this is the last accepted token
+    llama_token sampled = LLAMA_TOKEN_NULL; // in speculative mode, this is the last accepted token
 
     // stats
     size_t n_sent_text = 0; // number of sent text character
