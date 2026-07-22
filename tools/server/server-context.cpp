@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cinttypes>
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <filesystem>
@@ -561,6 +562,7 @@ struct server_slot {
 
         if (ptask) {
             res["id_task"] = ptask->id;
+            res["start_time"]                = t_start_process_prompt;
             res["n_prompt_tokens"]           = (int32_t) prompt.tokens.size();
             res["n_prompt_tokens_processed"] = n_prompt_tokens_processed;
             res["n_prompt_tokens_cache"]     = n_prompt_tokens_cache;
@@ -876,6 +878,11 @@ private:
         if (new_state) {
             SRV_INF("%s", "server is entering sleeping state\n");
             destroy(true);
+            // Note: if dev_reset failed for some devices, VRAM is not fully
+            // released but we still enter sleep mode. The model is already
+            // destroyed at this point — aborting would leave the server in
+            // an unrecoverable state. load_model() on wake will fail with
+            // OOM if VRAM is still occupied, which is handled below.
         } else {
             SRV_INF("%s", "server is exiting sleeping state\n");
             if (!load_model(params_base)) {
@@ -4486,7 +4493,7 @@ void server_routes::init_routes() {
                 int slot_task_id = slot_data.value("id_task", NO_TASK_ID);
                 if (target_id == NO_TASK_ID) {
                     // no task_id given — find oldest running task by start time
-                    int slot_start = slot_data.value("start_time", 0);
+                    int64_t slot_start = slot_data.value("start_time", (int64_t)0);
                     if (slot_start < oldest_start) {
                         oldest_start = slot_start;
                         oldest_id    = slot_task_id;
