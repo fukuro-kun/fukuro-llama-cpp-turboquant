@@ -75,7 +75,7 @@ enum server_state {
 };
 
 struct server_slot {
-    int id;
+    int id = -1;
 
     llama_context * ctx_tgt = nullptr;
     llama_context * ctx_dft = nullptr;
@@ -198,8 +198,8 @@ struct server_slot {
     size_t n_sent_text = 0; // number of sent text character
 
     int64_t t_print_last = 0;
-    int64_t t_start_process_prompt = 0;
-    int64_t t_start_generation = 0;
+    int64_t t_start_process_prompt = -1; // -1 = not yet set (sentinel for /cancel)
+    int64_t t_start_generation  = 0;    // 0 = generation not started (used by t_max_predict_ms check)
 
     double t_prompt_processing = 0.0; // ms
     double t_token_generation = 0.0;  // ms
@@ -4493,7 +4493,11 @@ void server_routes::init_routes() {
                 int slot_task_id = slot_data.value("id_task", NO_TASK_ID);
                 if (target_id == NO_TASK_ID) {
                     // no task_id given — find oldest running task by start time
-                    int64_t slot_start = slot_data.value("start_time", (int64_t)0);
+                    // skip slots where t_start_process_prompt hasn't been set yet (-1)
+                    int64_t slot_start = slot_data.value("start_time", (int64_t)-1);
+                    if (slot_start < 0) {
+                        continue;
+                    }
                     if (slot_start < oldest_start) {
                         oldest_start = slot_start;
                         oldest_id    = slot_task_id;
