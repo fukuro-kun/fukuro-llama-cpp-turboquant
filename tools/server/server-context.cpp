@@ -2352,6 +2352,8 @@ private:
                     // release slot linked with the task id
                     for (auto & slot : slots) {
                         if (slot.task && slot.task->id == task.id_target) {
+                            // send error response so the HTTP handler's server_response_reader can terminate
+                            send_error(slot, "request cancelled", ERROR_TYPE_SERVER);
                             slot.release();
                             break;
                         }
@@ -4422,6 +4424,81 @@ void server_routes::init_routes() {
         }
 
         res->error(format_error_response("Invalid action", ERROR_TYPE_INVALID_REQUEST));
+        return res;
+    };
+
+    // POST /cancel — cancel a running request by task_id and release its slot
+    // Body: {"task_id": 12345} or {} (cancels first running task found)
+    // Router mode: {"model": "name", "task_id": 12345} — model is consumed by proxy_post
+    // Response: {"cancelled": true, "task_id": 12345} (fire-and-forget, idempotent)
+    //           {"cancelled": false, "message": "no running tasks"} (empty body, nothing running)
+    this->post_cancel = [this](const server_http_req & req) {
+        auto res = create_response();
+
+        const int NO_TASK_ID = -1;
+        int target_id = NO_TASK_ID;
+
+        // parse optional task_id from body
+        if (!req.body.empty()) {
+            try {
+                const json body = json::parse(req.body);
+                if (body.contains("task_id")) {
+                    target_id = body["task_id"].get<int>();
+                    if (target_id < 0) {
+                        res->error(format_error_response("task_id must be a non-negative integer", ERROR_TYPE_INVALID_REQUEST));
+                        return res;
+                    }
+                }
+            } catch (const std::exception &) {
+                res->error(format_error_response("Invalid JSON body", ERROR_TYPE_INVALID_REQUEST));
+                return res;
+            }
+        }
+
+        // if no task_id given, find the first running task via METRICS
+        if (target_id == NO_TASK_ID) {
+            server_task metrics_task(SERVER_TASK_TYPE_METRICS);
+            metrics_task.id = res->rd.get_new_id();
+            res->rd.post_task(std::move(metrics_task), true);
+
+            auto result = res->rd.next(req.should_stop);
+            if (!result) {
+                GGML_ASSERT(req.should_stop());
+                return res;
+            }
+            if (result->is_error()) {
+                res->error(result->to_json());
+                return res;
+            }
+
+            auto * res_metrics = dynamic_cast<server_task_result_metrics*>(result.get());
+            GGML_ASSERT(res_metrics != nullptr);
+
+            // find the first processing slot (lowest slot index, not necessarily oldest by start time)
+            for (const auto & slot_data : res_metrics->slots_data) {
+                if (slot_data.value("is_processing", false)) {
+                    target_id = slot_data.value("id_task", NO_TASK_ID);
+                    break;
+                }
+            }
+
+            if (target_id == NO_TASK_ID) {
+                res->ok(json {{"cancelled", false}, {"message", "no running tasks"}});
+                return res;
+            }
+        }
+
+        // post cancel task with highest priority (fire-and-forget, idempotent)
+        // the existing CANCEL handler in process_task_loop() calls slot.release()
+        // if the task already finished, the cancel is a no-op
+        {
+            server_task task(SERVER_TASK_TYPE_CANCEL);
+            task.id = queue_tasks.get_new_id();
+            task.id_target = target_id;
+            queue_tasks.post(std::move(task), true);
+        }
+
+        res->ok(json {{"cancelled", true}, {"task_id", target_id}});
         return res;
     };
 

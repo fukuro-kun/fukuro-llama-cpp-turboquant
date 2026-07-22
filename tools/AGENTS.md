@@ -14,6 +14,7 @@
 
 - **llama-server** ist die primaere Inferenzschnittstelle fuer das Hauptprojekt.
 - OpenAI-kompatible HTTP-API (`/v1/chat/completions`, `/v1/embeddings`, etc.).
+- Fork-spezifische Endpoints: `POST /cancel` (laufende Requests abbrechen, Slot freigeben), `POST /models/load`, `POST /models/unload` (Router-Modus).
 - Unterstuetzt Multimodal (CLIP via `mtmd/`) und spekulative Decodierung (Gemma 4 MTP, Qwen NextN).
 - Schluesseldateien: `server.cpp`, `server-context.cpp`, `httplib.h`, `index.html.hpp`.
 

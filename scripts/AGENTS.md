@@ -59,6 +59,12 @@
 | `bench-qwen-udt-quality.sh` | Qualitaetsbewertung fuer Qwen UDT. |
 | `bench-ea-phase3.sh` | EA Phase 3 Benchmark: EA disabled vs enabled bei 4k/16k/64k/128k Kontextlängen. Nutzt `LLAMA_ARG_EA_RATIO` env var. Siehe [docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md](../docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md). |
 
+### Endpoint-Tests
+
+| Skript | Zweck |
+|--------|-------|
+| `test-cancel-endpoint.py` | Testet `POST /cancel` Endpoint: no-running-tasks, invalid-JSON, cancel-by-task_id (Slot IDLE <500ms auf GPU), cancel-oldest. Startet Streaming-Request, holt task_id aus `/slots`, cancelt, verifiziert IDLE. |
+
 **Benchmark-Best-Practices (gelernt aus InferenzQuelle):**
 
 1. **GPU-Bereinigung vor jedem Test:** `killall -9 llama-cli` + 3s Pause (verhindert OOM bei aufeinanderfolgenden Tests).

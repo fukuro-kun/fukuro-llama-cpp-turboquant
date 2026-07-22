@@ -6,6 +6,20 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-22
+
+### POST /cancel Endpoint für laufende Requests
+
+- **feat: `POST /cancel` HTTP-Endpoint** — Bricht laufende Requests ab und gibt den Slot sofort frei. Nutzt den bestehenden internen `SERVER_TASK_TYPE_CANCEL` Mechanismus, der `slot.release()` aufruft, den Slot auf `SLOT_STATE_IDLE` setzt und eine Error-Response an den Streaming-Client sendet (damit dessen HTTP-Handler terminiert). Der Endpoint postet einen Cancel-Task mit höchster Priorität an `queue_tasks`.
+  - **Body:** `{"task_id": 12345}` oder `{}` (bricht den ersten laufenden Task ab)
+  - **Router-Modus:** `{"model": "name", "task_id": 12345}` — `model` wird von `proxy_post` konsumiert, Rest geht an das Backend. `{}` ohne `model` funktioniert im Router-Modus nicht (welches Backend?).
+  - **Response:** `{"cancelled": true, "task_id": 12345}` (fire-and-forget, idempotent — wenn Task schon beendet ist, ist Cancel ein No-Op) bzw. `{"cancelled": false, "message": "no running tasks"}`
+  - **Validierung:** Negative `task_id` → 400. Ungültiges JSON → 400.
+  - **Task-ID-Tracking:** Option B — `/slots` liefert bereits `id_task` pro Slot, kein zusätzlicher Code nötig. Router kann `/slots` pollen.
+  - **Cancel-Handler erweitert:** `send_error(slot, "request cancelled")` vor `slot.release()` — sendet Error-Response an `queue_results` damit die `server_response_reader` des Streaming-Requests terminiert. Ohne dies würde der Streaming-HTTP-Handler forever blockieren.
+  - **Test:** `scripts/test-cancel-endpoint.py` — 5 Tests: no-running-tasks, invalid-JSON, negative-task_id, cancel-by-task_id (Slot IDLE + Stream-Terminierung), cancel-first-running. Alle 5 grün auf Hydra (CPU-only).
+  - **Dateien:** `tools/server/server-context.h` (`post_cancel` Field), `tools/server/server-context.cpp` (Handler-Lambda + Cancel-Handler `send_error`), `tools/server/server.cpp` (Endpoint-Registrierung + Router-Proxy), `scripts/test-cancel-endpoint.py` (Test).
+
 ## 2026-07-21
 
 ### M6 Tier-3 Tiefen-Evals KOMPLETT (11/11 Items) + Rebase-Audit Fix
