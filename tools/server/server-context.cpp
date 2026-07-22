@@ -562,7 +562,9 @@ struct server_slot {
 
         if (ptask) {
             res["id_task"] = ptask->id;
-            res["start_time"]                = t_start_process_prompt;
+            if (t_start_process_prompt >= 0) {
+                res["start_time"] = t_start_process_prompt;
+            }
             res["n_prompt_tokens"]           = (int32_t) prompt.tokens.size();
             res["n_prompt_tokens_processed"] = n_prompt_tokens_processed;
             res["n_prompt_tokens_cache"]     = n_prompt_tokens_cache;
