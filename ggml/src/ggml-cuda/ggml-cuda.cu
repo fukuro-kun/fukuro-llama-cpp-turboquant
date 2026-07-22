@@ -5829,11 +5829,30 @@ static void ggml_backend_cuda_device_event_synchronize(ggml_backend_dev_t dev, g
 static bool ggml_backend_cuda_device_reset(ggml_backend_dev_t dev) {
     ggml_backend_cuda_device_context * dev_ctx = (ggml_backend_cuda_device_context *) dev->context;
 
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+    std::lock_guard<std::mutex> lock(dev_ctx->device_mutex);
+
+    // refuse to reset while backends/buffers are still active — cudaDeviceReset()
+    // would destroy the CUDA context and leave dangling handles
+    if (dev_ctx->active_count > 0) {
+        GGML_LOG_WARN("%s: refusing to reset device %d — %d active backend(s) still holding resources\n",
+                      __func__, dev_ctx->device, dev_ctx->active_count);
+        return false;
+    }
+#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+
     if (cudaSetDevice(dev_ctx->device) != cudaSuccess) {
+        GGML_LOG_WARN("%s: cudaSetDevice(%d) failed: %s\n", __func__, dev_ctx->device, cudaGetErrorString(cudaGetLastError()));
         return false;
     }
 
-    return cudaDeviceReset() == cudaSuccess;
+    cudaError_t err = cudaDeviceReset();
+    if (err != cudaSuccess) {
+        GGML_LOG_WARN("%s: cudaDeviceReset() failed for device %d: %s\n", __func__, dev_ctx->device, cudaGetErrorString(err));
+        return false;
+    }
+
+    return true;
 }
 
 static const ggml_backend_device_i ggml_backend_cuda_device_interface = {

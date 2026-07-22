@@ -862,7 +862,11 @@ private:
         // in sleep mode, we need to reset the devices to free up memory
         if (reset_devices) {
             for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
-                ggml_backend_dev_reset(ggml_backend_dev_get(i));
+                ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+                if (!ggml_backend_dev_reset(dev)) {
+                    SRV_WRN("failed to reset device %zu (%s) — VRAM may not be fully released\n",
+                            i, ggml_backend_dev_name(dev));
+                }
             }
         }
     }
@@ -4428,10 +4432,10 @@ void server_routes::init_routes() {
     };
 
     // POST /cancel — cancel a running request by task_id and release its slot
-    // Body: {"task_id": 12345} or {} (cancels first running task found)
-    // Router mode: {"model": "name", "task_id": 12345} — model is consumed by proxy_post
-    // Response: {"cancelled": true, "task_id": 12345} (fire-and-forget, idempotent)
+    // Body: {"task_id": 12345} or {} (cancels oldest running task found)
+    // Response: {"cancelled": true, "task_id": 12345}
     //           {"cancelled": false, "message": "no running tasks"} (empty body, nothing running)
+    //           {"cancelled": false, "error": "task not found"} (task_id not running or already finished)
     this->post_cancel = [this](const server_http_req & req) {
         auto res = create_response();
 
@@ -4450,43 +4454,61 @@ void server_routes::init_routes() {
                     }
                 }
             } catch (const std::exception &) {
-                res->error(format_error_response("Invalid JSON body", ERROR_TYPE_INVALID_REQUEST));
+                res->error(format_error_response("Invalid JSON body or wrong type for task_id", ERROR_TYPE_INVALID_REQUEST));
                 return res;
             }
         }
 
-        // if no task_id given, find the first running task via METRICS
-        if (target_id == NO_TASK_ID) {
-            server_task metrics_task(SERVER_TASK_TYPE_METRICS);
-            metrics_task.id = res->rd.get_new_id();
-            res->rd.post_task(std::move(metrics_task), true);
+        // query METRICS to find running tasks and validate task_id
+        server_task metrics_task(SERVER_TASK_TYPE_METRICS);
+        metrics_task.id = res->rd.get_new_id();
+        res->rd.post_task(std::move(metrics_task), true);
 
-            auto result = res->rd.next(req.should_stop);
-            if (!result) {
-                GGML_ASSERT(req.should_stop());
-                return res;
-            }
-            if (result->is_error()) {
-                res->error(result->to_json());
-                return res;
-            }
+        auto result = res->rd.next(req.should_stop);
+        if (!result) {
+            GGML_ASSERT(req.should_stop());
+            return res;
+        }
+        if (result->is_error()) {
+            res->error(result->to_json());
+            return res;
+        }
 
-            auto * res_metrics = dynamic_cast<server_task_result_metrics*>(result.get());
-            GGML_ASSERT(res_metrics != nullptr);
+        auto * res_metrics = dynamic_cast<server_task_result_metrics*>(result.get());
+        GGML_ASSERT(res_metrics != nullptr);
 
-            // find the first processing slot (lowest slot index, not necessarily oldest by start time)
-            for (const auto & slot_data : res_metrics->slots_data) {
-                if (slot_data.value("is_processing", false)) {
-                    target_id = slot_data.value("id_task", NO_TASK_ID);
+        // find running task: either the requested task_id or the oldest running task
+        int oldest_id    = NO_TASK_ID;
+        int64_t oldest_start = INT64_MAX;
+
+        for (const auto & slot_data : res_metrics->slots_data) {
+            if (slot_data.value("is_processing", false)) {
+                int slot_task_id = slot_data.value("id_task", NO_TASK_ID);
+                if (target_id == NO_TASK_ID) {
+                    // no task_id given — find oldest running task by start time
+                    int slot_start = slot_data.value("start_time", 0);
+                    if (slot_start < oldest_start) {
+                        oldest_start = slot_start;
+                        oldest_id    = slot_task_id;
+                    }
+                } else if (slot_task_id == target_id) {
+                    // requested task_id found and running
+                    oldest_id = target_id;
                     break;
                 }
             }
+        }
 
+        if (oldest_id == NO_TASK_ID) {
             if (target_id == NO_TASK_ID) {
                 res->ok(json {{"cancelled", false}, {"message", "no running tasks"}});
-                return res;
+            } else {
+                res->ok(json {{"cancelled", false}, {"error", "task not found"}});
             }
+            return res;
         }
+
+        target_id = oldest_id;
 
         // post cancel task with highest priority (fire-and-forget, idempotent)
         // the existing CANCEL handler in process_task_loop() calls slot.release()

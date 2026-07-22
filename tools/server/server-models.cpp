@@ -1234,8 +1234,17 @@ void server_models_routes::init_routes() {
 
     this->proxy_post = [this](const server_http_req & req) {
         std::string method = "POST";
-        json body = json::parse(req.body);
-        std::string name = json_value(body, "model", std::string());
+        std::string name;
+        if (!req.body.empty()) {
+            try {
+                json body = json::parse(req.body);
+                name = json_value(body, "model", std::string());
+            } catch (const std::exception &) {
+                auto error_res = std::make_unique<server_http_res>();
+                res_err(error_res, format_error_response("Invalid JSON body", ERROR_TYPE_INVALID_REQUEST));
+                return error_res;
+            }
+        }
         bool autoload = is_autoload(params, req);
         auto error_res = std::make_unique<server_http_res>();
         if (!router_validate_model(name, models, autoload, error_res)) {

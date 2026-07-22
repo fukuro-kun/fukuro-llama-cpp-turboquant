@@ -170,12 +170,31 @@ def test_cancel_running_task(base_url):
     # Wait for streaming thread to finish (should get connection closed / abort)
     t.join(timeout=10)
     assert not t.is_alive(), "Streaming thread still alive after 10s — cancel did not terminate the stream"
-    # The streaming client should have been terminated (connection closed by server)
-    # On a fast CPU-only test setup, the stream may complete with [DONE] before cancel
-    # takes effect, but the thread must have ended (not still blocking on recv)
+    # The streaming client must have been terminated by the cancel, not completed normally.
+    # If done=True and not aborted, the stream finished before cancel took effect —
+    # that's a test failure (cancel was too slow or didn't work).
     print(f"[INFO] Stream done={stream_result['done']}, aborted={stream_result['aborted']}")
     print(f"[INFO] Stream collected {len(stream_content)} content chunks")
-    print("[PASS] Test 3: streaming request cancelled, thread terminated")
+    if stream_result.get("aborted"):
+        print("[PASS] Test 3: streaming request cancelled, stream was aborted by server")
+    elif stream_result.get("done") and len(stream_content) < 50:
+        # On very fast setups the stream may abort mid-chunk — few chunks + done is also acceptable
+        print("[PASS] Test 3: streaming request cancelled (stream ended with few chunks, likely aborted)")
+    else:
+        # Stream completed normally with lots of content — cancel didn't work
+        assert False, f"Stream completed normally ({len(stream_content)} chunks, done={stream_result['done']}) — cancel did not abort the stream"
+
+
+def test_cancel_nonexistent_task_id(base_url):
+    """Test 3b: /cancel with a task_id that doesn't exist should return cancelled=false."""
+    # Use a very high task_id that is unlikely to exist
+    r = requests.post(f"{base_url}/cancel", json={"task_id": 99999999}, timeout=10)
+    assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+    data = r.json()
+    assert data["cancelled"] is False, f"Expected cancelled=false for non-existent task_id, got {data}"
+    assert "error" in data, f"Expected error field for non-existent task_id, got {data}"
+    assert "not found" in data["error"].lower(), f"Expected 'not found' in error, got {data['error']}"
+    print(f"[PASS] Test 3b: non-existent task_id correctly returns cancelled=false")
 
 
 def test_cancel_first_running_task(base_url):
@@ -278,6 +297,7 @@ def main():
         ("cancel invalid JSON", lambda: test_cancel_invalid_json(base_url)),
         ("cancel negative task_id", lambda: test_cancel_negative_task_id(base_url)),
         ("cancel running task", lambda: test_cancel_running_task(base_url)),
+        ("cancel nonexistent task_id", lambda: test_cancel_nonexistent_task_id(base_url)),
         ("cancel first running task", lambda: test_cancel_first_running_task(base_url)),
     ]
 
