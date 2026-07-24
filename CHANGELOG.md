@@ -6,6 +6,20 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-23
+
+### POST /cancel Review-Fix Loop (6 Runden, ship-ready)
+
+- **fix: 6-Runden Code-Review mit SWE-1.7 bis ship-ready** — Der initiale `/cancel` Endpoint (`d7802c155`) hatte 4 P1 + 8 P2 Issues. Sechs Review-Runden mit `review-swe` Subagents (Pflicht-Loop seit code-review Skill Update) fanden insgesamt 2 P0, 8 P1, 15 P2 — alle gefixt. Zwei P0 in R3/R4 wären ohne Re-Review-Loop unentdeckt geblieben.
+  - **R1** (`e3d9103c4`): 4 P1, 8 P2 → METRICS check für task_id, `device_mutex` lock + `active_count` refusal in `ggml_backend_cuda_device_reset`, `proxy_post` try/catch für empty body, dev_reset Warn-Log, Test-Skript Negative-Cases
+  - **R2** (`33794496e`): 3 P1 → `start_time` in `slot.to_json()`, `dev_reset` sleep-mode tradeoff kommentiert, `cudaSetDevice` error logging via return value (nicht `cudaGetLastError`)
+  - **R3** (`508f1c734`): **1 P0** (`t_start_process_prompt` uninitialised → UB in `to_json`), 1 P1 (`cudaSetDevice` noch falsch)
+  - **R4** (`89a45eaf5`): **1 P0** (`spec` pointer uninitialised → UB via `can_speculate()` in `to_json`), 2 P1 (`id` uninitialised, `start_time=0` sentinel ambiguity)
+  - **R5** (ship-ready): In-class initialisers `spec=nullptr`, `stop=STOP_TYPE_NONE`, `sampled=LLAMA_TOKEN_NULL`, `id=-1`, `start_time=-1` sentinel
+  - **R6** (`7a8b0db74`): 1 P2 — `start_time=-1` sichtbar in `/slots` → nur ausgeben wenn `>=0`
+  - **Deployment:** `7a8b0db74` auf allen 5 Hosts (styx, phobos, uranus+VLM, venus) deployiert + verifiziert. `/cancel` returns `{"cancelled":false,"error":"task not found"}` für non-existent task_id auf allen Hosts.
+  - **Dateien:** `tools/server/server.cpp`, `tools/server/server-context.h`, `tools/server/server-context.cpp`, `ggml/src/ggml-cuda/ggml-cuda.cu`, `common/speculative.cpp`, `scripts/test-cancel-endpoint.py`
+
 ## 2026-07-22
 
 ### POST /cancel Endpoint für laufende Requests
