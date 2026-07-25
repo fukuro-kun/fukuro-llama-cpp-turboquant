@@ -14,7 +14,7 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
   - **Datei:** `tools/server/server-context.cpp` (`server_slot::to_json()`, im `if (ptask)` Block nach `n_prompt_tokens_cache`)
   - **Edge Cases:** `ptask == nullptr` → Felder fehlen (if schützt); `n_tokens() == 0` → 0.0 ( guarded); `progress > 1.0` (Streaming-Input) → `std::min(1.0, ...)` clamp; Idle-Slot zeigt Endstand des letzten Tasks
   - **Review:** `review-swe` Subagent fand P1 (dreifacher `ptask->n_tokens()` Aufruf → Inkonsistenz bei Streaming-Input) → gefixt durch lokale Variable `n_tokens_total`
-  - **Verifikation:** CPU-only Smoke-Test auf Dev-Host (Gemma-4-12B IQ4_NL, 8k ctx): `progress` steigt sauber 0.003 → 0.74 → 0.81 → 0.998 → 1.0, `n_tokens_total=2766` konsistent. Unit-Tests blockiert durch fehlendes `libssl-dev` (HTTPS für HF-Downloads) — Environment-Problem, nicht Code.
+  - **Verifikation:** CPU-only Smoke-Test auf Dev-Host mit **Gemma-4-12B IQ4_NL** (nur fuer lokalen Compile-Check, *nicht* das Produktivmodell — Produktivstandard ist 26B-A4B QAT): `progress` steigt sauber 0.003 → 0.74 → 0.81 → 0.998 → 1.0, `n_tokens_total=2766` konsistent. Echte Verifikation mit 26B-A4B QAT auf phobos + styx nach Deployment (`progress=1.0, n_tokens_total=22`). Unit-Tests blockiert durch fehlendes `libssl-dev` (HTTPS fuer HF-Downloads) — Environment-Problem, nicht Code. Hinweis: E2B-Modell (ideal fuer CPU-Tests, 2.6 GB) liegt lokal unter `~/modelle/gemma-4-E2B-it/` und auf ganymed `/titan/topas/modelle/gemma-4-E2B-it/` — beim naechsten Smoke-Test verwenden statt 12B.
 
 ## 2026-07-23
 
