@@ -568,6 +568,15 @@ struct server_slot {
             res["n_prompt_tokens"]           = (int32_t) prompt.tokens.size();
             res["n_prompt_tokens_processed"] = n_prompt_tokens_processed;
             res["n_prompt_tokens_cache"]     = n_prompt_tokens_cache;
+            // Prefill-Fortschritt fuer Progress-Polling (z.B. janus Router).
+            // n_tokens_total: Gesamtzahl der Task-Tokens; progress: 0.0–1.0,
+            // geclampt gegen Ueberlauf bei nachgeladenen Prompts.
+            // Einmal lesen, damit n_tokens_total und Divisor konsistent sind.
+            const int32_t n_tokens_total = ptask->n_tokens();
+            res["n_tokens_total"] = n_tokens_total;
+            res["progress"] = n_tokens_total > 0
+                ? std::min(1.0, (double) prompt.n_tokens() / n_tokens_total)
+                : 0.0;
             res["params"] = ptask->params.to_json(only_metrics);
             res["next_token"] = {
                 {

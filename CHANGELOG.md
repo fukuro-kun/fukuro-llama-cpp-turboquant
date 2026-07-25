@@ -6,6 +6,16 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-25
+
+### /slots: progress + n_tokens_total Felder
+
+- **feat: `progress` und `n_tokens_total` im `/slots` JSON-Endpoint** — Exponiert den Prefill-Fortschritt (`progress`, 0.0–1.0 geclampt) und die Gesamtzahl der Task-Tokens (`n_tokens_total`) pro Slot. Ermöglicht dem janus-Router während des Prefills zu pollen und zwischen "Backend arbeitet (SWA cache invalidation)" und "Backend hängt" zu unterscheiden. Spec: `docs/SPEC_slot_progress.md`.
+  - **Datei:** `tools/server/server-context.cpp` (`server_slot::to_json()`, im `if (ptask)` Block nach `n_prompt_tokens_cache`)
+  - **Edge Cases:** `ptask == nullptr` → Felder fehlen (if schützt); `n_tokens() == 0` → 0.0 ( guarded); `progress > 1.0` (Streaming-Input) → `std::min(1.0, ...)` clamp; Idle-Slot zeigt Endstand des letzten Tasks
+  - **Review:** `review-swe` Subagent fand P1 (dreifacher `ptask->n_tokens()` Aufruf → Inkonsistenz bei Streaming-Input) → gefixt durch lokale Variable `n_tokens_total`
+  - **Verifikation:** CPU-only Smoke-Test auf Dev-Host (Gemma-4-12B IQ4_NL, 8k ctx): `progress` steigt sauber 0.003 → 0.74 → 0.81 → 0.998 → 1.0, `n_tokens_total=2766` konsistent. Unit-Tests blockiert durch fehlendes `libssl-dev` (HTTPS für HF-Downloads) — Environment-Problem, nicht Code.
+
 ## 2026-07-23
 
 ### POST /cancel Review-Fix Loop (6 Runden, ship-ready)
