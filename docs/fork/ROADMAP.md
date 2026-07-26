@@ -261,6 +261,23 @@ Nach Cost-Benefit sortiert (hoher ROI zuerst). Tiefen-Evals 2026-07-20/21 abgesc
 - **#74 Vulkan Descriptor Indexing (Bindless)** ❌ — Redundant mit #85 Push Descriptors (✅ implementiert), <0.5% Speedup auf RADV
 - **#22 GWQ: Gradient-Aware Weight Quantization** ❌ — PTQ, Fork nutzt QAT Q4_K_XL (methodisch überlegen), 1.2× bezieht sich auf FP16 nicht Q4_K_XL, kein Referenzcode, Vulkan-Risiko
 
+### MoE-Cache Eviction-Policy: Erschöpft für 128-Expert-Modelle (2026-07-25)
+
+Drei Eviction-Policies implementiert + benchmarked, alle ❌ NO-GO vs LRU:
+
+| Item | Policy | Ergebnis | Root Cause |
+|------|--------|----------|------------|
+| #69 | Heuristic (freq+recency) | -3.1% (kurz), +1.8% (lang) | Globale Frequency zu langsam, Per-Slot-Decision thrasht |
+| #71 | Set-Associative (N×M) | -25% bis -50% | Conflict-Misses bei 24:1 Oversubscription |
+| #18 | Workload-Aware (windowed) | +2.5% (kurz), -1.1% (lang) | Windowed Frequency ≈ globale Frequency bei PCIe-Bottleneck |
+
+**Fazit:** LRU ist optimal für 128-Expert × 30-Layer = 3840 Entries → 160-320 Slots (24:1 Oversubscription). PCIe-Transfer dominiert, nicht Eviction-Policy. Keine weitere Eviction-Policy-Implementierung ohne analytische Argumentation warum sie anders sein sollte.
+
+**Alternative Ansätze** (nicht Eviction-Policy):
+- **Prefetch-Optimierung:** thecodacus Backfill verbessern (Hot-Set-Größe adaptiv)
+- **Per-Expert-Platzierung:** Tensor-Splitting (erfordert GGUF-Format-Änderung)
+- **CPU MoE Path:** Greedy Assignment (#18 Phase 2) — erfordert CPU-Compute-Path, großer Eingriff
+
 ### Langfristig (M6, Tier 4 — 3+ Monate Solo-Agent):
 
 Forschung mit hohem Potenzial aber sehr hohem Aufwand. Erst wenn Tier 3 erschöpft oder TurboQuant allein nicht mehr ausreicht.

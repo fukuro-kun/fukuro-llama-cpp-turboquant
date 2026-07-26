@@ -893,6 +893,11 @@ static int moe_cache_begin(const char * name, const void * host_base, size_t exp
             if (g.budget_mb > 0 && (g.budget_mb << 20) < avail) {
                 avail = g.budget_mb << 20;
             }
+            // Pool-Alloc unter g.mu: Worker/Backfill lesen d.pools[pi] unter
+            // g.mu — teilinitialisierte Vektoren (set_lru_head etc.) wären
+            // sonst ein Data Race. cudaMalloc unter Lock ist akzeptabel: passiert
+            // nur einmal bei Pool-Erstellung, nicht im Hot Path.
+            std::lock_guard<std::mutex> lk(g.mu);
             // Role-group budgeting. Mixed-quant models (UD-*_XL) fragment one
             // role into many (size, type) shapes; naive per-shape weighting
             // hands each fragment a sliver below the slot floor and the whole
@@ -1285,11 +1290,18 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
                 // Workload-Aware (DALI-inspired): evict slot with LOWEST
                 // workload_score (windowed frequency). Periodic reset nach
                 // wsize plan()-Calls (siehe unten). Skip queued slots.
+                // Tie-Breaker: bei gleichem Score den LRU-ältesten evicten
+                // (verhindert deterministische Slot-0-Eviction nach Reset).
                 float worst_score = 1e30f;
+                uint64_t worst_age = 0;
                 for (int i = 0; i < p.n_slots; i++) {
                     if (p.slots[i].queued) continue;
-                    if (p.slots[i].workload_score < worst_score) {
-                        worst_score = p.slots[i].workload_score;
+                    const float score = p.slots[i].workload_score;
+                    const uint64_t age = cur_tick - p.slots[i].last_access;
+                    if (score < worst_score ||
+                        (score == worst_score && age > worst_age)) {
+                        worst_score = score;
+                        worst_age = age;
                         cand = i;
                     }
                 }
