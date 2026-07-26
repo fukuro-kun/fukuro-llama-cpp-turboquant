@@ -1,7 +1,7 @@
 # SESSION_PLAN: #44 Alloc-MoE Phase 0 — Quality Benchmark
 
 **Erstellt:** 2026-07-26 (Auto-Fortsetzung nach #71/#18)
-**Status:** In Arbeit
+**Status:** ❌ NO-GO (2026-07-26). Phase 0 Quality-Benchmark: K=6 +13.5% PPL, K=4 +22.9%, K=2 +66.5%. Selbst K=6 ist 2.7× über dem 5% Limit.
 **ROADMAP-Item:** #44 Alloc-MoE: Budget-aware Expert Activation (Tier 3)
 **Vorgänger:** #69 ❌, #71 ❌, #18 ❌ (MoE-Cache-Thema erschöpft)
 

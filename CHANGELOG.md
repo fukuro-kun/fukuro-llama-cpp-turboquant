@@ -6,6 +6,24 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-07-26
+
+### #44 Alloc-MoE Phase 0 Quality-Benchmark — ❌ NO-GO
+
+- **feat: `LLAMA_MOE_K_OVERRIDE` env var** — Override für `hparams.n_expert_used` zur Laufzeit. Erlaubt Reduktion der aktiven Experten pro Token (K) ohne Code-Änderung. Gelesen in `llama-model.cpp:load_hparams` nach GGUF-Parsing, vor Asserts. Validierung: 1 ≤ K ≤ n_expert. 0/unset = GGUF-Default.
+  - **Datei:** `src/llama-model.cpp` (+15 Zeilen)
+  - **Perplexity (WikiText-2 test, 20 chunks, ctx=2048):**
+    - K=8 (Default): PPL = 493.96 ± 16.63
+    - K=6: PPL = 560.69 ± 18.88 (**+13.5%**)
+    - K=4: PPL = 607.11 ± 20.20 (**+22.9%**)
+    - K=2: PPL = 822.51 ± 26.68 (**+66.5%**)
+    - K=1: PPL = 1380.88 ± 44.41 (**+179.5%**)
+  - **Speed (tg128, r=3, -ngl 0, 512MB MoE-Cache off):**
+    - K=8: 3.87 t/s | K=6: 4.80 (+24%) | K=4: 5.33 (+38%) | K=2: 5.93 (+53%) | K=1: 6.43 (+66%)
+  - **Go/No-Go >5% PPL-Drop → ❌ NO-GO.** Selbst K=6 (25% Reduktion) hat +13.5% PPL-Drop — 2.7× über Limit. Root Cause: Gemma-4-A4B mit K=8 hat moderate Expert-Diversität. Reduktion auf K=6 entfernt 25% der Diversität → signifikanter Quality-Drop. Alloc-L (per-Layer K) könnte besser sein, aber Basis-Drop bei K=6 zeigt zu kleinen Spielraum.
+  - **Wichtige Korrektur:** Subagent-Analyse nahm K=2 als Default an → "17% Quality-Drop bei K=2". Tatsächlich ist K=8 der Default. K=2 hat +66.5% Drop (viel schlechter als angenommen).
+  - **ROADMAP #44 → ❌.** Code (`LLAMA_MOE_K_OVERRIDE`) bleibt als Analyse-Tool.
+
 ## 2026-07-25
 
 ### #18 DALI Workload-Aware Cache Policy — ❌ NO-GO
