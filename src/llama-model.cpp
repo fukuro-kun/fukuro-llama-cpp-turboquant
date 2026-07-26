@@ -1056,21 +1056,6 @@ void llama_model_base::load_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_EXPERT_GROUP_COUNT,      hparams.n_expert_groups, false);
     ml.get_key(LLM_KV_EXPERT_GROUP_USED_COUNT, hparams.n_group_used,    false);
 
-    // Fork: LLAMA_MOE_K_OVERRIDE — override n_expert_used at load time.
-    // Used for #44 Alloc-MoE Phase 0 quality benchmarking (reduced K).
-    // Must be >= 1 and <= n_expert. 0 or unset = use GGUF default.
-    if (const char * e = getenv("LLAMA_MOE_K_OVERRIDE")) {
-        int k = atoi(e);
-        if (k > 0 && k <= (int)hparams.n_expert) {
-            hparams.n_expert_used = k;
-            LLAMA_LOG_INFO("%s: n_expert_used overridden: %u (LLAMA_MOE_K_OVERRIDE=%d)\n",
-                    __func__, hparams.n_expert_used, k);
-        } else if (k > 0) {
-            LLAMA_LOG_WARN("%s: LLAMA_MOE_K_OVERRIDE=%d invalid (must be 1..%u), using GGUF default %u\n",
-                    __func__, k, hparams.n_expert, hparams.n_expert_used);
-        }
-    }
-
     if (arch == LLM_ARCH_HUNYUAN_VL || arch == LLM_ARCH_HUNYUAN_DENSE) {
         if (hparams.n_expert <= 1) {
             hparams.n_expert      = 0;
