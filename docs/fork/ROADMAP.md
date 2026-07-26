@@ -30,7 +30,7 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | **M3** | MoE-Offloading v2 | #3, #13, #14, #15 | ✅ abgeschlossen (#3✅, #13❌, #14⏭️, #15❌, #37✅, #40⏭️) |
 | **M4** | Speculative Decoding v2 | #11, #28 | ✅ (#11✅ bereits integriert, #28✅ wiederhergestellt 2026-07-19) |
 | **M5** | Coopmat2 + Multi-GPU | #12, #20, #21 | ✅ abgeschlossen (#12✅ bereits integriert, #20✅ bereits integriert, #21❌ evaluiert & verworfen 2026-07-19 — Cloud-Serving-Feature, nicht für Edge-Deployment mit 1-2 Slots relevant) |
-| **M6** | Forschung | #17, #18, #19, #25, #26, #27, #29, #30, #39, #41-#55, #69-#87 | ☐ offen (Research-Sweep #4: 2026-07-14) |
+| **M6** | Forschung | #17, #18, #19, #25, #26, #27, #29, #30, #39, #41-#55, #69-#97 | ☐ offen (Research-Sweep #5: 2026-07-26, MoE-Tier-3 erschöpft) |
 
 **Regel:** Solo-Pläne werden nur für den **aktuellen und nächsten Meilenstein** erstellt. Tier 3-4 Pläne entstehen wenn der Meilenstein näher rückt (verhindert veraltete Pläne).
 
@@ -279,13 +279,37 @@ Drei Eviction-Policies implementiert + benchmarked, alle ❌ NO-GO vs LRU:
 | #69 | Heuristic (freq+recency) | -3.1% (kurz), +1.8% (lang) | Globale Frequency zu langsam, Per-Slot-Decision thrasht |
 | #71 | Set-Associative (N×M) | -25% bis -50% | Conflict-Misses bei 24:1 Oversubscription |
 | #18 | Workload-Aware (windowed) | +2.5% (kurz), -1.1% (lang) | Windowed Frequency ≈ globale Frequency bei PCIe-Bottleneck |
+| #44 | K-Reduktion (K=8→K=6) | +13.5% PPL, +24% tg | Quality-Drop 2.7× über 5% Limit. Fine-grained MoE hat zu wenig Spielraum |
 
-**Fazit:** LRU ist optimal für 128-Expert × 30-Layer = 3840 Entries → 160-320 Slots (24:1 Oversubscription). PCIe-Transfer dominiert, nicht Eviction-Policy. Keine weitere Eviction-Policy-Implementierung ohne analytische Argumentation warum sie anders sein sollte.
+**Fazit:** LRU ist optimal für 128-Expert × 30-Layer = 3840 Entries → 160-320 Slots (24:1 Oversubscription). PCIe-Transfer dominiert, nicht Eviction-Policy. K-Reduktion bei fine-grained MoE (K=8) ist qualitativ nicht tragbar — selbst 25% Reduktion (K=6) gibt +13.5% PPL. Keine weitere Eviction-Policy- oder K-Reduktions-Implementierung ohne analytische Argumentation warum sie anders sein sollte.
 
 **Alternative Ansätze** (nicht Eviction-Policy):
 - **Prefetch-Optimierung:** thecodacus Backfill verbessern (Hot-Set-Größe adaptiv)
 - **Per-Expert-Platzierung:** Tensor-Splitting (erfordert GGUF-Format-Änderung)
 - **CPU MoE Path:** Greedy Assignment (#18 Phase 2) — erfordert CPU-Compute-Path, großer Eingriff
+
+---
+
+### Erkenntnisse für künftige Solo-Sessions (2026-07-26)
+
+**Hardware-spezifisch:**
+- **Mars (RDNA3 Phoenix) hat coopmat2**, nicht coopmat1. Subagent-Vorschläge für coopmat1-Optimierungen (z.B. #90 Non-Square Tile) greifen nicht — der `if (device->coopmat2)` Pfad wird verwendet, nicht der `else` Pfad. Subagent-Prompts MÜSSEN coopmat2-Status explizit erwähnen.
+- **Venus (GCN) hat kein coopmat.** Coopmat-Optimierungen sind für Venus nicht anwendbar.
+- **Kein LAN-System hat coopmat1 ohne coopmat2.** Coopmat1-spezifische Patches sind für das Fleet irrelevant.
+
+**MoE-spezifisch:**
+- **Fine-grained MoE (128 Experten, K=8) hat zu wenig Spielraum für K-Reduktion.** Bei coarse-grained MoE (8-16 Experten, Top-2) sieht das anders aus. Keine weiteren K-Reduktions-Experimente an Gemma-4-A4B.
+- **PCIe-Transfer dominiert über Eviction-Policy.** Bei 24:1 Oversubscription (3840 Entries → 160-320 Slots) ist die Hit-Rate begrenzt durch Cache-Größe, nicht durch Eviction-Strategie. LRU ≈ Heuristic ≈ Workload-Aware bei gleicher Cache-Größe.
+- **MoE-Cache-Optimierung auf unserer Hardware ist eine Sackgasse.** 4 Experimente (#69, #71, #18, #44) alle ❌. Code-Cleanup hat -358 Zeilen toten Code entfernt (Commit `04ed54f16`). Nur LRU + Heuristic bleiben.
+
+**Research-Sweep-spezifisch:**
+- **Research-Sweeps sollten Items vor ROADMAP-Eintrag verifizieren.** Research-Sweep #5: 5/5 Quick-Wins waren bereits im Fork, 3/9 neue Items bei Verifikation sofort ❌/✅. Besser: Top-5 vor Eintrag verifizieren, nur verifizierte neue Items in ROADMAP.
+- **Fork ist saturiert.** Research-Sweep #5 fand keine neuen umsetzbaren Quick-Wins. Alle Tier-1 Items sind bereits ✅ oder ❌. Neue Optimierungen erfordern Paper-Implementierungen (Tier 2-3, 1-3 Wochen) oder Upstream-Sync.
+
+**Workflow-spezifisch:**
+- **Code-Review findet echte Bugs.** P1#3 (pool-init locking) war ein echter Deadlock-Risk — `cudaMalloc` unter Lock. Code-Review ist wertvoll, nicht optional.
+- **Bei erschöpften Auto-Fortsetzungen: Code-Cleanup ist immer möglich.** Toter Code aus ❌ NO-GO Experimenten sollte proaktiv aufgeräumt werden, nicht auf User-Entscheidung warten.
+- **Subagent-Annahmen müssen verifiziert werden.** #44: Subagent nahm K=2 als Default an, tatsächlich ist K=8. Modell-Metadata-Prüfung korrigierte das — aber erst nach Aufwand.
 
 ### Langfristig (M6, Tier 4 — 3+ Monate Solo-Agent):
 

@@ -8,6 +8,22 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-26
 
+### Code-Cleanup: MoE-Cache toter Code entfernt (-358 Zeilen)
+
+- **refactor:** `moe-cache.cu` und `llama-model.cpp` bereinigt. Experimenteller Code aus 3 ❌ NO-GO Experimenten (#71 Set-Associative, #18 Workload-Aware, #44 K-Override) entfernt.
+  - **Entfernt:** `POLICY_SET_ASSOC_LRU`, `POLICY_WORKLOAD`, `workload_score`, `n_sets`/`n_ways`/`set_lru_*`, `window_count`, `set_assoc_ways`, `workload_wsize`, Set-assoc LRU-Helfer, Workload Reset-Logik, Env vars `GGML_CUDA_MOE_CACHE_SET_WAYS`/`GGML_CUDA_MOE_CACHE_WSIZE`, `LLAMA_MOE_K_OVERRIDE` Block.
+  - **Behalten:** `POLICY_LRU` (default), `POLICY_HEURISTIC`, Grund-Cache-Infrastruktur, Prefetch/backfill/worker.
+  - **Build:** ✅ Grün. MoE-Cache initialisiert korrekt mit LRU-Policy.
+  - **Commit:** `04ed54f16`
+
+### Research-Sweep #5: Monatliche Optimierungs-Recherche
+
+- **research:** 4 parallele Subagents (Vulkan/AMD, CUDA/MoE, arXiv, Multi-GPU). 51 Items gesammelt, dedupliziert, Top-5 verifiziert.
+  - **Verifikation:** 5/5 Quick-Wins bereits im Fork (#15524=#6, #16391=--cram, #19754=warmup, #25479=#3, #22887=K_PER_ITER).
+  - **9 neue ROADMAP-Items:** #89-97 (davon #89✅, #90❌, #91✅ bei Verifikation).
+  - **Fazit:** Fork ist saturiert — keine neuen umsetzbaren Quick-Wins verfügbar.
+  - **Commits:** `311790c79`, `a13f4087c`
+
 ### #44 Alloc-MoE Phase 0 Quality-Benchmark — ❌ NO-GO
 
 - **feat: `LLAMA_MOE_K_OVERRIDE` env var** — Override für `hparams.n_expert_used` zur Laufzeit. Erlaubt Reduktion der aktiven Experten pro Token (K) ohne Code-Änderung. Gelesen in `llama-model.cpp:load_hparams` nach GGUF-Parsing, vor Asserts. Validierung: 1 ≤ K ≤ n_expert. 0/unset = GGUF-Default.

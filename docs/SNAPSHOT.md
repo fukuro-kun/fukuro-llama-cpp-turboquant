@@ -1,22 +1,34 @@
 # Momentaufnahme — fukuro-llama-cpp-turboquant
 
-**Datum:** 2026-07-26 | **Branch:** `master` | **Letzter Commit:** `3504a2c00` (#44 Alloc-MoE Phase 0 ❌ NO-GO)
+**Datum:** 2026-07-26 | **Branch:** `master` | **Letzter Commit:** `04ed54f16` (Code-Cleanup -358 Zeilen)
 
 ---
 
 ## Was zuletzt passiert ist
 
-### 2026-07-26: MoE-Optimierung Tier-3 erschöpft (3 ❌ in einer Session)
+### 2026-07-26: MoE-Optimierung Tier-3 erschöpft + Code-Cleanup + Research-Sweep #5
 
-Solo-Session mit Auto-Fortsetzung (2×). Drei Tier-3 ROADMAP-Items implementiert, benchmarked und als ❌ NO-GO evaluiert:
+Solo-Session mit Auto-Fortsetzung (4×). Drei Tier-3 ROADMAP-Items implementiert, benchmarked und als ❌ NO-GO evaluiert, dann toter Code entfernt und monatliche Recherche durchgeführt:
 
-1. **#71 Set-Associative MoE Cache** (`POLICY_SET_ASSOC_LRU`) — N×M Slots mit LRU pro Set. Benchmark: -25% bis -50% bei 512MB, Rauschen bei 1024MB. Root Cause: 128 Experten × 30 Layer = 3840 Entries → 160-320 Slots = 24:1 Oversubscription. Fully-associative LRU hat keine Conflict-Misses. Commit `e1d9ae2bf`.
+1. **#71 Set-Associative MoE Cache** — -25% bis -50%. Commit `e1d9ae2bf`.
+2. **#18 DALI Workload-Aware Cache** — ±0%. Commit `d2d3c8ce6`.
+3. **#44 Alloc-MoE Phase 0** — K=6 +13.5% PPL. Commit `3504a2c00`.
+4. **Code-Cleanup** — -358 Zeilen toter Code aus 3 ❌ Experimenten entfernt. Nur LRU + Heuristic bleiben. Commit `04ed54f16`.
+5. **Research-Sweep #5** — 4 parallele Subagents, 51 Items, 5/5 Quick-Wins bereits im Fork. 9 neue ROADMAP-Items (#89-97). Commits `311790c79`, `a13f4087c`.
 
-2. **#18 DALI Workload-Aware Cache** (`POLICY_WORKLOAD`) — Sliding-window workload accumulation, periodic reset. Benchmark: +81% im ersten Run (Artefakt!), +2.5% bei Verification, -1.1% bis +0.4% bei Final. Root Cause: PCIe-Transfer dominiert, nicht Eviction-Policy. Commit `d2d3c8ce6`.
+**Code-Review** (review-swe Subagent): 5 P1 + 3 P2 Issues gefunden, alle gefixt. Commits `d9346c051`, `f942ef2b9`, `8d3ac34bb`.
 
-3. **#44 Alloc-MoE Phase 0** (`LLAMA_MOE_K_OVERRIDE`) — K-Reduktion Quality-Benchmark. Wichtige Korrektur: Gemma-4-26B-A4B nutzt K=8 (nicht K=2). Perplexity: K=6 +13.5%, K=4 +22.9%, K=2 +66.5%. Speed: K=6 +24%, K=4 +38%. Go/No-Go >5% PPL-Drop → ❌. Commit `3504a2c00`.
+### Echte Speedups (letzte 2 Wochen)
 
-**Code-Review** (review-swe Subagent): 5 P1 Issues gefunden, alle gefixt (queued-slot detection, off-by-one, pool-init locking, invalidate clear, Kommentar). Commits `d9346c051`, `f942ef2b9`, `8d3ac34bb`.
+| Datum | Was | Speedup | Commit |
+|-------|-----|---------|--------|
+| 2026-07-20 | MoE-Default 10→6 (Uranus) | +26% tg, +85% pp | `ffd4845a0` |
+| 2026-07-15 | 2-Slot Prefetch (Styx) | +28.9% pp, +2.1% tg | `9651e5fba` |
+| 2026-07-15 | 2-Slot Prefetch (Mars) | +8.8% pp, +3.8% tg | `5c60d0b7b` |
+| 2026-07-10 | QAT Produktiv-Standard | +10% pp, +16.6% tg (Mars) | `517ec94d1` |
+| 2026-07-09 | turbo3/turbo4 mixed K/V | +31% pp@96k-128k | (Benchmark doc) |
+
+**Hinweis:** Diese Session (2026-07-26) brachte **keinen** neuen Speedup — alle 3 MoE-Experimente waren ❌ NO-GO. Die letzten echten Speedups waren vom 2026-07-20 (MoE-Default Tuning) und 2026-07-15 (2-Slot Prefetch).
 
 ### 2026-07-25: /slots progress + n_tokens_total
 
@@ -29,26 +41,28 @@ Solo-Session mit Auto-Fortsetzung (2×). Drei Tier-3 ROADMAP-Items implementiert
 | Meilenstein | Status | Items |
 |-------------|--------|-------|
 | M1-M5 | ✅ Abgeschlossen | TurboQuant, Vulkan, MTP, UBBoost, etc. |
-| M6 (Forschung) | 🟡 In Arbeit | Tier-3 MoE-Items erschöpft (3×❌), Tier-2 re-evaluieren |
+| M6 (Forschung) | 🟡 In Arbeit | MoE-Tier-3 erschöpft (4×❌), Research-Sweep #5 komplett, Fork saturiert |
 
-### Tier-3 MoE-Optimierung: ERSCHÖPFT
+### Tier-3 MoE-Optimierung: ERSCHÖPFT (4× ❌)
 
 | Item | Policy | Ergebnis | Commit |
 |------|--------|----------|--------|
-| #69 | Heuristic (freq+recency) | -3.1% (kurz), +1.8% (lang) → ❌ | (vor dieser Session) |
+| #69 | Heuristic (freq+recency) | -3.1% → ❌ | (vor Session) |
 | #71 | Set-Associative (N×M) | -25% bis -50% → ❌ | `e1d9ae2bf` |
-| #18 | Workload-Aware (windowed) | +2.5% (kurz), -1.1% (lang) → ❌ | `d2d3c8ce6` |
+| #18 | Workload-Aware (windowed) | ±0% → ❌ | `d2d3c8ce6` |
 | #44 | Alloc-MoE (K-Reduktion) | K=6 +13.5% PPL → ❌ | `3504a2c00` |
 
-**Fazit:** LRU Cache + K=8 ist nahezu optimal für Gemma-4-26B-A4B. PCIe-Transfer und Expert-Diversität sind die Bottlenecks, nicht Eviction-Policy oder K-Anzahl.
+**Fazit:** LRU Cache + K=8 ist optimal für Gemma-4-26B-A4B. PCIe-Transfer und Expert-Diversität sind die Bottlenecks. Code bereinigt (-358 Zeilen), nur LRU + Heuristic bleiben.
 
-### Tier-2: ⏭️ Re-Evaluierung nötig
+### Erkenntnisse für künftige Solo-Sessions
 
-Verbleibende ⏭️ Items die reif für Re-Evaluierung sein könnten:
-- **#14 LFU Caching** — "SpecMD 85× besser als LRU" — aber MoE-Cache-Thema erschöpft
-- **#38 Conf-KV** — KV-Eviction, komplementär zu TurboQuant
-- **#40 Phase 2** — Per-Expert-Platzierung (erfordert Tensor-Splitting)
-- **#63 xKV** — Cross-Layer KV-Compression (8× Kompression)
+- **Mars hat coopmat2**, nicht coopmat1. Coopmat1-Optimierungen greifen nicht. Subagent-Prompts müssen coopmat2-Status explizit erwähnen.
+- **Fine-grained MoE (128 Experten, K=8) hat zu wenig Spielraum für K-Reduktion.** Keine weiteren K-Reduktions-Experimente an Gemma-4-A4B.
+- **PCIe-Transfer dominiert über Eviction-Policy.** Bei 24:1 Oversubscription ist Hit-Rate begrenzt durch Cache-Größe, nicht durch Eviction-Strategie.
+- **Research-Sweeps sollten Items vor ROADMAP-Eintrag verifizieren.** 5/5 Quick-Wins waren bereits im Fork.
+- **Fork ist saturiert.** Keine neuen umsetzbaren Quick-Wins. Neue Optimierungen erfordern Paper-Implementierungen (Tier 2-3) oder Upstream-Sync.
+- **Code-Review findet echte Bugs.** P1#3 (pool-init locking) war Deadlock-Risk. Code-Review ist wertvoll, nicht optional.
+- **Bei erschöpften Auto-Fortsetzungen: Code-Cleanup ist immer möglich.** Toter Code aus ❌ NO-GO Experimenten proaktiv aufräumen.
 
 ### Produktiv-Status
 
@@ -61,20 +75,22 @@ Verbleibende ⏭️ Items die reif für Re-Evaluierung sein könnten:
 
 ## Aktuell in Arbeit (uncommitted)
 
-Keine uncommitteten Änderungen. Alle 8 Commits der Session gepusht.
+Keine uncommitteten Änderungen. Alle 12 Commits der Session gepusht.
 
 ## Offene Aufgaben
 
 ### [D]evin (Auto-Fortsetzung)
-- Keine weiteren Tier-3 Items ohne User-Entscheidung
-- Tier-2 Re-Evaluierung möglich (braucht User-Input welche Items priorisiert)
+- Keine weiteren Auto-Fortsetzungs-Arbeiten ohne User-Entscheidung
+- Tier-2 Paper-Implementierungen (#92-97) brauchen User-Entscheidung (1-3 Wochen Aufwand)
 
 ### [F]ukuro
-- Entscheidung: Tier-2 Re-Evaluierung oder anderes Thema (z.B. neues Modell, Vulkan-Optimierung)
-- Hydra GPU-Ausnahme war auf diese Session begrenzt — bei nächsten GPU-Benchmarks wieder Pascal-Host verwenden
+- **Upstream-Sync** — Fork ist ~683 Builds hinter upstream (b10133). Großer Rebase/Audit.
+- **Tier-2 Re-Eval** — #38 Conf-KV, #63 xKV (KV-Compression jenseits TurboQuant)
+- **Tier-2 Paper-Impl.** — #92 RateQuant, #93 InnerQ, #94 FineMoE (1-3 Wochen)
+- **#88 MTP+TP Test** — wenn Uranus frei ist
 
 ## Nächste Schritte
 
-1. **User-Entscheidung:** Welche Richtung nach Tier-3 Erschöpfung? (Tier-2 Re-Eval, neues Thema, oder Pause)
-2. **Tier-2 Re-Eval** (falls gewünscht): #38 Conf-KV oder #63 xKV als KV-Compression-Fokus (komplementär zu TurboQuant)
-3. **MoE-Cache-Code aufräumen:** 3 neue Policies (Default OFF) — evtl. dead code entfernen wenn langfristig ungenutzt
+1. **User-Entscheidung:** Upstream-Sync, Tier-2 Paper-Implementierung, oder anderes Thema
+2. **Upstream-Sync** (falls gewünscht): ~683 Builds Audit, 2-4 Tage Aufwand
+3. **Tier-2 Re-Eval** (falls gewünscht): #38 Conf-KV oder #63 xKV als KV-Compression-Fokus
