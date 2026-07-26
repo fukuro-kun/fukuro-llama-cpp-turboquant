@@ -39,6 +39,7 @@
 | `src/ggml.c` | Kern-Tensor-Operationen, Graphen-Ausfuehrung, Speicher-Allokation |
 | `src/ggml-quants.c` | Quantisierungsformate (Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K–Q8_K, IQ-Formate) |
 | `src/ggml-turbo-quant.c` | **TurboQuant KV/Weights-Kompression** (Fork-spezifisch) |
+| `src/ggml-cuda/moe-cache.cu` | **MoE Expert Cache** (Fork-spezifisch) — async CPU→GPU fetch, 4 Eviction-Policies: LRU (Default), Heuristic, Set-Associative, Workload-Aware. Env: `GGML_CUDA_MOE_CACHE=1`, `GGML_CUDA_MOE_CACHE_POLICY=lru\|heuristic\|set-assoc-lru\|workload`. Siehe `docs/fork/ROADMAP.md` #18/#69/#71 für Benchmark-Ergebnisse. |
 | `src/ggml-backend.cpp` | Backend-Abstraktion, Scheduling, Buffer-Management |
 | `src/ggml-backend-meta.cpp` | Backend-Metadaten und Aufzaehlung |
 | `src/ggml-backend-reg.cpp` | Backend-Registrierung (Dynamisches Laden) |
