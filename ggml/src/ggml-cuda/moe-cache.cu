@@ -73,6 +73,15 @@ struct moe_cache_pool {
     int lru_head = -1;
     int lru_tail = -1;
     uint32_t max_freq = 0;     // running max of freq (for normalization)
+
+    // Set-associative Cache (POLICY_SET_ASSOC_LRU): n_slots = n_sets * n_ways.
+    // Slot-Index = set_idx * n_ways + way_idx (bleibt contiguous fuer mmvq kernel).
+    // Bei n_sets == 0 ist der Pool fully-associative (LRU/Heuristic).
+    int n_sets = 0;            // Anzahl Sets (0 = nicht set-associative)
+    int n_ways = 0;            // Wege pro Set (M)
+    std::vector<int> set_lru_head;  // [n_sets] LRU head pro Set
+    std::vector<int> set_lru_tail;  // [n_sets] LRU tail pro Set
+    std::vector<int> set_n_used;    // [n_sets] belegte Slots pro Set
 };
 
 struct moe_cache_device {
@@ -161,13 +170,18 @@ struct moe_cache_global {
                                  // (GGML_CUDA_MOE_CACHE_MAX_BATCH; >1 for spec-verify/parallel)
     int    stats_every      = 0; // log every N collect() calls (0 = off)
 
-    // Eviction policy: "lru" (default, original) or "heuristic" (recency+frequency)
-    // GGML_CUDA_MOE_CACHE_POLICY=heuristic to enable
+    // Eviction policy: "lru" (default, original), "heuristic" (recency+frequency),
+    // oder "set-assoc-lru" (N-index M-way set-associative, LRU pro Set).
+    // GGML_CUDA_MOE_CACHE_POLICY=heuristic|set-assoc-lru to enable
     // Heuristic: score = alpha*(1/(age+1)) + beta*(freq/max_freq)
     // Evict slot with LOWEST score. alpha=0.7, beta=0.3 empirically.
+    // Set-assoc-lru: Hash(key) % n_sets -> Set -> M-Vergleiche, LRU pro Set.
     // tick is advanced ONCE per plan() call (not per hit) so all hits in the
     // same plan() share the same last_access value — avoids iteration-order bias.
-    enum eviction_policy { POLICY_LRU, POLICY_HEURISTIC } policy = POLICY_LRU;
+    enum eviction_policy { POLICY_LRU, POLICY_HEURISTIC, POLICY_SET_ASSOC_LRU } policy = POLICY_LRU;
+    // Set-associative Konfiguration (nur bei POLICY_SET_ASSOC_LRU aktiv):
+    // GGML_CUDA_MOE_CACHE_SET_WAYS=M (Default 4), n_sets = n_slots / M
+    int set_assoc_ways = 4;   // M: Wege pro Set (paper default 4)
     uint64_t tick = 0;  // monotonic plan-scope counter (advanced once per plan())
 
     moe_cache_device dev[MOE_CACHE_MAX_DEV];
@@ -325,6 +339,11 @@ static inline uint64_t moe_cache_key(uint64_t name_hash, int eid) {
     return name_hash ^ ((uint64_t)(uint32_t)eid * 0x9E3779B97F4A7C15ULL);
 }
 
+// Set-Index aus Key: key ist schon FNV-1a ^ golden gemischt, mod reicht.
+static inline int moe_cache_set_idx(uint64_t key, int n_sets) {
+    return (int)(key % (uint64_t)n_sets);
+}
+
 // ---- LRU helpers (caller holds g.mu) ---------------------------------------
 
 static void moe_cache_lru_remove(moe_cache_pool & p, int idx) {
@@ -340,6 +359,28 @@ static void moe_cache_lru_push_back(moe_cache_pool & p, int idx) {
     s.next = -1;
     if (p.lru_tail >= 0) p.slots[p.lru_tail].next = idx; else p.lru_head = idx;
     p.lru_tail = idx;
+}
+
+// ---- Set-associative LRU helpers (caller holds g.mu) -----------------------
+// LRU pro Set: head/tail aus set_lru_head/set_lru_tail[set_idx].
+
+static void moe_cache_set_lru_remove(moe_cache_pool & p, int set_idx, int idx) {
+    moe_cache_slot & s = p.slots[idx];
+    int & head = p.set_lru_head[set_idx];
+    int & tail = p.set_lru_tail[set_idx];
+    if (s.prev >= 0) p.slots[s.prev].next = s.next; else head = s.next;
+    if (s.next >= 0) p.slots[s.next].prev = s.prev; else tail = s.prev;
+    s.prev = s.next = -1;
+}
+
+static void moe_cache_set_lru_push_back(moe_cache_pool & p, int set_idx, int idx) {
+    moe_cache_slot & s = p.slots[idx];
+    int & head = p.set_lru_head[set_idx];
+    int & tail = p.set_lru_tail[set_idx];
+    s.prev = tail;
+    s.next = -1;
+    if (tail >= 0) p.slots[tail].next = idx; else head = idx;
+    tail = idx;
 }
 
 // ---- insert workers ----------------------------------------------------------
@@ -375,20 +416,43 @@ restart:
             const int pi = want_pair ? g.blk_pair_pool[blk] : g.blk_down_pool[blk];
             if (pi < 0 || pi >= d.n_pools) continue;
             moe_cache_pool & p = d.pools[pi];
-            if (!p.slab || p.n_used >= p.n_slots) continue;
+            if (!p.slab) continue;
             if (want_pair && (!p.paired || !g.role_base[0][blk] || !g.role_base[1][blk])) continue;
             if (!want_pair && !g.blk_down_base[blk]) continue;
 
             const uint64_t key = want_pair
                 ? moe_cache_key(MOE_CACHE_PAIR_KEY_TAG ^ ((uint64_t)blk << 32) ^ moe_cache_ptr_hash(g.role_base[0][blk]), eid)
                 : moe_cache_key(g.blk_down_kb[blk], eid);
-            if (p.map.count(key)) continue;
 
-            const int si = p.n_used++;
-            p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, g.tick};
-            if (p.max_freq < 1) p.max_freq = 1;
-            moe_cache_lru_push_back(p, si);
-            p.map[key] = si;
+            // Set-associative Pfad: Capacity per Set, Scan im Set, Set-LRU
+            int si = -1;
+            if (p.n_sets > 0) {
+                const int set_idx = moe_cache_set_idx(key, p.n_sets);
+                const int set_base = set_idx * p.n_ways;
+                if (p.set_n_used[set_idx] >= p.n_ways) continue;
+                // Existenz-Check + freien Slot suchen
+                for (int w = 0; w < p.n_ways; w++) {
+                    const int cand = set_base + w;
+                    if (p.slots[cand].valid && p.slots[cand].key == key) { si = -2; break; }
+                    if (si < 0 && !p.slots[cand].valid && !p.slots[cand].queued) si = cand;
+                }
+                if (si == -2) continue;  // schon vorhanden
+                if (si < 0) continue;     // kein freier Slot
+                p.set_n_used[set_idx]++;
+                p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, g.tick};
+                if (p.max_freq < 1) p.max_freq = 1;
+                moe_cache_set_lru_push_back(p, set_idx, si);
+            } else {
+                // Fully-associative Pfad (bestehend)
+                if (p.n_used >= p.n_slots) continue;
+                if (p.map.count(key)) continue;
+                si = p.n_used++;
+                p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, g.tick};
+                if (p.max_freq < 1) p.max_freq = 1;
+                moe_cache_lru_push_back(p, si);
+                p.map[key] = si;
+            }
+            if (si < 0) continue;
             d.inserts++;
             out = moe_cache_job{di, pi, key, si,
                           want_pair ? (const char *)g.role_base[1][blk] + (size_t)eid * p.expert_size
@@ -520,7 +584,14 @@ static void moe_cache_worker_main(int wid) {
                 if (err == cudaSuccess) {
                     s.valid = true;
                 } else {
-                    p.map.erase(s.key);
+                    if (p.n_sets > 0) {
+                        // Set-associative: Set-Counter korrigieren
+                        const int set_idx = moe_cache_set_idx(s.key, p.n_sets);
+                        if (p.set_n_used[set_idx] > 0) p.set_n_used[set_idx]--;
+                        moe_cache_set_lru_remove(p, set_idx, job.slot_idx);
+                    } else {
+                        p.map.erase(s.key);
+                    }
                     s.key = 0;
                 }
             }
@@ -625,10 +696,34 @@ static bool moe_cache_pool_alloc(int di, size_t expert_size, int wtype, size_t b
     p.map.clear();
     p.lru_head = p.lru_tail = -1;
     p.slots.assign(ns, moe_cache_slot{0, -1, -1, false, false, 0, 0});
+
+    // Set-associative Konfiguration (nur bei POLICY_SET_ASSOC_LRU aktiv):
+    // n_sets = n_slots / M, M = set_assoc_ways. n_slots muss durch M teilbar sein.
+    if (g.policy == moe_cache_global::POLICY_SET_ASSOC_LRU && g.set_assoc_ways > 0) {
+        const int M = g.set_assoc_ways;
+        if (ns % M != 0) {
+            // Aufrunden auf naechstes vielfaches von M (verwirft max M-1 Slots)
+            ns = (ns / M) * M;
+        }
+        p.n_sets = ns / M;
+        p.n_ways = M;
+        p.set_lru_head.assign(p.n_sets, -1);
+        p.set_lru_tail.assign(p.n_sets, -1);
+        p.set_n_used.assign(p.n_sets, 0);
+        // n_slots ggf. reduzieren (bei Aufrundung)
+        p.n_slots = ns;
+        MOE_CACHE_LOG("[moe-cache] dev=%d pool[%d]: set-associative %d sets x %d ways = %d slots\n",
+                di, d.n_pools, p.n_sets, p.n_ways, ns);
+    } else {
+        p.n_sets = 0;
+        p.n_ways = 0;
+    }
+
     d.n_pools++;
-    MOE_CACHE_LOG("[moe-cache] dev=%d pool[%d]: type=%d slot=%zu KB slots=%d total=%zu MB%s\n",
+    MOE_CACHE_LOG("[moe-cache] dev=%d pool[%d]: type=%d slot=%zu KB slots=%d total=%zu MB%s%s\n",
             di, d.n_pools - 1, wtype, expert_size >> 10, ns,
-            ((size_t)(paired ? 2 : 1) * ns * expert_size) >> 20, paired ? " (paired)" : "");
+            ((size_t)(paired ? 2 : 1) * ns * expert_size) >> 20, paired ? " (paired)" : "",
+            p.n_sets > 0 ? " (set-assoc)" : "");
 
     if (!d.compute_stream) {
         CUDA_CHECK(cudaStreamCreateWithFlags(&d.compute_stream, cudaStreamNonBlocking));
@@ -939,6 +1034,138 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
     int n_hits = 0;
     int inserts_left = g.inserts_per_plan;
 
+    // ---- Set-associative Pfad (POLICY_SET_ASSOC_LRU) ----
+    // Hash(key) % n_sets -> Set -> M-Vergleiche, LRU pro Set.
+    // Vollstaendig separat vom fully-associative Pfad (keine HashMap).
+    if (g.policy == moe_cache_global::POLICY_SET_ASSOC_LRU && p.n_sets > 0) {
+        std::lock_guard<std::mutex> lk(g.mu);
+        const uint64_t cur_tick = ++g.tick;
+
+        for (int k = 0; k < n_ids; k++) {
+            slot_idx[k] = -1;
+            const int eid = ids[k];
+            if (eid < 0 || eid >= g.cur_n_expert) continue;
+            const uint64_t key = moe_cache_key(g.cur_key_base, eid);
+            const int set_idx = moe_cache_set_idx(key, p.n_sets);
+            const int set_base = set_idx * p.n_ways;
+
+            // Lookup: scan M slots im Set
+            int hit_si = -1;
+            for (int w = 0; w < p.n_ways; w++) {
+                const int si = set_base + w;
+                if (p.slots[si].valid && p.slots[si].key == key) {
+                    hit_si = si;
+                    break;
+                }
+            }
+
+            if (hit_si >= 0) {
+                // Hit: LRU update im Set
+                moe_cache_set_lru_remove(p, set_idx, hit_si);
+                moe_cache_set_lru_push_back(p, set_idx, hit_si);
+                moe_cache_slot & s = p.slots[hit_si];
+                if (s.freq < UINT32_MAX) s.freq++;
+                s.last_access = cur_tick;
+                slot_idx[k] = hit_si;
+                d.hits++;
+                d.pool_hits[g.cur_pool]++;
+                n_hits++;
+                continue;
+            }
+
+            // Miss
+            d.misses++;
+            d.pool_miss[g.cur_pool]++;
+            if (d.ever_seen.insert(key).second) {
+                d.miss_compulsory++;
+            } else if (d.ever_inserted.count(key)) {
+                d.miss_capacity++;
+            } else {
+                d.miss_admission++;
+            }
+
+            // Insert: Budget-Checks (gleich wie fully-associative)
+            if (inserts_left <= 0) { d.insert_skips++; d.skip_budget++; continue; }
+            if ((int)g.queue.size() >= g.queue_max) { d.insert_skips++; d.skip_qfull++; continue; }
+            if (p.set_n_used[set_idx] >= p.n_ways && (d.misses % g.throttle_mod) != 0) {
+                d.insert_skips++; d.skip_throttle++; continue;
+            }
+
+            // Paired-entry Checks (gleich wie fully-associative)
+            const bool pair_entry = p.paired && (g.cur_role == 0 || g.cur_role == 1);
+            if (pair_entry && (g.cur_blk < 0 || g.cur_blk >= 1024 ||
+                               !g.role_base[0][g.cur_blk] || !g.role_base[1][g.cur_blk])) {
+                d.insert_skips++; continue;
+            }
+
+            // Slot waehlen: freier Slot im Set oder LRU-Eviction im Set
+            int si = -1;
+            if (p.set_n_used[set_idx] < p.n_ways) {
+                // Freier Slot: erste ungueltige Position im Set finden
+                for (int w = 0; w < p.n_ways; w++) {
+                    const int cand = set_base + w;
+                    if (!p.slots[cand].valid && !p.slots[cand].queued) {
+                        si = cand;
+                        p.set_n_used[set_idx]++;
+                        break;
+                    }
+                }
+                if (si < 0) {
+                    // Alle Slots queued aber nicht valid -> LRU-Eviction
+                    p.set_n_used[set_idx] = p.n_ways;  // Korrektur
+                }
+            }
+            if (si < 0) {
+                // Eviction: LRU head im Set, skip queued
+                int cand = p.set_lru_head[set_idx];
+                int guard = 0;
+                while (cand >= 0 && p.slots[cand].queued && guard++ < p.n_ways) {
+                    cand = p.slots[cand].next;
+                }
+                if (cand >= 0 && p.slots[cand].queued) cand = -1;
+                if (cand < 0) { d.insert_skips++; d.skip_lrubusy++; continue; }
+                si = cand;
+                moe_cache_slot & old = p.slots[si];
+                if (old.valid || old.queued) {
+                    d.evictions++;
+                }
+                moe_cache_set_lru_remove(p, set_idx, si);
+            }
+
+            // Slot belegen
+            const void * src_up   = nullptr;
+            const void * src_gate = nullptr;
+            if (pair_entry) {
+                src_up   = (const char *)g.role_base[1][g.cur_blk] + (size_t)eid * g.cur_expert_size;
+                src_gate = (const char *)g.role_base[0][g.cur_blk] + (size_t)eid * g.cur_expert_size;
+            } else {
+                src_up = (const char *)g.cur_host_base + (size_t)eid * g.cur_expert_size;
+            }
+
+            p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, cur_tick};
+            moe_cache_set_lru_push_back(p, set_idx, si);
+            d.inserts++;
+            d.ever_inserted.insert(key);
+            inserts_left--;
+
+            {
+                const int bblk = (g.cur_role == 2 || pair_entry) ? g.cur_blk : -1;
+                g.queue.push_back(moe_cache_job{di, g.cur_pool, key, si, src_up,
+                                          pair_entry ? src_gate : nullptr,
+                                          g.cur_expert_size, bblk, eid});
+            }
+            g.cv.notify_one();
+        }
+
+        g.cur_n_ids = n_ids;
+        for (int k = 0; k < n_ids && k < 64; k++) g.cur_slot_idx[k] = slot_idx[k];
+        d.t_plan_us += ggml_time_us() - t0;
+        d.n_nodes++;
+        MOE_CACHE_DBG("[moe-cache-dbg] set-assoc plan dev=%d hits=%d q=%zu\n", di, n_hits, g.queue.size());
+        return n_hits;
+    }
+
+    // ---- Fully-associative Pfad (LRU / Heuristic) ----
     std::lock_guard<std::mutex> lk(g.mu);
 
     // Advance tick ONCE per plan() call — all hits/inserts in this call share
@@ -1541,6 +1768,11 @@ extern "C" size_t ggml_moe_cache_trim(int device) {
         p.map.clear();
         p.n_slots = 0;
         p.n_used  = 0;
+        p.n_sets  = 0;
+        p.n_ways  = 0;
+        p.set_lru_head.clear();
+        p.set_lru_tail.clear();
+        p.set_n_used.clear();
     }
     if (d.d_ids)    { cudaFree(d.d_ids);          d.d_ids = nullptr;    d.ids_cap = 0; }
     if (d.d_act)    { cudaFree(d.d_act);          d.d_act = nullptr;    d.act_cap = 0; }
@@ -1843,18 +2075,31 @@ void ggml_moe_cache_register(void) {
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_PREFETCH"))      g.backfill.enabled = atoi(e) > 0;
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_HOTSET"))        g.hotset_enabled = atoi(e) > 0;
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_POLICY")) {
-        // "lru" (default) or "heuristic" (recency+frequency weighted eviction)
+        // "lru" (default), "heuristic" (recency+frequency), or "set-assoc-lru"
+        // (N-index M-way set-associative, LRU pro Set)
         // Case-insensitive comparison for usability
         std::string pol(e);
         for (auto & c : pol) c = tolower(c);
         if (pol == "heuristic" || pol == "1") {
             g.policy = moe_cache_global::POLICY_HEURISTIC;
             MOE_CACHE_LOG("[moe-cache] eviction policy: heuristic (recency+frequency)\n");
+        } else if (pol == "set-assoc-lru" || pol == "set-assoc" || pol == "2") {
+            g.policy = moe_cache_global::POLICY_SET_ASSOC_LRU;
+            MOE_CACHE_LOG("[moe-cache] eviction policy: set-associative LRU (N sets x M ways)\n");
         } else if (pol == "lru" || pol == "0") {
             g.policy = moe_cache_global::POLICY_LRU;
         } else {
             MOE_CACHE_LOG("[moe-cache] WARNING: unknown GGML_CUDA_MOE_CACHE_POLICY='%s', falling back to lru\n", e);
             g.policy = moe_cache_global::POLICY_LRU;
+        }
+    }
+    if (const char * e = getenv("GGML_CUDA_MOE_CACHE_SET_WAYS")) {
+        int m = atoi(e);
+        if (m >= 1 && m <= 16) {
+            g.set_assoc_ways = m;
+            MOE_CACHE_LOG("[moe-cache] set-associative ways: %d\n", m);
+        } else {
+            MOE_CACHE_LOG("[moe-cache] WARNING: invalid GGML_CUDA_MOE_CACHE_SET_WAYS='%s', using default 4\n", e);
         }
     }
     g.hotset_last_save = ggml_time_us();   // first save no sooner than one period in

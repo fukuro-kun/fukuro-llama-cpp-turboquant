@@ -1,9 +1,19 @@
 # SESSION_PLAN: #71 Efficient CPU-GPU Collaborative MoE
 
 **Erstellt:** 2026-07-21
-**Status:** Plan fertig, Implementierung ausstehend
+**Aktualisiert:** 2026-07-25 (Solo-Start, Entscheidungen aus Interview eingetragen)
+**Status:** ❌ NO-GO (2026-07-25). Implementiert + Benchmarked, Set-assoc -25% bis -50% bei 512MB, Rauschen bei 1024MB. Fully-associative LRU überlegen bei 128-Expert-Oversubscription.
 **ROADMAP-Item:** #71 Efficient CPU-GPU Collaborative MoE (Tier 3, 2 Wochen)
 **Vorgänger:** #69 FlashMoE Heuristic Benchmark (✅ 2026-07-21: ❌ NO-GO, Voraussetzung erfüllt)
+
+## Entscheidungen (Interview 2026-07-25)
+
+| Frage | Entscheidung | Begründung |
+|-------|-------------|------------|
+| Benchmark-Host | **hydra GPU (Ausnahme!)** | fukuro erlaubt GPU in dieser Session — kein Produktiv-Ausfall, schnellere Iteration. RTX 3070 Mobile 8GB (Ampere), PCIe-Cache-Effekt messbar. |
+| N/M-Konfiguration | **Alle 3 testen** | 64/4 (Paper-Default), 128/2 (2-way), 32/8 (8-way) — fundierte Entscheidung durch Benchmark |
+| Hash-Funktion | **Alles ausprobieren** | Basis-Hash `(blk * n_expert + eid) % N`, #40-Freq-aware, weitere Varianten — je nach Konflikts-Miss-Rate |
+| Max. Subagents parallel | **2** | Session-spezifisches Limit (fukuro, 2026-07-25) |
 
 ## Session-Ziel
 
@@ -69,12 +79,13 @@ Ziel (N-index M-way set-associative):
 
 ### Phase 3: Benchmark + Validierung (3-4 Tage)
 
-1. **Benchmark auf Styx:** tg128 + tg512, Set-Associative vs LRU vs Heuristic
+1. **Benchmark auf hydra (GPU-Ausnahme 2026-07-25!):** tg128 + tg512, Set-Associative vs LRU vs Heuristic
    - Budget: 256MB, 512MB, 1024MB (falls VRAM erlaubt)
-   - N/M-Variation: 64/4, 128/2, 32/8
+   - N/M-Variation: 64/4, 128/2, 32/8 — **alle 3 testen** (Entscheidung 2026-07-25)
+   - Hash-Varianten: Basis-Hash, #40-Freq-aware, weitere — **alles ausprobieren** (Entscheidung 2026-07-25)
 2. **Go/No-Go-Gate:** >5% Speedup vs LRU → Go für Produktiv
 3. **Regression-Test:** Cache-Stats vergleichen (Hit-Rate, Eviction-Rate, Latency)
-4. **Hydra-Test:** Auf Hydra (RTX 3070 Mobile, 8GB) verifizieren — GPU ist gesperrt für Inference, nur CPU+Cache-Test mit `-ngl 0` oder kurzer GPU-Burst
+4. **Styx-Verifikation (nach Go):** Auf Styx (GTX 1070, 8GB) verifizieren — Service stoppen, Test-Server, Service wiederherstellen (wie #69)
 
 ### Phase 4: Doku + Commit (1-2 Tage)
 

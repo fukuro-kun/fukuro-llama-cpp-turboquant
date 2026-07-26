@@ -8,6 +8,17 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-25
 
+### #71 Set-Associative MoE Cache — ❌ NO-GO
+
+- **feat: `POLICY_SET_ASSOC_LRU` in `moe-cache.cu`** — N-index M-way set-associative Cache als neue Eviction-Policy. Implementiert: `moe_cache_set`-Struktur (n_sets × n_ways Slots, LRU pro Set), Hash-basiertes Set-Mapping (`key % n_sets`), set-lokale LRU-Helfer, Env-Vars `GGML_CUDA_MOE_CACHE_POLICY=set-assoc-lru` + `GGML_CUDA_MOE_CACHE_SET_WAYS=M`. Vollständig parallel zum bestehenden fully-associative LRU/Heuristic-Pfad (A/B-Test-fähig). Backfill-Worker und Error-Recovery an set-associative angepasst.
+  - **Datei:** `ggml/src/ggml-cuda/moe-cache.cu` (+136 Zeilen plan, +48 Zeilen backfill, +47 Zeilen LRU-Helfer, +39 Zeilen pool-init, +28 Zeilen env-var)
+  - **Benchmark (hydra, RTX 3070, 8GB, 26B-A4B QAT, -ngl 0):**
+    - 512MB Budget (160 slots): LRU tg64=1.90, Set-assoc 40×4=1.42 (**-25%**), 80×2=0.94 (**-50%**), 20×8=1.13 (**-41%**)
+    - 1024MB Budget (320 slots): LRU tg128=1.36, Set-assoc 80×4=1.34 (-1.5%, Rauschen), 40×8=1.35 (-0.7%, Rauschen)
+  - **Go/No-Go >5% → ❌ NO-GO.** Root Cause: 128 Experten × 30 Layer = 3840 Entries → 160-320 Slots = starke Oversubscription. Fully-associative LRU hat keine Conflict-Misses, Set-assoc restrictiert Placement. HashMap O(1) ist nicht Bottleneck (PCIe dominiert). Paper's 4.4× war RTX 4090 + SSD-Offloading (anderer Bottleneck).
+  - **Code bleibt** als `POLICY_SET_ASSOC_LRU` (Default OFF) — potenziell nützlich für Modelle mit wenigen Experten (≤16), dokumentiert als ❌ für 128-Expert-Modelle.
+  - **ROADMAP #71 → ❌**, SESSION_PLAN aktualisiert.
+
 ### /slots: progress + n_tokens_total Felder
 
 - **feat: `progress` und `n_tokens_total` im `/slots` JSON-Endpoint** — Exponiert den Prefill-Fortschritt (`progress`, 0.0–1.0 geclampt) und die Gesamtzahl der Task-Tokens (`n_tokens_total`) pro Slot. Ermöglicht dem janus-Router während des Prefills zu pollen und zwischen "Backend arbeitet (SWA cache invalidation)" und "Backend hängt" zu unterscheiden. Spec: `docs/SPEC_slot_progress.md`.
