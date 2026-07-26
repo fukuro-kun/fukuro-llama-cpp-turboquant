@@ -2146,9 +2146,29 @@ void ggml_moe_cache_register(void) {
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_MAX_BATCH"))     { int n = atoi(e); if (n >= 1 && n <= 8) g.max_batch = n; }
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_PREFETCH"))      g.backfill.enabled = atoi(e) > 0;
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_HOTSET"))        g.hotset_enabled = atoi(e) > 0;
+    // Parse tuning params BEFORE policy so logs show correct values
+    if (const char * e = getenv("GGML_CUDA_MOE_CACHE_SET_WAYS")) {
+        int m = atoi(e);
+        if (m >= 1 && m <= 16) {
+            g.set_assoc_ways = m;
+            MOE_CACHE_LOG("[moe-cache] set-associative ways: %d\n", m);
+        } else {
+            MOE_CACHE_LOG("[moe-cache] WARNING: invalid GGML_CUDA_MOE_CACHE_SET_WAYS='%s', using default 4\n", e);
+        }
+    }
+    if (const char * e = getenv("GGML_CUDA_MOE_CACHE_WSIZE")) {
+        int w = atoi(e);
+        if (w >= 4 && w <= 512) {
+            g.workload_wsize = w;
+            MOE_CACHE_LOG("[moe-cache] workload window size: %d\n", w);
+        } else {
+            MOE_CACHE_LOG("[moe-cache] WARNING: invalid GGML_CUDA_MOE_CACHE_WSIZE='%s', using default 32\n", e);
+        }
+    }
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_POLICY")) {
-        // "lru" (default), "heuristic" (recency+frequency), or "set-assoc-lru"
-        // (N-index M-way set-associative, LRU pro Set)
+        // "lru" (default), "heuristic" (recency+frequency), "set-assoc-lru"
+        // (N-index M-way set-associative, LRU pro Set), or "workload"
+        // (DALI-inspired sliding-window workload accumulation)
         // Case-insensitive comparison for usability
         std::string pol(e);
         for (auto & c : pol) c = tolower(c);
@@ -2166,24 +2186,6 @@ void ggml_moe_cache_register(void) {
         } else {
             MOE_CACHE_LOG("[moe-cache] WARNING: unknown GGML_CUDA_MOE_CACHE_POLICY='%s', falling back to lru\n", e);
             g.policy = moe_cache_global::POLICY_LRU;
-        }
-    }
-    if (const char * e = getenv("GGML_CUDA_MOE_CACHE_SET_WAYS")) {
-        int m = atoi(e);
-        if (m >= 1 && m <= 16) {
-            g.set_assoc_ways = m;
-            MOE_CACHE_LOG("[moe-cache] set-associative ways: %d\n", m);
-        } else {
-            MOE_CACHE_LOG("[moe-cache] WARNING: invalid GGML_CUDA_MOE_CACHE_SET_WAYS='%s', using default 4\n", e);
-        }
-    }
-    if (const char * e = getenv("GGML_CUDA_MOE_CACHE_WSIZE")) {
-        int w = atoi(e);
-        if (w >= 4 && w <= 512) {
-            g.workload_wsize = w;
-            MOE_CACHE_LOG("[moe-cache] workload window size: %d\n", w);
-        } else {
-            MOE_CACHE_LOG("[moe-cache] WARNING: invalid GGML_CUDA_MOE_CACHE_WSIZE='%s', using default 32\n", e);
         }
     }
     g.hotset_last_save = ggml_time_us();   // first save no sooner than one period in
