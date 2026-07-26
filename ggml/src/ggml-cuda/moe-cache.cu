@@ -57,6 +57,7 @@ struct moe_cache_slot {
     bool     queued;    // insert copy queued or in flight
     uint32_t freq;      // access count (for heuristic eviction policy)
     uint64_t last_access; // monotonic tick of last access (for recency)
+    float    workload_score; // windowed access count (for POLICY_WORKLOAD)
 };
 
 struct moe_cache_pool {
@@ -82,6 +83,10 @@ struct moe_cache_pool {
     std::vector<int> set_lru_head;  // [n_sets] LRU head pro Set
     std::vector<int> set_lru_tail;  // [n_sets] LRU tail pro Set
     std::vector<int> set_n_used;    // [n_sets] belegte Slots pro Set
+
+    // Workload-Aware (POLICY_WORKLOAD): windowed frequency, periodic reset.
+    // Nach wsize plan()-Calls werden alle workload_score Werte resettet.
+    int window_count = 0;      // plan()-Calls seit letztem Reset
 };
 
 struct moe_cache_device {
@@ -171,17 +176,23 @@ struct moe_cache_global {
     int    stats_every      = 0; // log every N collect() calls (0 = off)
 
     // Eviction policy: "lru" (default, original), "heuristic" (recency+frequency),
-    // oder "set-assoc-lru" (N-index M-way set-associative, LRU pro Set).
-    // GGML_CUDA_MOE_CACHE_POLICY=heuristic|set-assoc-lru to enable
+    // "set-assoc-lru" (N-index M-way set-associative), oder "workload"
+    // (DALI-inspired sliding-window workload accumulation, periodic batch reset).
+    // GGML_CUDA_MOE_CACHE_POLICY=heuristic|set-assoc-lru|workload to enable
     // Heuristic: score = alpha*(1/(age+1)) + beta*(freq/max_freq)
     // Evict slot with LOWEST score. alpha=0.7, beta=0.3 empirically.
     // Set-assoc-lru: Hash(key) % n_sets -> Set -> M-Vergleiche, LRU pro Set.
+    // Workload: windowed frequency (wsize Tokens), periodic reset, evict lowest.
     // tick is advanced ONCE per plan() call (not per hit) so all hits in the
     // same plan() share the same last_access value — avoids iteration-order bias.
-    enum eviction_policy { POLICY_LRU, POLICY_HEURISTIC, POLICY_SET_ASSOC_LRU } policy = POLICY_LRU;
+    enum eviction_policy { POLICY_LRU, POLICY_HEURISTIC, POLICY_SET_ASSOC_LRU, POLICY_WORKLOAD } policy = POLICY_LRU;
     // Set-associative Konfiguration (nur bei POLICY_SET_ASSOC_LRU aktiv):
     // GGML_CUDA_MOE_CACHE_SET_WAYS=M (Default 4), n_sets = n_slots / M
     int set_assoc_ways = 4;   // M: Wege pro Set (paper default 4)
+    // Workload-Aware Konfiguration (nur bei POLICY_WORKLOAD aktiv):
+    // GGML_CUDA_MOE_CACHE_WSIZE=N (Default 32), sliding window size
+    // Nach wsize plan()-Calls wird workload_score aller Slots resettet.
+    int workload_wsize = 32;  // sliding window size (DALI paper)
     uint64_t tick = 0;  // monotonic plan-scope counter (advanced once per plan())
 
     moe_cache_device dev[MOE_CACHE_MAX_DEV];
@@ -439,7 +450,7 @@ restart:
                 if (si == -2) continue;  // schon vorhanden
                 if (si < 0) continue;     // kein freier Slot
                 p.set_n_used[set_idx]++;
-                p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, g.tick};
+                p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, g.tick, 1.0f};
                 if (p.max_freq < 1) p.max_freq = 1;
                 moe_cache_set_lru_push_back(p, set_idx, si);
             } else {
@@ -447,7 +458,7 @@ restart:
                 if (p.n_used >= p.n_slots) continue;
                 if (p.map.count(key)) continue;
                 si = p.n_used++;
-                p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, g.tick};
+                p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, g.tick, 1.0f};
                 if (p.max_freq < 1) p.max_freq = 1;
                 moe_cache_lru_push_back(p, si);
                 p.map[key] = si;
@@ -695,7 +706,7 @@ static bool moe_cache_pool_alloc(int di, size_t expert_size, int wtype, size_t b
     p.n_used      = 0;
     p.map.clear();
     p.lru_head = p.lru_tail = -1;
-    p.slots.assign(ns, moe_cache_slot{0, -1, -1, false, false, 0, 0});
+    p.slots.assign(ns, moe_cache_slot{0, -1, -1, false, false, 0, 0, 0.0f});
 
     // Set-associative Konfiguration (nur bei POLICY_SET_ASSOC_LRU aktiv):
     // n_sets = n_slots / M, M = set_assoc_ways. n_slots muss durch M teilbar sein.
@@ -1142,7 +1153,7 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
                 src_up = (const char *)g.cur_host_base + (size_t)eid * g.cur_expert_size;
             }
 
-            p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, cur_tick};
+            p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, cur_tick, 1.0f};
             moe_cache_set_lru_push_back(p, set_idx, si);
             d.inserts++;
             d.ever_inserted.insert(key);
@@ -1172,6 +1183,17 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
     // the same last_access, avoiding iteration-order bias in recency scoring.
     const uint64_t cur_tick = ++g.tick;
 
+    // Workload-Aware: periodic window reset nach wsize plan()-Calls.
+    // Reset aller workload_scores → sliding window effect.
+    if (g.policy == moe_cache_global::POLICY_WORKLOAD) {
+        if (++p.window_count >= g.workload_wsize) {
+            for (int i = 0; i < p.n_slots; i++) {
+                p.slots[i].workload_score = 0.0f;
+            }
+            p.window_count = 0;
+        }
+    }
+
     for (int k = 0; k < n_ids; k++) {
         slot_idx[k] = -1;
         const int eid = ids[k];
@@ -1189,6 +1211,8 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
                 if (s.freq < UINT32_MAX) s.freq++;
                 s.last_access = cur_tick;
                 if (s.freq > p.max_freq) p.max_freq = s.freq;
+                // update workload_score for POLICY_WORKLOAD (windowed frequency)
+                s.workload_score += 1.0f;
                 slot_idx[k] = si;
                 d.hits++;
                 d.pool_hits[g.cur_pool]++;
@@ -1248,7 +1272,19 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
         } else {
             // Eviction: pick victim based on policy
             int cand = -1;
-            if (g.policy == moe_cache_global::POLICY_HEURISTIC) {
+            if (g.policy == moe_cache_global::POLICY_WORKLOAD) {
+                // Workload-Aware (DALI-inspired): evict slot with LOWEST
+                // workload_score (windowed frequency). Periodic reset nach
+                // wsize plan()-Calls (siehe unten). Skip queued slots.
+                float worst_score = 1e30f;
+                for (int i = 0; i < p.n_slots; i++) {
+                    if (p.slots[i].queued) continue;
+                    if (p.slots[i].workload_score < worst_score) {
+                        worst_score = p.slots[i].workload_score;
+                        cand = i;
+                    }
+                }
+            } else if (g.policy == moe_cache_global::POLICY_HEURISTIC) {
                 // Heuristic: score = alpha*(1/(age+1)) + beta*(freq/max_freq)
                 // Evict slot with LOWEST score (least likely to be reused)
                 // Skip queued slots (can't evict in-flight inserts)
@@ -1304,7 +1340,7 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
             src_up = (const char *)g.cur_host_base + (size_t)eid * g.cur_expert_size;
         }
 
-        p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, cur_tick};
+        p.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, cur_tick, 1.0f};
         if (p.max_freq < 1) p.max_freq = 1;  // ensure freq term is non-zero after inserts
         moe_cache_lru_push_back(p, si);
         p.map[key] = si;
@@ -2086,6 +2122,9 @@ void ggml_moe_cache_register(void) {
         } else if (pol == "set-assoc-lru" || pol == "set-assoc" || pol == "2") {
             g.policy = moe_cache_global::POLICY_SET_ASSOC_LRU;
             MOE_CACHE_LOG("[moe-cache] eviction policy: set-associative LRU (N sets x M ways)\n");
+        } else if (pol == "workload" || pol == "3") {
+            g.policy = moe_cache_global::POLICY_WORKLOAD;
+            MOE_CACHE_LOG("[moe-cache] eviction policy: workload-aware (windowed frequency, wsize=%d)\n", g.workload_wsize);
         } else if (pol == "lru" || pol == "0") {
             g.policy = moe_cache_global::POLICY_LRU;
         } else {
@@ -2100,6 +2139,15 @@ void ggml_moe_cache_register(void) {
             MOE_CACHE_LOG("[moe-cache] set-associative ways: %d\n", m);
         } else {
             MOE_CACHE_LOG("[moe-cache] WARNING: invalid GGML_CUDA_MOE_CACHE_SET_WAYS='%s', using default 4\n", e);
+        }
+    }
+    if (const char * e = getenv("GGML_CUDA_MOE_CACHE_WSIZE")) {
+        int w = atoi(e);
+        if (w >= 4 && w <= 512) {
+            g.workload_wsize = w;
+            MOE_CACHE_LOG("[moe-cache] workload window size: %d\n", w);
+        } else {
+            MOE_CACHE_LOG("[moe-cache] WARNING: invalid GGML_CUDA_MOE_CACHE_WSIZE='%s', using default 32\n", e);
         }
     }
     g.hotset_last_save = ggml_time_us();   // first save no sooner than one period in

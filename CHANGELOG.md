@@ -8,6 +8,19 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-07-25
 
+### #18 DALI Workload-Aware Cache Policy — ❌ NO-GO
+
+- **feat: `POLICY_WORKLOAD` in `moe-cache.cu`** — DALI-inspired sliding-window workload accumulation. Windowed frequency pro Slot (workload_score), periodic reset nach wsize plan()-Calls, evict slot mit niedrigstem workload_score. Env-Vars: `GGML_CUDA_MOE_CACHE_POLICY=workload` + `GGML_CUDA_MOE_CACHE_WSIZE=N` (Default 32). Vollständig parallel zu LRU/Heuristic/Set-Assoc (A/B-Test-fähig).
+  - **Datei:** `ggml/src/ggml-cuda/moe-cache.cu` (+~80 Zeilen: enum, slot.workload_score, pool.window_count, eviction path, hit recording, periodic reset, env-vars)
+  - **Benchmark (hydra, RTX 3070, 8GB, 26B-A4B QAT, -ngl 0):**
+    - Erster Benchmark (n=128, r=3): LRU tg128=2.19±1.04, Workload=3.97±0.41 (+81%) — **Artefakt** (Cache-Discovery-Phase verlangsamte LRU)
+    - Verification (n=256, r=5): LRU tg256=4.42±0.20, Workload=4.53±0.09 (+2.5%), Heuristic=4.50±0.16 (+1.8%)
+    - Final (n=512, r=5): 512MB: LRU tg512=4.45±0.11, Workload=4.40±0.13 (-1.1%); 1024MB: LRU=4.52±0.07, Workload=4.54±0.07 (+0.4% Rauschen)
+  - **Go/No-Go >5% → ❌ NO-GO.** Root Cause: 128 Experten × 30 Layer = 3840 Entries → 160-320 Slots = 24:1 Oversubscription. Eviction-Policy nicht Bottleneck (PCIe dominiert). LRU ist "good enough".
+  - **MoE-Cache-Thema für 128-Expert-Modelle erschöpft:** #69 Heuristic ❌, #71 Set-Assoc ❌, #18 Workload-Aware ❌ — alle im Rauschbereich oder schlechter als LRU.
+  - **Code bleibt** als `POLICY_WORKLOAD` (Default OFF). Phase 2 (Greedy Assignment) nicht anwendbar (kein CPU MoE path). Phase 3 (Residual-Prefetch) optional für später.
+  - **ROADMAP #18 → ❌.**
+
 ### #71 Set-Associative MoE Cache — ❌ NO-GO
 
 - **feat: `POLICY_SET_ASSOC_LRU` in `moe-cache.cu`** — N-index M-way set-associative Cache als neue Eviction-Policy. Implementiert: `moe_cache_set`-Struktur (n_sets × n_ways Slots, LRU pro Set), Hash-basiertes Set-Mapping (`key % n_sets`), set-lokale LRU-Helfer, Env-Vars `GGML_CUDA_MOE_CACHE_POLICY=set-assoc-lru` + `GGML_CUDA_MOE_CACHE_SET_WAYS=M`. Vollständig parallel zum bestehenden fully-associative LRU/Heuristic-Pfad (A/B-Test-fähig). Backfill-Worker und Error-Recovery an set-associative angepasst.
