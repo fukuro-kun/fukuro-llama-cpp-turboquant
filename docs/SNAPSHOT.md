@@ -1,158 +1,80 @@
-# Momentaufnahme — fukuro-llama-cpp-turboquant + InferenzQuelle
+# Momentaufnahme — fukuro-llama-cpp-turboquant
 
-**Datum:** 2026-07-13 | **Branch:** `master` | **Letzter Commit:** `177ef53f1` (#57 26B-Benchmark: stream-k -99% pp)
-
----
-
-## ⚠️ Aktion für fukuro: Mars-Server (LXC phobos) Neubau
-
-Der Mars llama-server läuft im LXC 240 (phobos) und muss neu gebaut werden, um den UMA-Cache-Fix zu aktivieren:
-
-```bash
-ssh phobos
-cd /home/fukuro/git/fukuro-llama-cpp-turboquant
-git fetch origin master && git reset --hard origin/master
-rm -rf build && cmake -B build -DGGML_VULKAN=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target llama-server -j$(nproc)
-systemctl --user restart llama-server.service
-```
-
-Der Bare-Metal-Build auf Mars ist bereits erfolgreich (llama-bench + llama-server mit Vulkan). Der LXC braucht nur den git pull + build + restart.
-
-**Wichtig:** `-DGGML_VULKAN=ON` (nicht `-DLLAMA_VULKAN=ON`) — das CMake-Flag hat sich geändert.
-
-## QAT-Benchmark Mars (2026-07-13, 2-Slot Prefetch + UMA Cached)
-
-| Modell | pp512 | tg128 | Backend | Anmerkung |
-|--------|-------|-------|---------|-----------|
-| Q4_K_M (15.85 GiB) | 185.14 | 17.90 | Vulkan | +9.3% pp, +11.0% tg vs baseline |
-| QAT Q4_K_XL (13.26 GiB) | 202.72 | 22.06 | Vulkan | Produktiv-Modell, beste Performance |
-
----
-
-## Die Projekte und ihre Nahtstelle
-
-| Projekt | Rolle | Repo |
-|---------|-------|------|
-| **fukuro-llama-cpp-turboquant** | Inference Engine (Motor) — C++/CUDA/Vulkan | Codeberg |
-| **InferenzQuelle** | Infrastruktur & Steuerung (Auto) — Python/Bash | Codeberg |
-
-**Nahtstelle:** InferenzQuelle steuert den `llama-server` (aus dem Fork) per HTTP-API. Test-Framework (pytest) läuft gegen die Binary. Modell-Pfade, Draft-Modelle und TurboQuant-Parameter werden über Config-Files geteilt. Produktiv-Endpunkte: phobos:18080, styx:18080, uranus:8080 — gebündelt über janus:8010 (InferenzQuelle Router).
+**Datum:** 2026-07-26 | **Branch:** `master` | **Letzter Commit:** `3504a2c00` (#44 Alloc-MoE Phase 0 ❌ NO-GO)
 
 ---
 
 ## Was zuletzt passiert ist
 
-### 2026-07-13: #57 MMQ Stream-k Disable — ❌ Katastrophal auf Uranus
+### 2026-07-26: MoE-Optimierung Tier-3 erschöpft (3 ❌ in einer Session)
 
-- **#57 implementiert + benchmarked** — `GGML_CUDA_DISABLE_MMQ_STREAM_K` env var in `ggml-cuda.cu`/`mmq.cu`/`common.cuh`. PR #22170 portiert.
-- **Benchmark Uranus (2x RTX 4060 Ti):**
-  - E4B QAT (7.46B): pp512 -64% mit stream-k OFF
-  - **26B IQ4_XS (25.23B) tensor split: pp512 2669→17.48 (-99.3%!), layer split: pp512 3005→11.59 (-99.6%!)** — tg128 unbeeinflusst
-- **Fazit:** Stream-k decomposition ist ESSENZIELL für MMQ-Performance auf Ada GPUs. PR #22170 war für spezifischen Edge Case (fixup-buffer Race Condition bei `src1_ncols != ne11`), nicht für generelle MoE-Workloads. #57 = ❌, env var bleibt nur für Debugging (Default: OFF = stream-k ON).
-- **xtts-api auf Uranus** — Für Benchmark temporär gestoppt, danach wieder gestartet. Health=healthy, 6 Worker, alle Speaker geladen.
+Solo-Session mit Auto-Fortsetzung (2×). Drei Tier-3 ROADMAP-Items implementiert, benchmarked und als ❌ NO-GO evaluiert:
 
-### 2026-07-13: thecodacus Expert Prefetch 2-Slot + UMA Cached + Research-Sweep #3 (Solo-Session)
+1. **#71 Set-Associative MoE Cache** (`POLICY_SET_ASSOC_LRU`) — N×M Slots mit LRU pro Set. Benchmark: -25% bis -50% bei 512MB, Rauschen bei 1024MB. Root Cause: 128 Experten × 30 Layer = 3840 Entries → 160-320 Slots = 24:1 Oversubscription. Fully-associative LRU hat keine Conflict-Misses. Commit `e1d9ae2bf`.
 
-- **thecodus Prefetch 2-Slot Sweet-Spot** — `GGML_SCHED_PREFETCH_SLOTS` env var hinzugefügt. Styx: +28.9% pp512, +36.2% pp2048, +36.7% pp8192, +2.1% tg8. Mars: +8.8% pp512, +3.8% tg128. Beide Server-Scripts auf 2-Slot umgestellt. 3-Slot war -35% tg auf Mars.
-- **Vulkan UMA Cached Host Memory (#56)** — PR #23762 portiert. HostCached statt write-combining auf UMA. memory_property_flags Bug fix (actual vs requested). Mars: tg128 +7% auf tg, +11% vs baseline.
-- **Research-Sweep #3** — 4 parallele Subagents, 21 neue ROADMAP-Items (#56-#76). 9 PRs als bereits im Fork identifiziert. M3 abgeschlossen, M6 erweitert.
-- **M3 Meilenstein abgeschlossen** — #37✅ (Prefetch), #15❌ (PipeShard), #56✅ (UMA Cached), #60❌ (RADV), #68✅ (already in fork).
+2. **#18 DALI Workload-Aware Cache** (`POLICY_WORKLOAD`) — Sliding-window workload accumulation, periodic reset. Benchmark: +81% im ersten Run (Artefakt!), +2.5% bei Verification, -1.1% bis +0.4% bei Final. Root Cause: PCIe-Transfer dominiert, nicht Eviction-Policy. Commit `d2d3c8ce6`.
 
-### 2026-07-13: thecodacus Expert Prefetch repariert + 2-Slot Sweet-Spot (Solo-Session)
+3. **#44 Alloc-MoE Phase 0** (`LLAMA_MOE_K_OVERRIDE`) — K-Reduktion Quality-Benchmark. Wichtige Korrektur: Gemma-4-26B-A4B nutzt K=8 (nicht K=2). Perplexity: K=6 +13.5%, K=4 +22.9%, K=2 +66.5%. Speed: K=6 +24%, K=4 +38%. Go/No-Go >5% PPL-Drop → ❌. Commit `3504a2c00`.
 
-- **thecodacus Prefetch repariert** — Root Cause: `nodes[0]` war SCALE nicht MUL_MAT_ID. Fix: Graph-Suche im gesamten Split. `GGML_SCHED_PREFETCH_SLOTS` env var hinzugefügt.
-- **2-Slot Sweet-Spot** — Styx: +28.9% pp512, +36.2% pp2048, +36.7% pp8192, +2.1% tg8. Mars: +8.8% pp512, +3.8% tg128. Beide Server-Scripts auf 2-Slot umgestellt. 3-Slot: -35% tg auf Mars (Queue-Konflikt RDNA3).
-- **M3 Meilenstein abgeschlossen** — #37✅ (Prefetch), #15❌ (PipeShard: zu großer Aufwand, marginaler Benefit), #40⏭️ (Phase 2 negativ).
-- **Expert-Cache (#37) postponed** — Buffer-Recycling-Crash, benötigt Buffer-Pinning oder Per-Expert Tensor-Splitting.
+**Code-Review** (review-swe Subagent): 5 P1 Issues gefunden, alle gefixt (queued-slot detection, off-by-one, pool-init locking, invalidate clear, Kommentar). Commits `d9346c051`, `f942ef2b9`, `8d3ac34bb`.
 
-### 2026-07-13: E4B-Deployment Uranus + Doku-Pflege + 256k-Migration
+### 2026-07-25: /slots progress + n_tokens_total
 
-- **E4B QAT Server auf Uranus gestartet** — `gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf` (4.2 GB) + MTP-Draft (Q4_0, n_max=2), 256k/2×128k, Port 8080, turbo4/turbo3 KV, FA on. tg 107.6 t/s (kurz), 47-63 t/s (lang). Manuell (nohup, kein systemd). VRAM knapp neben xtts-api (GPU 1 nur 1.0 GB frei).
-- **256k LXC-Migration committed** (`e09da1df4`) — Mars bare-metal → LXC 240 (phobos), 256k Kontext (Modell-Maximum), 2×128k Slots. AGENTS.md, CHANGELOG, 188k-RCA-Doc, Mars-Startskript.
-- **Fork-Hauptnote §8a aktualisiert** — Uranus-Zeile + Produktiv-Server-Abschnitt (E4B) in Trilium `eiba6WJDfTiq` eingetragen.
-- **188k-Performance-Klippe RCA geklärt** — Kein Vulkan-Bug, sondern OOM-Artefakt durch konkurrierende llama-server (2×16 GB GTT > 26 GB Limit). Solo-Betrieb 224k/256k: 28-32 t/s. 180k-Grenze obsolet.
-
-### 2026-07-13: E4B+MTP FA Crash Fix (Solo-Session)
-
-- **head_dim=512 FA Crash gelöst** — E4B full-attention Layer haben `head_dim=512`, MMA-Kernel ohne Template für DKQ=512. Drei Commits: Route zu TILE-Kernel, Fallback für DV>256, neue TILE-Config für 512/512 bei ncols=2. Verifikation Uranus: 103 t/s (turbo4/turbo3), 112 t/s (f16). Commits `f9e7564bd`, `bd8ef5978`, `1a0af56dc`.
-- **#35 Row-Packing DMMV RDNA3** — +1% (erwartet +10-20%), DMMV nicht der Bottleneck für kleine MoE-Modelle. Change beibehalten. Commit `acd8dfe3a`.
-- **#45 CUDA Concurrent Streams QKV** — Bereits im Fork, Regression mit CUDA Graphs (-10.7% auf Uranus, kein Effekt auf Styx wegen MoE-Offload). ❌.
-- **Phase 3 Batch-Eval Tier 2 (8 Items)** — #16✅ bereits integriert, #38⏭️ verschoben, 6 Items ☐ offen.
-
-### 2026-07-11: Pascal MMVQ + M1/M2 Batch-Eval
-
-- **#3 Pascal CUDA MMVQ** — manuell portiert, +8.9% Generation auf GTX 1070 (E2B MoE). Commit `5c1884929`.
-- **M1/M2 Batch-Eval** — 11 Items evaluiert: #2✅, #4✅, #5✅, #6✅ bereits integriert, #7✅ bereits integriert, #11✅, #12✅, #20✅, #28✅ eigene Implementierung, #1❌, #9❌, #10❌, #13❌.
-
-### InferenzQuelle (2026-07-13)
-
-- **Branch `uranus-local`** — Letzte Commits: 4-fach Audit Fixes, Judge-Pipeline (Subagent LLM-Judge), Lang-Context-Tests, Test-Cleanup (9 tote Dateien), Kahlschlag (142 tote Dateien).
-- **Uncommittet:** AGENTS.md, docs/AGENTS.md, docs/ARCHITECTURE.md + neue config/hosts.json, docs/CACHE_PERFORMANCE.md, router/, shared/.
-
----
+`/slots` JSON-Endpoint erweitert um `progress` (0.0–1.0) und `n_tokens_total` pro Slot. Ermöglicht janus-Router zwischen "Backend arbeitet" und "Backend hängt" zu unterscheiden. Commit `ef8459dcf`.
 
 ## Wo wir stehen — das große Bild
 
-### Fork — Meilensteine
+### ROADMAP Meilensteine
 
-| Meilenstein | Status | Notiz |
-|---|---|---|
-| **M1** Quick-Win-Welle | ✅ | #2✅, #4✅, #5✅, #1❌ |
-| **M2** Vulkan-Offensive | ✅ | #6✅, #7✅, #12✅ bereits integriert, #9❌, #10❌ |
-| **M3** MoE-Offloading v2 | ⏳ teils | #3✅, #13❌, #14⏭️, #15☐ |
-| **M4** Speculative Decoding v2 | ✅ | #11✅, #28✅ eigene Implementierung |
-| **M5** Coopmat2 + Multi-GPU | ⏳ teils | #12✅, #20✅, #21 offen, #57❌ (stream-k disable katastrophal) |
-| **M6** Forschung | ☐ offen | #17, #18, #19, #25-27, #29, #30 |
+| Meilenstein | Status | Items |
+|-------------|--------|-------|
+| M1-M5 | ✅ Abgeschlossen | TurboQuant, Vulkan, MTP, UBBoost, etc. |
+| M6 (Forschung) | 🟡 In Arbeit | Tier-3 MoE-Items erschöpft (3×❌), Tier-2 re-evaluieren |
 
-### Fork — Produktiv-Server
+### Tier-3 MoE-Optimierung: ERSCHÖPFT
 
-| Server | Modell | Kontext | Backend | Status |
-|---|---|---|---|---|
-| **Mars/phobos** (LXC 240) | 26B-A4B QAT | 256k/2×128k | Vulkan | ✅ Produktiv, systemd |
-| **Styx** | 26B-A4B QAT | 224k/1 Slot | CUDA (MoE-Offload) | ✅ Produktiv, systemd |
-| **Uranus** (E4B) | E4B QAT + MTP | 256k/2×128k | CUDA | ✅ Produktiv, manual (nohup) |
-| **Hydra** | — | — | CUDA | Dev-only (GPU shared) |
-| **Venus** | — | — | Vulkan | ⏸️ Suspend-Policy, Service deaktiviert |
+| Item | Policy | Ergebnis | Commit |
+|------|--------|----------|--------|
+| #69 | Heuristic (freq+recency) | -3.1% (kurz), +1.8% (lang) → ❌ | (vor dieser Session) |
+| #71 | Set-Associative (N×M) | -25% bis -50% → ❌ | `e1d9ae2bf` |
+| #18 | Workload-Aware (windowed) | +2.5% (kurz), -1.1% (lang) → ❌ | `d2d3c8ce6` |
+| #44 | Alloc-MoE (K-Reduktion) | K=6 +13.5% PPL → ❌ | `3504a2c00` |
 
-### Fork — Komponenten
+**Fazit:** LRU Cache + K=8 ist nahezu optimal für Gemma-4-26B-A4B. PCIe-Transfer und Expert-Diversität sind die Bottlenecks, nicht Eviction-Policy oder K-Anzahl.
 
-| Komponente | Status |
-|---|---|
-| TurboQuant KV/Weights | ✅ turbo3/turbo4 auf CUDA + Vulkan |
-| Gemma 4 MTP | ✅ 0%-Bug gefixt, 50-100% Akzeptanz |
-| Qwen 3.x NextN | ✅ Shared-Model-Draft |
-| DiffusionGemma | ✅ PKV-Cross-Backend-Fix |
-| Vulkan-WHT / CUDA Fast WHT | ✅ |
-| thecodacus Pinning+Prefetch | ✅ +95% pp, +50% tg mit MTP |
-| E4B+MTP FA (head_dim=512) | ✅ TILE-Kernel-Fix (2026-07-13) |
+### Tier-2: ⏭️ Re-Evaluierung nötig
 
----
+Verbleibende ⏭️ Items die reif für Re-Evaluierung sein könnten:
+- **#14 LFU Caching** — "SpecMD 85× besser als LRU" — aber MoE-Cache-Thema erschöpft
+- **#38 Conf-KV** — KV-Eviction, komplementär zu TurboQuant
+- **#40 Phase 2** — Per-Expert-Platzierung (erfordert Tensor-Splitting)
+- **#63 xKV** — Cross-Layer KV-Compression (8× Kompression)
+
+### Produktiv-Status
+
+| System | Modell | Ctx | Service | Status |
+|--------|--------|-----|---------|--------|
+| Mars (LXC phobos) | 26B-A4B QAT | 256k | llama-server.service | ✅ |
+| Styx | 26B-A4B QAT | 196k | llama-server-styx.service | ✅ |
+| Venus | 26B-A4B QAT | 256k | llama-server-venus.service | ✅ (Suspend 08-13h) |
+| Uranus | 26B-A4B QAT | — | llama-server (user) | ✅ |
 
 ## Aktuell in Arbeit (uncommitted)
 
-**Fork:** Sauber — keine uncommitteten Änderungen (gerade committed `177ef53f1`).
-**InferenzQuelle:** 3 modifizierte + 4 neue unversionierte Dateien (AGENTS.md, docs/ARCHITECTURE.md, config/hosts.json, docs/CACHE_PERFORMANCE.md, router/, shared/) — warten auf Review.
-
----
+Keine uncommitteten Änderungen. Alle 8 Commits der Session gepusht.
 
 ## Offene Aufgaben
 
-### [F] Fukuro — Hochpriorisiert
-1. **ROADMAP Tier 2 Priorisierung** — Welche der 6 offenen Items (#8 Mixed Precision KV, #15 PipeShard, #34 UBBoost, #36 Auto-TP, #37 LFRU, #40 MoE Load Balancing) als nächstes?
-2. **E4B systemd-Service auf Uranus** — Persistent einrichten (wie Mars/Styx) oder ad-hoc lassen?
-3. **Trilium `Czii4MdFKb3i`** — Leere Momentaufnahme-Note löschen oder befüllen?
-4. **InferenzQuelle uncommittete Änderungen** — router/, shared/, config/hosts.json, CACHE_PERFORMANCE.md reviewen und committen.
+### [D]evin (Auto-Fortsetzung)
+- Keine weiteren Tier-3 Items ohne User-Entscheidung
+- Tier-2 Re-Evaluierung möglich (braucht User-Input welche Items priorisiert)
 
-### [D] Devin — Mittelpriorisiert
-5. **ROADMAP Tier 2 Items** — Nach Priorisierung implementieren (je 2-6 Wochen).
-6. **#21 Multi-GPU** (M5) — Noch offen, Tier 3.
-7. **M6 Forschungs-Items** — Recherche + Evaluation.
-
----
+### [F]ukuro
+- Entscheidung: Tier-2 Re-Evaluierung oder anderes Thema (z.B. neues Modell, Vulkan-Optimierung)
+- Hydra GPU-Ausnahme war auf diese Session begrenzt — bei nächsten GPU-Benchmarks wieder Pascal-Host verwenden
 
 ## Nächste Schritte
 
-1. **ROADMAP Tier 2 Priorisierungs-Entscheidung** von fukuro einholen → dann Solo-Session für gewähltes Item.
-2. **InferenzQuelle Änderungen reviewen** — router/ und shared/ deuten auf neue Architektur, braucht Klärung.
-3. **Trilium-Aufräumen** — Leere Note `Czii4MdFKb3i`, ggf. Momentaufnahme-Verlauf konsolidieren.
+1. **User-Entscheidung:** Welche Richtung nach Tier-3 Erschöpfung? (Tier-2 Re-Eval, neues Thema, oder Pause)
+2. **Tier-2 Re-Eval** (falls gewünscht): #38 Conf-KV oder #63 xKV als KV-Compression-Fokus (komplementär zu TurboQuant)
+3. **MoE-Cache-Code aufräumen:** 3 neue Policies (Default OFF) — evtl. dead code entfernen wenn langfristig ungenutzt
