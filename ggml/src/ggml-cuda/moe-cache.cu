@@ -441,10 +441,10 @@ restart:
                 const int set_idx = moe_cache_set_idx(key, p.n_sets);
                 const int set_base = set_idx * p.n_ways;
                 if (p.set_n_used[set_idx] >= p.n_ways) continue;
-                // Existenz-Check + freien Slot suchen
+                // Existenz-Check (valid ODER queued) + freien Slot suchen
                 for (int w = 0; w < p.n_ways; w++) {
                     const int cand = set_base + w;
-                    if (p.slots[cand].valid && p.slots[cand].key == key) { si = -2; break; }
+                    if (p.slots[cand].key == key && (p.slots[cand].valid || p.slots[cand].queued)) { si = -2; break; }
                     if (si < 0 && !p.slots[cand].valid && !p.slots[cand].queued) si = cand;
                 }
                 if (si == -2) continue;  // schon vorhanden
@@ -713,7 +713,7 @@ static bool moe_cache_pool_alloc(int di, size_t expert_size, int wtype, size_t b
     if (g.policy == moe_cache_global::POLICY_SET_ASSOC_LRU && g.set_assoc_ways > 0) {
         const int M = g.set_assoc_ways;
         if (ns % M != 0) {
-            // Aufrunden auf naechstes vielfaches von M (verwirft max M-1 Slots)
+            // Abrunden auf naechstes kleineres Vielfaches von M (verwirft max M-1 Slots)
             ns = (ns / M) * M;
         }
         p.n_sets = ns / M;
@@ -1060,13 +1060,13 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
             const int set_idx = moe_cache_set_idx(key, p.n_sets);
             const int set_base = set_idx * p.n_ways;
 
-            // Lookup: scan M slots im Set
-            int hit_si = -1;
+            // Lookup: scan M slots im Set — track hit AND queued entry
+            int hit_si = -1, queued_si = -1;
             for (int w = 0; w < p.n_ways; w++) {
                 const int si = set_base + w;
-                if (p.slots[si].valid && p.slots[si].key == key) {
-                    hit_si = si;
-                    break;
+                if (p.slots[si].key == key) {
+                    if (p.slots[si].valid) { hit_si = si; break; }
+                    if (queued_si < 0) queued_si = si;
                 }
             }
 
@@ -1077,10 +1077,18 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
                 moe_cache_slot & s = p.slots[hit_si];
                 if (s.freq < UINT32_MAX) s.freq++;
                 s.last_access = cur_tick;
+                s.workload_score += 1.0f;
                 slot_idx[k] = hit_si;
                 d.hits++;
                 d.pool_hits[g.cur_pool]++;
                 n_hits++;
+                continue;
+            }
+            if (queued_si >= 0) {
+                // insert still queued/in-flight: CPU computes the row this time
+                d.queued_misses++;
+                d.misses++;
+                d.pool_miss[g.cur_pool]++;
                 continue;
             }
 
@@ -1186,12 +1194,13 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
     // Workload-Aware: periodic window reset nach wsize plan()-Calls.
     // Reset aller workload_scores → sliding window effect.
     if (g.policy == moe_cache_global::POLICY_WORKLOAD) {
-        if (++p.window_count >= g.workload_wsize) {
+        if (p.window_count >= g.workload_wsize) {
             for (int i = 0; i < p.n_slots; i++) {
                 p.slots[i].workload_score = 0.0f;
             }
             p.window_count = 0;
         }
+        ++p.window_count;
     }
 
     for (int k = 0; k < n_ids; k++) {
@@ -1901,6 +1910,21 @@ static void moe_cache_invalidate(const void * base, size_t size) {
     g.backfill.done   = false;
     g.backfill.active = false;
     g.hot_loaded      = false;
+
+    // reset set-associative and workload state in all pools: stale set-LRU
+    // lists or window counters would reference slots whose keys are stale.
+    for (int di = 0; di < g.n_dev; di++) {
+        moe_cache_device & d = g.dev[di];
+        for (int pi = 0; pi < d.n_pools; pi++) {
+            moe_cache_pool & p = d.pools[pi];
+            if (p.n_sets > 0) {
+                std::fill(p.set_lru_head.begin(), p.set_lru_head.end(), -1);
+                std::fill(p.set_lru_tail.begin(), p.set_lru_tail.end(), -1);
+                std::fill(p.set_n_used.begin(),   p.set_n_used.end(),   0);
+            }
+            p.window_count = 0;
+        }
+    }
 }
 
 // ---- API: node wall-time samples (bail-out) ---------------------------------------------
