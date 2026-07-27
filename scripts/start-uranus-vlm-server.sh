@@ -48,6 +48,45 @@ if lsof -ti:"$PORT" >/dev/null 2>&1; then
   echo "error: port $PORT already in use (lsof -ti:$PORT)" >&2; exit 1
 fi
 
+# --- VRAM-Check: XTTS-Worker freigeben wenn nötig ---
+# VLM braucht ~6.5 GB VRAM. Wenn XTTS-Remote-Worker läuft, belegt er bis zu
+# 7.5 GB (3 Worker × 2.5 GB). Wenn zusammen >14 GB → OOM-Risiko.
+# Lösung: XTTS-Remote-Worker auffordern Worker freizugeben (POST /workers/local/release-for-vram).
+# Der XTTS-Worker lädt seine Worker automatisch nach wenn VLM entladen wird
+# (via --sleep-idle-seconds 120 + VRAM-Upscaler).
+XTTS_REMOTE="http://127.0.0.1:8002"
+VLM_VRAM_NEEDED_MIB=7168  # 7 GB Sicherheitsmarge (VLM ~6GB + Overhead)
+
+# Freien VRAM auf GPU 1 prüfen (physisch — vor CUDA_VISIBLE_DEVICES Remapping)
+VRAM_FREE_MIB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i 1 2>/dev/null | head -1 | tr -d ' ')
+if [[ -n "$VRAM_FREE_MIB" ]]; then
+  VRAM_FREE_GIB=$((VRAM_FREE_MIB / 1024))
+  echo "VRAM-Check: GPU1 hat ${VRAM_FREE_GIB} GB frei (brauche ~7 GB)"
+  if (( VRAM_FREE_MIB < VLM_VRAM_NEEDED_MIB )); then
+    echo "  VRAM knapp — frage XTTS-Remote-Worker Worker freizugeben..."
+    # XTTS-Remote-Worker Release-Endpoint aufrufen
+    if curl -s --connect-timeout 5 -X POST "${XTTS_REMOTE}/workers/local/release-for-vram" >/dev/null 2>&1; then
+      echo "  Release-Request gesendet. Warte bis VRAM frei wird (max 90s)..."
+      for i in $(seq 1 90); do
+        sleep 1
+        VRAM_FREE_MIB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i 1 2>/dev/null | head -1 | tr -d ' ')
+        if [[ -n "$VRAM_FREE_MIB" ]] && (( VRAM_FREE_MIB >= VLM_VRAM_NEEDED_MIB )); then
+          echo "  VRAM frei nach ${i}s (${VRAM_FREE_MIB} MiB) — starte VLM"
+          break
+        fi
+      done
+      # Erneut prüfen
+      if [[ -n "$VRAM_FREE_MIB" ]] && (( VRAM_FREE_MIB < VLM_VRAM_NEEDED_MIB )); then
+        echo "WARNUNG: VRAM immer noch knapp (${VRAM_FREE_MIB} MiB < ${VLM_VRAM_NEEDED_MIB} MiB)"
+        echo "  VLM startet trotzdem — kann zu OOM führen. Abbruch mit Ctrl+C."
+        echo "  Alternativ: XTTS-Remote-Worker manuell stoppen: ssh uranus 'sudo systemctl stop xtts-remote-worker'"
+      fi
+    else
+      echo "  XTTS-Remote-Worker nicht erreichbar — starte VLM ohne Release"
+    fi
+  fi
+fi
+
 # --- GPU-Isolation ---
 # Physische GPU 1 isolieren → kein CUDA-Context auf GPU 0 (spart ~2GB VRAM).
 # Nach Remapping ist -dev CUDA0 die physische GPU 1.
