@@ -6,6 +6,21 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-08-10
+
+### fix: HTTPS-Support für llama-server (OpenSSL/libssl-dev) — alle 5 LAN-Hosts
+
+- **Problem:** `LLAMA_OPENSSL=ON` ist CMake-Default, aber CMake baut stillschweigend ohne SSL weiter wenn `libssl-dev` fehlt (`OPENSSL_CRYPTO_LIBRARY-NOTFOUND`). Kein Build-Fehler, keine Warnung — HTTPS fehlt nur zur Laufzeit. HTTP 500 bei `image_url` mit HTTPS-URLs.
+- **Fix:** `libssl-dev` auf allen Hosts installiert, CMake-Cache gelöscht (`rm build/CMakeCache.txt`), neu gebaut mit selben Backend-Flags.
+- **Hosts:**
+  - **hydra** (CUDA, Build-only): libssl-dev 3.5.5 installiert, glibc-Patch (rsqrt aus mathcalls.h entfernt), Rebuild. ✅ SSL_new=2 in libllama-server-impl.so, libssl.so.3 gelinkt.
+  - **uranus** (CUDA, On-Demand): libssl-dev 3.0.13 bereits installiert, nur Rebuild. ✅ OpenSSL gefunden, SSL_new=2.
+  - **styx** (CUDA, Dauer-Server): libssl-dev 3.0.13 installiert, Rebuild auf `/data/git/`. ✅ SSL aktiviert, HTTPS-Test OK. 26B-Service reaktiviert (VLM gestoppt wegen CUDA OOM — existierendes Problem, 8 GB VRAM zu klein für beide).
+  - **phobos** (Vulkan, LXC auf mars): libssl-dev 3.5.6 installiert, Rebuild. ✅ Echte HTTPS-Downloads funktionieren (Logs: 30320 bytes von gstatic.com, 13504 bytes von google.com).
+  - **venus** (Vulkan, Dauer-Server): libssl-dev 3.0.13 installiert, Rebuild. ✅ User-Service restarted, HTTPS-Test OK ("Failed to download image" statt "HTTPS is not supported"). Venus NICHT suspendiert (User-Wunsch).
+- **Verifikation:** `strings build/bin/libllama-server-impl.so | grep -c SSL_new` >0 (SSL-Code in Shared Library, nicht im Binary). Funktions-Test: HTTPS-URL wird akzeptiert, Fehler ist "image input is not supported" oder "Failed to download image" — **nicht** "HTTPS is not supported".
+- **Doku:** `AGENTS.md` Build-System-Sektion um libssl-dev als Build-Voraussetzung ergänzt.
+
 ## 2026-07-26
 
 ### Code-Cleanup: MoE-Cache toter Code entfernt (-358 Zeilen)

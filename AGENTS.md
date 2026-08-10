@@ -157,6 +157,7 @@ Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (2
 - **CMake** mit Backend-Optionen (`-DLLAMA_CUDA=ON`, `-DLLAMA_VULKAN=ON`, etc.)
 - **Build-Verzeichnis:** `build/` (in `.gitignore`, nie committen)
 - **glibc >= 2.43:** `scripts/build-cuda-glibc-patch.sh` verwenden (temporaerer Patch fuer `mathcalls.h`)
+- **libssl-dev (HTTPS-Support):** `LLAMA_OPENSSL=ON` ist CMake-Default, aber CMake baut stillschweigend ohne SSL weiter wenn `libssl-dev` fehlt (`OPENSSL_CRYPTO_LIBRARY-NOTFOUND`). **Vor jedem Build prüfen:** `dpkg -l libssl-dev`. Falls fehlt: `sudo apt install libssl-dev`. **Nach Installation:** `rm build/CMakeCache.txt` (sonst bleibt `OPENSSL_CRYPTO_LIBRARY-NOTFOUND` gecacht). Verifikation: `strings build/bin/libllama-server-impl.so | grep -c SSL_new` muss >0 sein (SSL-Code liegt in der Shared Library, nicht im Binary).
 
 ### Gemma-4 Standard-Sampling-Parameter
 
