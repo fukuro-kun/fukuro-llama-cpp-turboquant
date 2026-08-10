@@ -48,7 +48,13 @@ if lsof -ti:"$PORT" >/dev/null 2>&1; then
 fi
 
 # --- 26B-Chat-Server stoppen (VRAM freigeben) ---
+# WICHTIG: systemctl --user mask verhindert auto-restart (Restart=always)
+# während der VLM-Server läuft. Ohne mask würde systemd den 26B-Service
+# automatisch restarten → VRAM-Konflikt → Restart-Loop (50+ Versuche).
+# Das Stop-Skript macht unmask + start nach dem VLM-Stop.
 echo "Stoppe 26B-Chat-Server ($CHAT_SERVICE) für VRAM-Freigabe..."
+echo "  Maskiere $CHAT_SERVICE (verhindert auto-restart während VLM läuft)..."
+systemctl --user mask "$CHAT_SERVICE" 2>/dev/null || true
 if systemctl --user is-active "$CHAT_SERVICE" >/dev/null 2>&1; then
   systemctl --user stop "$CHAT_SERVICE"
   echo "  $CHAT_SERVICE gestoppt."
@@ -102,7 +108,8 @@ if [[ "$READY" == "0" ]]; then
   echo "  ($PORT): ${H:-keine Antwort}"
   echo "  Log: /tmp/vlm-server.log"
   echo "  PID: $PID (noch laufend)"
-  echo "  Starte 26B-Chat-Server wieder (Fallback-Regression)..."
+  echo "  Unmaskiere + starte 26B-Chat-Server wieder (Fallback-Regression)..."
+  systemctl --user unmask "$CHAT_SERVICE" 2>/dev/null || true
   systemctl --user start "$CHAT_SERVICE" || true
   exit 1
 fi

@@ -60,8 +60,13 @@ if [[ "$STOPPED" == "1" ]]; then
 fi
 
 # --- 26B-Chat-Server wieder starten ---
+# WICHTIG: systemctl --user unmask hebt den mask vom Start-Skript auf.
+# Ohne unmask würde der Service nicht starten und nach einem styx-reboot
+# auch nicht auto-starten. mask verhindert auch manuelle Starts!
 echo
 echo "Starte 26B-Chat-Server ($CHAT_SERVICE) wieder..."
+echo "  Unmaskiere $CHAT_SERVICE (re-aktiviert auto-restart/manuellen Start)..."
+systemctl --user unmask "$CHAT_SERVICE" 2>/dev/null || true
 if systemctl --user is-active "$CHAT_SERVICE" >/dev/null 2>&1; then
   echo "  $CHAT_SERVICE läuft bereits — überspringe Start."
 else
