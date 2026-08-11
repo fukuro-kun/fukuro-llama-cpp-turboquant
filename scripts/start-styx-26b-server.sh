@@ -52,6 +52,7 @@ exec "$SERVER" \
   -c 196608 -ngl 999 --n-cpu-moe 20 \
   -ctk turbo3 -ctv turbo4 -fa on \
   --parallel 1 -np 1 --cont-batching \
+  --reasoning off \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 16384 \
   --cache-reuse 256 \

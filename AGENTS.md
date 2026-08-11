@@ -171,6 +171,27 @@ Fuer alle Gemma-4 Modelle (sofern kein begruendeter Spezialfall vorliegt):
 
 **llama-cli:** `--temp 1.0 --top-p 0.95 --top-k 64` · **llama-server:** Standard-Sampling im Request
 
+### Gemma-4 Thinking-Deaktivierung (UNVERHANDELBAR)
+
+**Gemma-4 26B-A4B-it** hat "ghost thought channels" (Google bestätigt fuer
+12B/26B/31B). Ohne `--reasoning off` emittiert das Modell `{thought}`-Tokens
+in Endlosschleife und fuellt den gesamten `max_tokens`-Budget mit Muell.
+
+**Alle 26B-Server-Startskripte verwenden `--reasoning off`:**
+`start-{styx,mars,venus,uranus}-26b-server.sh`.
+
+- `--reasoning off` (CLI, PR #20297): Setzt `enable_thinking=false` zuverlaessig
+- `chat_template_kwargs.enable_thinking: false` (Request-Body): Doppelsicherung,
+  respektiert ab `server-common.cpp:1088-1094`
+- `--reasoning-budget 0`: Zwingt den Sampler den End-Tag zu setzen (zusaetzlich)
+- PR #21697 (Gemerged 2026-04-10): Gemma4 Budget-Sampler mit
+  `thinking_start_tag = "<|channel>thought"`, `thinking_end_tag = "<channel|>"`
+  in `common/chat.cpp:1238-1239`
+- `max_tokens`/`num_predict` ist eine reine Decke (Issue #5517: "the model has
+  no idea about it"), triggert KEINE laengeren Antworten. Defensive Decke
+  `num_predict=4096` begrenzt sporadische Ghost-Thought-Blast-Radius.
+- Trilium: `B3dfpx01pApY` (Thinking Referenz)
+
 ### Git-Workflow
 
 - **Primary Remote:** `git@codeberg.org:fukuro/fukuro-llama-cpp-turboquant.git`
