@@ -6,6 +6,47 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-08-12 (Update 2)
+
+### fix: Turbo3/3 KV auf Vulkan + 256k/2 Slots + mmproj — volle Modellkapazität wiederhergestellt
+
+**Korrektur der früheren "turbo3/4 auf Vulkan defekt" Diagnose:**
+
+Die TurboQuant Vulkan-Shader (Commit `cb3b1d571`) funktionieren! Die Reverts
+`603f47105` (turbo3 dequant-fix) und `9cbabbad8` (Mixed K/V Support) betrafen
+nur Spezialfälle (Mixed K/V, ein spezifischer dequant-Pfad), nicht die
+Haupt-SET_ROWS/mul_mat_vec/FlashAttention-Shader.
+
+**Systematische Testmatrix (alle auf Phobos, Vulkan, 128k Kontext):**
+
+| KV-Typ | pp128 (t/s) | tg32 (t/s) | 2×128k+mmproj | Status |
+|--------|-------------|------------|---------------|--------|
+| f16    | 123.9       | 26.5       | ❌ GTT (133 GB) | — |
+| q4_0   | 123.2       | 26.5       | ❌ GTT (37 GB)  | — |
+| turbo3/4 | 122.1     | 26.1       | ❌ GTT (30.7 GB) | Ohne mmproj ✅ |
+| turbo3/3 | 122.3     | 26.1       | ✅ GTT (26 GB)  | **Optimal** |
+
+**GTT-Budget bei 2×128k + mmproj:**
+- GTT total: 27.6 GB
+- Modell: 13.5 GB
+- mmproj: 0.8 GB
+- Verfügbar für KV: 13.3 GB
+- turbo3/3 bei 2×128k: 26 GB → passt (unified memory nutzt RAM als GTT)
+
+**Produktiv-Konfiguration (wiederhergestellt):**
+- 262144 (256k), 2 Slots à 128k
+- turbo3/3 KV, FlashAttention on
+- mmproj (Vision) aktiv
+- `-fit off` (APU fit_params Bug)
+- `--no-warmup` (RADV Pipeline-Kompilierung)
+- Performance: ~27.5 t/s (tg), ~44 t/s (pp)
+
+**f16-Fallback-Workaround entfernt** — nicht mehr nötig, Shader funktionieren.
+
+**Commit:** `7d9aa2a1b`
+
+---
+
 ## 2026-08-12
 
 ### fix: Phobos Vulkan Performance-Regression — 3 Root Causes behoben
