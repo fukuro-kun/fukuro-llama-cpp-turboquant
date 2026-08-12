@@ -3819,6 +3819,24 @@ llama_context * llama_init_from_model(
         params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
     }
 
+    // WORKAROUND (2026-08-12): TurboQuant Vulkan-Shader wurden revertiert
+    // (Commits 603f47105, 9cbabbad8). turbo3/4 KV auf Vulkan produzieren
+    // Garbage Output oder fallen auf CPU zurück. Bis die Shader restauriert
+    // sind: automatischer Fallback auf f16 bei Vulkan-Erkennung.
+    {
+        const bool has_turbo_kv = (params.type_k == GGML_TYPE_TURBO2_0 || params.type_k == GGML_TYPE_TURBO3_0 || params.type_k == GGML_TYPE_TURBO4_0 ||
+                                   params.type_v == GGML_TYPE_TURBO2_0 || params.type_v == GGML_TYPE_TURBO3_0 || params.type_v == GGML_TYPE_TURBO4_0);
+        if (has_turbo_kv) {
+            ggml_backend_dev_t dev = model->dev_output();
+            const char * dev_name = dev ? ggml_backend_dev_name(dev) : nullptr;
+            if (dev_name && strstr(dev_name, "Vulkan") != nullptr) {
+                LLAMA_LOG_WARN("%s: TurboQuant KV cache not supported on Vulkan (shaders reverted) — falling back to f16\n", __func__);
+                params.type_k = GGML_TYPE_F16;
+                params.type_v = GGML_TYPE_F16;
+            }
+        }
+    }
+
     if (ggml_is_quantized(params.type_v) && params.flash_attn_type == LLAMA_FLASH_ATTN_TYPE_DISABLED) {
         LLAMA_LOG_ERROR("%s: V cache quantization requires flash_attn\n", __func__);
         return nullptr;
