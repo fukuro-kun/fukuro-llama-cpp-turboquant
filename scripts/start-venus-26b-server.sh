@@ -28,6 +28,7 @@ SERVER="${SERVER:-${ROOT}/build/bin/llama-server}"
 MAIN="${MAIN_GGUF:-${HOME}/modelle/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}"
 PORT="${PORT:-18080}"
 HOST="${HOST:-0.0.0.0}"
+MMPROJ="${MMPROJ_GGUF:-${HOME}/modelle/gemma-4-26B-A4B-it/mmproj-Q6_K.gguf}"
 
 # Modell-Check
 if [[ ! -f "$SERVER" ]]; then
@@ -35,6 +36,9 @@ if [[ ! -f "$SERVER" ]]; then
 fi
 if [[ ! -f "$MAIN" ]]; then
   echo "error: main GGUF not found: $MAIN" >&2; exit 1
+fi
+if [[ ! -f "$MMPROJ" ]]; then
+  echo "WARNUNG: mmproj nicht gefunden: $MMPROJ — Vision DEAKTIVIERT" >&2
 fi
 
 # Port frei?
@@ -49,8 +53,10 @@ export GGML_SCHED_PREFETCH_SLOTS="${GGML_SCHED_PREFETCH_SLOTS:-2}"
 cd "$ROOT"
 exec "$SERVER" \
   -m "$MAIN" \
+  --mmproj "$MMPROJ" \
   --host "$HOST" --port "$PORT" \
   -c 262144 -ngl 99 \
+  -fit off \
   --parallel 2 -np 2 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 16384 \
