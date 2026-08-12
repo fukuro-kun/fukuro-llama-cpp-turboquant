@@ -121,11 +121,12 @@ Falls Treffer → Bereinigen!
   - **Pascal (GTX 1070):** `-DGGML_CUDA=ON`, FP16 nur via emulation, kein FlashAttention
   - **Ampere/Ada (RTX 3070/4060):** Volle Feature-Unterstuetzung, FlashAttention, TurboQuant
   - **AMD iGPU/APU:** `-DGGML_VULKAN=ON`, ROCm experimentell
-    - ✅ **turbo3/3 KV-Cache auf Vulkan FUNKTIONIERT (seit 2026-08-12):** TurboQuant Vulkan-Shader (Commit `cb3b1d571`) sind aktiv. Die Reverts `603f47105` (turbo3 dequant-fix) und `9cbabbad8` (Mixed K/V) betrafen nur Spezialfälle, nicht die Haupt-SET_ROWS/mul_mat_vec/FlashAttention-Shader. turbo3/3 (5.1x Kompression) ist die optimale Vulkan-Konfiguration für 2×128k auf APUs. Historische Benchmarks (`docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`) sind wieder gültig.
+    - ✅ **turbo3/3 KV-Cache auf Vulkan FUNKTIONIERT (seit 2026-08-12):** TurboQuant Vulkan-Shader (Commit `cb3b1d571`) sind aktiv. Die Reverts `603f47105` (turbo3 dequant-fix) und `9cbabbad8` (Mixed K/V) betrafen nur Spezialfälle, nicht die Haupt-SET_ROWS/mul_mat_vec/FlashAttention-Shader. turbo3/3 ist die optimale Vulkan-Konfiguration für 2×128k auf APUs. Historische Benchmarks (`docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`) sind wieder gültig.
     - ⚠️ **FlashAttention nur fuer turbo4 aktiv:** turbo3 FA ist DEAKTIVIERT (glslc hängt in infinite optimizer loop bei SPIR-V Generation, `vulkan-shaders-gen.cpp` Zeilen 692-704 auskommentiert). turbo3 fällt auf scalar Attention-Pfad zurück. turbo4 FA aktiv via `flash_attn_cm1.comp`.
     - ✅ **188k-"Klippe" geklärt (12.07.2026):** Die scharfe Performance-Klippe bei ~188k Kontext war **kein Vulkan-Backend-Bug**, sondern ein **OOM-Artefakt bei konkurrierenden GPU-Prozessen**. Zwei llama-server gleichzeitig → GTT-Overflow (2×16 GB > 26 GB GTT) → OOM-Kill → GPU-Buffer-Eviction → 0.10 t/s. Solo-Betrieb mit bis zu 256k Kontext funktioniert einwandfrei (28-32 t/s). **Regel:** Niemals zwei llama-server gleichzeitig auf derselben GPU. Die 180k-Grenze ist obsolet. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` (RCA Update) und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
     - ⚠️ **fit_params + mmproj auf APU (2026-08-12):** `--mmproj` reserviert GPU-Speicher in der `fit_params`-Margin. Auf unified-memory APUs (AMD 760M) reduziert `fit_params` `n_gpu_layers` auf 0 → CPU-Fallback. **Fix:** `-fit off` in Start-Skripten. Siehe `scripts/start-mars-26b-server.sh`.
-    - ✅ **GTT-Budget bei 2×128k (2026-08-12):** turbo3/3 KV bei 2×128k = 26 GB, passt in GTT (27.6 GB) mit unified memory. f16 (133 GB) und q4_0 (37 GB) überschreiten GTT. turbo3/4 (30.7 GB) überschreitet GTT mit mmproj. **Optimal: turbo3/3 für 2×128k + mmproj.**
+    - ⚠️ **turbo4 V + mmproj + 262144 Kontext = CPU-Fallback (2026-08-12):** turbo4 V Shader verursachen CPU-Fallback wenn mmproj geladen ist UND Kontext ≥ 262144. turbo4 V ohne mmproj funktioniert. turbo3 V funktioniert in allen Kombinationen. Ursache ist ein RADV/Shader-Bug, nicht GTT-Overflow (KV-Buffer ist nur ~1.3 GB). **Fix: turbo3/3 für Vulkan+mmproj+large-context.** Siehe `scripts/start-mars-26b-server.sh`.
+    - ✅ **Echte KV-Buffer-Größen (GQA-korrigiert, 2026-08-12):** Die KV-Buffer sind durch Grouped Query Attention deutlich kleiner als naive Berechnung suggeriert. Gemessen auf Phobos (2×128k, Vulkan): turbo3/3 = 1.0 GB, turbo3/4 = 1.3 GB, turbo4/4 = 1.4 GB. Alle passen problemlos in GTT (27.6 GB). GTT ist nicht der limitierende Faktor — der turbo4 V Shader-Bug ist es.
 
 ### Build-Verifikation (UNVERHANDELBAR — seit 2026-08-12)
 
@@ -162,7 +163,7 @@ build/bin/llama-server --list-devices 2>&1 | head -5
 **Kontextfenster (Modell-Maximum: 256K / 262144 tokens):**
 | System | Altes Limit (IQ4_NL) | Neues Limit (QAT) | Produktiv-ctx | Limit-Grund |
 |--------|---------------------|-------------------|---------------|-------------|
-| Mars (AMD APU, LXC phobos) | ~~180k~~ (obsolet) | **256k (lädt)** | **262144 (256k), 2×128k Slots, turbo3/3 KV** | GTT (27.6GB) — turbo3/3 KV (26 GB bei 2×128k) passt in GTT. f16 (133 GB) und q4_0 (37 GB) überschreiten GTT. Siehe `scripts/start-mars-26b-server.sh` |
+| Mars (AMD APU, LXC phobos) | ~~180k~~ (obsolet) | **256k (lädt)** | **262144 (256k), 2×128k Slots, turbo3/3 KV** | turbo4 V + mmproj + 262k → CPU-Fallback (RADV Shader-Bug). turbo3/3 funktioniert. KV-Buffer nur ~1 GB (GQA). Siehe `scripts/start-mars-26b-server.sh` |
 | Styx (GTX 1070) | 160k | 224k (lädt) | **196608 (196k, seit 2026-07-19)** | VRAM (8GB) + RAM (31GB) — 224k volles Ctx → RSS 31.4GB > 31GB RAM → Swap → MoE-Bottleneck → 503. 196k: RSS ~28.4GB, 2.6GB Reserve. Siehe `scripts/start-styx-26b-server.sh` |
 
 Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (256K) als Maximum in der GGUF.

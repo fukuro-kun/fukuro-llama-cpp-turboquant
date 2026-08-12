@@ -6,13 +6,18 @@
 #   TurboQuant Vulkan-Shader sind aktiv (Commit cb3b1d571) — die Reverts
 #   603f47105 und 9cbabbad8 betrafen nur Mixed K/V und einen dequant-fix,
 #   nicht die Haupt-SET_ROWS/mul_mat_vec/FlashAttention-Shader.
-#   turbo3/3 ist die kleinste Option (26 GB bei 2×128k) und passt in GTT.
-#   f16 (133 GB) und q4_0 (37 GB) überschreiten GTT bei 2×128k.
+#
+#   turbo3 V funktioniert in allen Kombinationen (mit/ohne mmproj, 131k/262k).
+#   turbo4 V + mmproj + 262144 Kontext → CPU-Fallback (RADV Shader-Bug).
+#   turbo4 V ohne mmproj funktioniert. Daher: turbo3/3 für Vulkan+mmproj.
+#
+#   Echte KV-Buffer-Größen (GQA-korrigiert, gemessen auf Phobos):
+#     turbo3/3 bei 2×128k = 1.0 GB
+#     turbo3/4 bei 2×128k = 1.3 GB
+#     turbo4/4 bei 2×128k = 1.4 GB
+#   Alle passen problemlos in GTT (27.6 GB). GTT ist nicht limitierend.
 #
 # Kontext: 262144 (256k, 2 Slots à 128k) — volle Modellkapazität.
-#   GTT-Budget: 27.6 GB total - 13.5 GB Modell - 0.8 GB mmproj = 13.3 GB für KV.
-#   turbo3/3 bei 2×128k = 26 GB → knapp, aber Vulkan nutzt unified memory
-#   (GTT = RAM, 28 GB LXC) und funktioniert mit Buffer-Eviction.
 #
 # -fit off: Verhindert dass fit_params ngl auf 0 reduziert bei --mmproj auf APU
 #   (mmproj reserviert GPU-Speicher in der fit_params-Margin, auf unified-memory

@@ -17,21 +17,26 @@ Die TurboQuant Vulkan-Shader (Commit `cb3b1d571`) funktionieren! Die Reverts
 nur Spezialfälle (Mixed K/V, ein spezifischer dequant-Pfad), nicht die
 Haupt-SET_ROWS/mul_mat_vec/FlashAttention-Shader.
 
-**Systematische Testmatrix (alle auf Phobos, Vulkan, 128k Kontext):**
+**Systematische Testmatrix (alle auf Phobos, Vulkan, 262144 Kontext, 2 Slots):**
 
-| KV-Typ | pp128 (t/s) | tg32 (t/s) | 2×128k+mmproj | Status |
-|--------|-------------|------------|---------------|--------|
-| f16    | 123.9       | 26.5       | ❌ GTT (133 GB) | — |
-| q4_0   | 123.2       | 26.5       | ❌ GTT (37 GB)  | — |
-| turbo3/4 | 122.1     | 26.1       | ❌ GTT (30.7 GB) | Ohne mmproj ✅ |
-| turbo3/3 | 122.3     | 26.1       | ✅ GTT (26 GB)  | **Optimal** |
+| KV-Typ | ohne mmproj | mit mmproj | Ursache |
+|--------|-------------|------------|---------|
+| turbo3/3 | ✅ 27.4 t/s | ✅ 27.4 t/s | Funktioniert in allen Kombinationen |
+| turbo3/4 | ✅ 27.2 t/s | ❌ CPU-Fallback | turbo4 V + mmproj + 262k → RADV Shader-Bug |
+| turbo4/4 | ✅ 27.0 t/s | ❌ CPU-Fallback | turbo4 V + mmproj + 262k → RADV Shader-Bug |
 
-**GTT-Budget bei 2×128k + mmproj:**
-- GTT total: 27.6 GB
-- Modell: 13.5 GB
-- mmproj: 0.8 GB
-- Verfügbar für KV: 13.3 GB
-- turbo3/3 bei 2×128k: 26 GB → passt (unified memory nutzt RAM als GTT)
+**Echte KV-Buffer-Größen (GQA-korrigiert, aus Startup-Logs):**
+- turbo3/3 bei 2×128k: 1.0 GB
+- turbo3/4 bei 2×128k: 1.3 GB
+- turbo4/4 bei 2×128k: 1.4 GB
+- Alle passen problemlos in GTT (27.6 GB). **GTT ist nicht limitierend.**
+- Frühere GTT-Berechnungen (26-133 GB) waren falsch — GQA nicht berücksichtigt.
+
+**Warum turbo3/3 (nicht turbo3/4 oder turbo4/4):**
+- turbo4 V Shader verursachen CPU-Fallback wenn mmproj geladen UND Kontext ≥ 262144
+- turbo3 V funktioniert in allen Kombinationen
+- Performance ist identisch (~27 t/s tg bei allen KV-Typen)
+- turbo3/3 hat geringsten Speicherverbrauch
 
 **Produktiv-Konfiguration (wiederhergestellt):**
 - 262144 (256k), 2 Slots à 128k
@@ -40,10 +45,11 @@ Haupt-SET_ROWS/mul_mat_vec/FlashAttention-Shader.
 - `-fit off` (APU fit_params Bug)
 - `--no-warmup` (RADV Pipeline-Kompilierung)
 - Performance: ~27.5 t/s (tg), ~44 t/s (pp)
+- GPU-Utilization: 99% (verifiziert unter Router-Last)
 
 **f16-Fallback-Workaround entfernt** — nicht mehr nötig, Shader funktionieren.
 
-**Commit:** `7d9aa2a1b`
+**Commits:** `7d9aa2a1b`, `18e4ba38a`
 
 ---
 
