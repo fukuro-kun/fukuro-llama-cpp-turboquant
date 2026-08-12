@@ -72,6 +72,7 @@ exec "$SERVER" \
   --cache-reuse 256 \
   --slot-cache-key-similarity 0.5 \
   --slot-cache-key-min-prefix 64 \
+  --no-warmup \
   --metrics --slots \
   --log-timestamps --log-prefix \
   "$@"
