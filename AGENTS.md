@@ -177,19 +177,20 @@ Fuer alle Gemma-4 Modelle (sofern kein begruendeter Spezialfall vorliegt):
 12B/26B/31B). Ohne Thinking-Suppression emittiert das Modell `{thought}`-Tokens
 in Endlosschleife und fuellt den gesamten `max_tokens`-Budget mit Muell.
 
-**Dreischichtige Suppression:**
+**WICHTIG:** `--reasoning off` als Server-Default ist NICHT gesetzt — andere
+Projekte (RPG, etc.) benötigen Thinking. Thinking-Suppression erfolgt
+**ausschließlich per-Request**.
 
-1. **Per-Request (PRIMÄR):** `thinking_budget_tokens: 1` im Request-Body
-   (server-common.cpp:1137). Zwingt den Sampler den Thought-Channel sofort
-   zu schließen. `chat_template_kwargs.enable_thinking: false` allein wird
-   in Praxis ignoriert — `thinking_budget_tokens: 1` funktioniert zuverlässig.
-2. **Server-CLI (DOPPELSICHERUNG):** `--reasoning off` in allen
-   `start-{styx,mars,venus,uranus}-26b-server.sh` (PR #20297).
-3. **Defensive Decke:** `num_predict=4096` begrenzt Blast-Radius sporadischer
-   Ghost-Thoughts. `max_tokens` ist nur eine Decke (Issue #5517), kein Trigger.
+**Per-Request Suppression (PRIMÄR):** `thinking_budget_tokens: 1` im Request-Body
+(server-common.cpp:1137). Zwingt den Sampler den Thought-Channel sofort
+zu schließen. `chat_template_kwargs.enable_thinking: false` allein wird
+in Praxis ignoriert — `thinking_budget_tokens: 1` funktioniert zuverlässig.
+
+**Defensive Decke:** `num_predict=4096` begrenzt Blast-Radius sporadischer
+Ghost-Thoughts. `max_tokens` ist nur eine Decke (Issue #5517), kein Trigger.
 
 **Fork-Code-Positionen:**
-- `common/arg.cpp:3264` — `--reasoning` CLI-Flag (on/off/auto)
+- `common/arg.cpp:3264` — `--reasoning` CLI-Flag (on/off/auto, Default: auto)
 - `common/chat.cpp:1238-1239` — `thinking_start_tag`, `thinking_end_tag` (PR #21697)
 - `tools/server/server-common.cpp:1088-1094` — `chat_template_kwargs.enable_thinking`
 - `tools/server/server-common.cpp:1137` — `thinking_budget_tokens` (per-Request)

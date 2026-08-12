@@ -48,7 +48,6 @@ exec "$SERVER" \
   -c 262144 -ngl 99 \
   -ctk turbo3 -ctv turbo4 -fa on \
   --parallel 2 -np 2 --cont-batching \
-  --reasoning off \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 6144 \
   --cache-reuse 256 \

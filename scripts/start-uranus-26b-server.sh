@@ -128,7 +128,6 @@ setsid "$SERVER" \
   -c "$CTX" -ngl 999 --n-cpu-moe "$MOE" \
   -ctk turbo3 -ctv turbo4 -fa on \
   --parallel "$SLOTS" -np "$SLOTS" --cont-batching \
-  --reasoning off \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram "$CACHE_RAM" \
   --cache-reuse 256 \
