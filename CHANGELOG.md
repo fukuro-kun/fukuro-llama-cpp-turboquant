@@ -6,6 +6,42 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-08-12
+
+### fix: Phobos Vulkan Performance-Regression — 3 Root Causes behoben
+
+**RCA:** Phobos lief ~1,5 Tage auf CPU (3-7 t/s statt 22-27 t/s) nach einem
+Rebuild am 10.08. Drei kombinierte Ursachen:
+
+1. **`GGML_VULKAN=OFF` im Build-Cache** — Der Rebuild am 10.08. hatte
+   Vulkan nicht aktiviert. Der Service startete normal mit CPU-Only-Warning.
+   Fix: Rebuild mit `-DGGML_VULKAN=ON`, Build-Verifikation als DOX-Regel.
+
+2. **TurboQuant Vulkan-Shader revertiert** — Commits `603f47105` und
+   `9cbabbad8` revertierten die Vulkan TurboQuant Shader. Der f16-Fallback-
+   Workaround (`9918d20e1`) wurde mit `cb3b1d571` entfernt. turbo3/4 auf
+   Vulkan → Garbage Output / CPU-Fallback.
+   Fix: Workaround in `llama-context.cpp` wiederhergestellt (Commit `973fa454a`).
+   Start-Skripte auf q4_0 KV (Mars) / f16 KV (Venus) umgestellt.
+
+3. **`fit_params` + `--mmproj` auf APU** — `fit_params` reserviert GPU-Speicher
+   für mmproj in der Margin. Auf unified-memory APUs (AMD 760M) bleibt nichts
+   für das Hauptmodell → `n_gpu_layers` auf 0 → CPU-Fallback.
+   Fix: `-fit off` in allen Vulkan-Start-Skripten.
+
+**Regression:** Mars von 256k/2 Slots/turbo3/4 auf 128k/1 Slot/q4_0.
+Performance: ~27 t/s (tg), ~40 t/s (pp) — leicht über historisch 22-25 t/s.
+
+**Commits:**
+- `797c46b25` — Start-Skripte: f16 KV + -fit off + mmproj
+- `9a64d8447` — --no-warmup für Vulkan-Server
+- `b18be2f09` — Produktiv-Konfiguration Mars (q4_0 KV, 128k, 1 Slot)
+- `973fa454a` — f16-Fallback-Workaround in llama-context.cpp
+
+**DOX:** Build-Verifikations-Regel in AGENTS.md hinzugefügt.
+
+---
+
 ## 2026-08-10
 
 ### fix: HTTPS-Support für llama-server (OpenSSL/libssl-dev) — alle 5 LAN-Hosts

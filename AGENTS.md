@@ -118,14 +118,36 @@ Falls Treffer → Bereinigen!
 - **LAN-Deployment:** Wo der Fork im LAN geklont ist (welcher Host, welcher Commit-Stand, welcher Service) steht in `LOKAL.md` → "Fork-Deployment im LAN" und in Trilium-Note `eiba6WJDfTiq` → Sektion "LAN-Deployment". Agenten muessen diese Info pruefen, bevor sie Remote-Arbeiten auf anderen Hosts durchfuehren.
 - **Kernaufgabe: Remote-Hosts aktuell halten (UNVERHANDELBAR):** Wenn auf einem Remote-Host (Uranus, Styx, Mars, Venus) gearbeitet wird — sei es Debugging, Benchmarking oder Server-Start — muss der Host **vor der Arbeit** auf den aktuellen master-Stand gebracht werden: `git fetch origin && git pull origin master` + `cmake --build build -j$(nproc)`. Ein stale Build fuehrt zu Crashes in bereits gefixtem Code (RCA 2026-07-14: `GGML_ASSERT(n_outputs_max <= cparams.n_outputs_max)` Crash auf Uranus war ein 32h-staler Build, im aktuellen Code bereits behoben). **Nach der Arbeit:** Wenn der Host als Produktiv-Server dient, den Service mit dem frischen Build neu starten. Deployment-Tabelle in `LOKAL.md` nach Sync aktualisieren.
 - GPU-Architektur-Build-Matrix (generisch):
-  - **Pascal (GTX 1070):** `-DLLAMA_CUDA=ON`, FP16 nur via emulation, kein FlashAttention
+  - **Pascal (GTX 1070):** `-DGGML_CUDA=ON`, FP16 nur via emulation, kein FlashAttention
   - **Ampere/Ada (RTX 3070/4060):** Volle Feature-Unterstuetzung, FlashAttention, TurboQuant
-  - **AMD iGPU/APU:** `-DLLAMA_VULKAN=ON`, ROCm experimentell
-    - ✅ **turbo3 KV-Cache funktioniert:** `--cache-type-k turbo3 --cache-type-v turbo3` (~5.1x Kompression)
-    - ✅ **turbo4 KV-Cache funktioniert:** `--cache-type-k turbo4 --cache-type-v turbo4` (~3.8x Kompression)
+  - **AMD iGPU/APU:** `-DGGML_VULKAN=ON`, ROCm experimentell
+    - ❌ **turbo3/4 KV-Cache auf Vulkan DEFEKT (seit 2026-08-12):** Vulkan TurboQuant Shader wurden revertiert (Commits `603f47105`, `9cbabbad8`). Der f16-Fallback-Workaround in `llama-context.cpp` (ursprünglich `9918d20e1`, mit `cb3b1d571` entfernt) wurde am 2026-08-12 wiederhergestellt. turbo3/4 auf Vulkan fällt automatisch auf f16 zurück. Historische Benchmarks (`docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`) sind **obsolet** bis Shader restauriert sind.
     - ⚠️ **FlashAttention nur fuer turbo4 aktiv:** turbo3 FA ist DEAKTIVIERT (glslc hängt in infinite optimizer loop bei SPIR-V Generation, `vulkan-shaders-gen.cpp` Zeilen 692-704 auskommentiert). turbo3 fällt auf scalar Attention-Pfad zurück. turbo4 FA aktiv via `flash_attn_cm1.comp`.
-    - ✅ **turbo3/turbo4 (mixed) ist die optimale Vulkan-Konfiguration** (Benchmark 2026-07-09, 26B-A4B, pp512-8192 + pp96k-128k): turbo3 K hat geringeren Dequant-Overhead (3.125 bit vs 4.25 bit), turbo4 V hat höhere Präzision (4.25 bit). Bei pp@96k-128k ist turbo3/4 **+31% schneller** als turbo4/4, bei tg gleichauf (±0.5%). Empfehlung: **K=turbo3, V=turbo4**. Siehe `docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`.
     - ✅ **188k-"Klippe" geklärt (12.07.2026):** Die scharfe Performance-Klippe bei ~188k Kontext war **kein Vulkan-Backend-Bug**, sondern ein **OOM-Artefakt bei konkurrierenden GPU-Prozessen**. Zwei llama-server gleichzeitig → GTT-Overflow (2×16 GB > 26 GB GTT) → OOM-Kill → GPU-Buffer-Eviction → 0.10 t/s. Solo-Betrieb mit bis zu 256k Kontext funktioniert einwandfrei (28-32 t/s). **Regel:** Niemals zwei llama-server gleichzeitig auf derselben GPU. Die 180k-Grenze ist obsolet. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` (RCA Update) und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
+    - ⚠️ **fit_params + mmproj auf APU (2026-08-12):** `--mmproj` reserviert GPU-Speicher in der `fit_params`-Margin. Auf unified-memory APUs (AMD 760M) reduziert `fit_params` `n_gpu_layers` auf 0 → CPU-Fallback. **Fix:** `-fit off` in Start-Skripten. Siehe `scripts/start-mars-26b-server.sh`.
+
+### Build-Verifikation (UNVERHANDELBAR — seit 2026-08-12)
+
+**Jeder Build muss nach CMake-Konfiguration die GPU-Backend-Flags verifizieren.** Ein Build ohne GPU-Backend läuft stillschweigend auf CPU — der Service startet normal, aber mit 3-7 t/s statt 22-27 t/s.
+
+**Pflicht-Checks nach `cmake -B build`:**
+```bash
+# 1. CMakeCache.txt prüfen (GPU-Backend muss ON sein)
+grep -E "GGML_VULKAN:|GGML_CUDA:" build/CMakeCache.txt
+# Erwartet: GGML_VULKAN:BOOL=ON  (oder GGML_CUDA:BOOL=ON)
+
+# 2. Binary gegen GPU-Library linken
+ldd build/bin/llama-server | grep -E "vulkan|cuda"
+# Erwartet: libvulkan.so.1  (oder libggml-cuda.so)
+
+# 3. Startup-Log prüft Device-Erkennung
+build/bin/llama-server --list-devices 2>&1 | head -5
+# Erwartet: Vulkan0 / CUDA0 in der Device-Liste
+```
+
+**Bei fehlendem GPU-Backend:** Build abbrechen, CMakeCache.txt löschen, mit korrektem Flag neu konfigurieren. **Niemals** einen CPU-only Build als Produktiv-Service starten.
+
+**RCA (2026-08-12):** Phobos lief 1,5 Tage auf CPU (3-7 t/s) weil ein Rebuild `GGML_VULKAN=OFF` im Cache hatte. Der Service startete normal und loggte nur eine Warning (`no usable GPU found`). Die Warning wurde im Betrieb nicht bemerkt.
 
 ### Produktiv-Standard (seit 2026-07-10): QAT + 196k Kontext (Styx seit 2026-07-19)
 
@@ -139,7 +161,7 @@ Falls Treffer → Bereinigen!
 **Kontextfenster (Modell-Maximum: 256K / 262144 tokens):**
 | System | Altes Limit (IQ4_NL) | Neues Limit (QAT) | Produktiv-ctx | Limit-Grund |
 |--------|---------------------|-------------------|---------------|-------------|
-| Mars (AMD APU, LXC phobos) | ~~180k~~ (obsolet) | **256k (lädt)** | **262144 (256k), 2×128k Slots** | RAM (30GB) — voll ausgenutzt, Modell-Maximum erreicht. Altes "256k OOM" war IQ4_NL + konkurrierende Server |
+| Mars (AMD APU, LXC phobos) | ~~180k~~ (obsolet) | ~~256k~~ (regrediert) | **131072 (128k), 1 Slot, q4_0 KV** | GTT (26GB) — f16 KV bei 128k+ überschreitet GTT → Buffer-Eviction → CPU-Fallback. q4_0 KV (4x kleiner) bei 128k funktioniert. turbo3/4 Shader revertiert → f16-Fallback. Siehe `scripts/start-mars-26b-server.sh` |
 | Styx (GTX 1070) | 160k | 224k (lädt) | **196608 (196k, seit 2026-07-19)** | VRAM (8GB) + RAM (31GB) — 224k volles Ctx → RSS 31.4GB > 31GB RAM → Swap → MoE-Bottleneck → 503. 196k: RSS ~28.4GB, 2.6GB Reserve. Siehe `scripts/start-styx-26b-server.sh` |
 
 Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (256K) als Maximum in der GGUF.
