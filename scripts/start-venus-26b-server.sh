@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Venus llama-server für InferenzQuelle.
-# Gemma-4 26B-A4B QAT, Vulkan, f16 KV-Cache, 2 Slots à 128k.
+# Gemma-4 26B-A4B QAT, Vulkan, f16 KV-Cache, 2 Slots à 128k, +Vision (mmproj).
 #
 # Venus hat eine AMD Vega iGPU (GCN/Renoir). Auf GCN ist turbo3/4 bei PP
 # 35-54% langsamer als f16 (scalar FA fallback, Dequant-Overhead).
 # Daher: f16 KV statt turbo3/4. 62 GB RAM bieten genug Platz für f16 bei 256k.
+#
+# -fit off: Verhindert dass fit_params ngl auf 0 reduziert bei --mmproj auf APU
+#   (gleicher Bug wie auf Mars — fit_params reserviert GPU-Speicher für mmproj).
+#
+# --no-warmup: Verhindert langen Warmup-Hang (RADV Pipeline-Kompilierung).
 #
 # Cache-Konfiguration (großzügig — 40 GB RAM available nach Modell-Laden):
 #   --cache-ram 16384        16 GB CPU-RAM für serialisierte KV-States
@@ -13,6 +18,9 @@
 #   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key)
 #                            Bei 2 Slots besonders wertvoll für Cache-Reuse
+#
+# Vision (seit 2026-08-10):
+#   --mmproj Q6_K            Vision-Encoder (SigLIP ~550M, Q6_K ~806MB)
 #
 # Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-venus-26b-server.sh
 # Stop:  sudo systemctl stop llama-server-venus.service

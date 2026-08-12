@@ -1,29 +1,33 @@
 #!/usr/bin/env bash
 # Mars/phobos llama-server für InferenzQuelle.
-# Gemma-4 26B-A4B QAT, Vulkan, f16 KV-Cache, 2 Slots, +Vision (mmproj).
+# Gemma-4 26B-A4B QAT, Vulkan, q4_0 KV-Cache, 1 Slot, +Vision (mmproj).
 #
-# KV-Cache: f16 (nicht turbo3/4) — TurboQuant Vulkan-Shader wurden revertiert
-#   (Commits 603f47105, 9cbabbad8). f16-Fallback-Workaround in llama-context.cpp
-#   wurde mit cb3b1d571 entfernt. Bis Shader wiederhergestellt sind: f16.
+# KV-Cache: q4_0 (nicht turbo3/4, nicht f16) — TurboQuant Vulkan-Shader wurden
+#   revertiert (Commits 603f47105, 9cbabbad8), f16-Fallback-Workaround wurde
+#   mit cb3b1d571 entfernt. f16 KV bei 128k+ Kontext überschreitet GTT (26 GB):
+#   Modell 13.5 GB + f16 KV 128k = 12 GB → 25.5 GB → GTT-Overflow → CPU-Fallback.
+#   q4_0 KV ist 4x kleiner (3 GB bei 128k) und passt: 13.5 + 3 = 16.5 GB.
+#
+# Kontext: 131072 (128k, 1 Slot) — Regression von 256k/2 Slots.
+#   Grund: Mit f16/turbo3/4 KV und 2 Slots überschreitet KV-Cache das GTT-Budget.
+#   Bis TurboQuant Vulkan-Shader wiederhergestellt sind: 128k, 1 Slot, q4_0.
+#   Erwartete Performance: ~27 t/s (tg), ~40 t/s (pp).
 #
 # -fit off: Verhindert dass fit_params ngl auf 0 reduziert bei --mmproj auf APU
 #   (mmproj reserviert GPU-Speicher in der fit_params-Margin, auf unified-memory
 #   APUs bleibt nichts mehr für das Hauptmodell → CPU-Fallback).
 #
-# Cache-Konfiguration (konservativ für unified memory APU):
+# --no-warmup: Verhindert 10+ Min Warmup-Hang (RADV Pipeline-Kompilierung im
+#   Warmup-Forward-Pass). Erster echter Request kompiliert Pipelines stattdessen.
+#
+# Cache-Konfiguration:
 #   --cache-ram 6144         6 GB CPU-RAM für serialisierte KV-States
-#                            (phobos LXC hat 28 GB, aber unified memory:
-#                             Modell 14.2 GB + KV-Cache 256k × 2 Slots im
-#                             selben RAM-Pool. Konservativ um GTT-Overflow
-#                             zu vermeiden — siehe 188k-Klippe RCA 2026-07-12)
 #   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key)
-#                            Bei 2 Slots besonders wertvoll für Cache-Reuse
 #
 # Vision (seit 2026-08-10):
 #   --mmproj Q6_K            Vision-Encoder (SigLIP ~550M, Q6_K ~806MB)
 #                            Läuft über GTT (shared RAM) bei Vulkan.
-#                            Ermöglicht Bildverarbeitung via gemma-4-26B.
 #
 # Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-mars-26b-server.sh
 # Stop:  systemctl --user stop llama-server.service
@@ -63,10 +67,10 @@ exec "$SERVER" \
   -m "$MAIN" \
   --mmproj "$MMPROJ" \
   --host "$HOST" --port "$PORT" \
-  -c 262144 -ngl 99 \
-  -ctk f16 -ctv f16 -fa on \
+  -c 131072 -ngl 99 \
+  -ctk q4_0 -ctv q4_0 -fa on \
   -fit off \
-  --parallel 2 -np 2 --cont-batching \
+  --parallel 1 -np 1 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 6144 \
   --cache-reuse 256 \
