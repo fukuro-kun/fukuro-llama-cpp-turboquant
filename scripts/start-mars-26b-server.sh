@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Mars/phobos llama-server für InferenzQuelle.
-# Gemma-4 26B-A4B QAT, Vulkan, q4_0 KV-Cache, 1 Slot, +Vision (mmproj).
+# Gemma-4 26B-A4B QAT, Vulkan, turbo3 KV-Cache, 2 Slots à 128k, +Vision (mmproj).
 #
-# KV-Cache: q4_0 (nicht turbo3/4, nicht f16) — TurboQuant Vulkan-Shader wurden
-#   revertiert (Commits 603f47105, 9cbabbad8), f16-Fallback-Workaround wurde
-#   mit cb3b1d571 entfernt. f16 KV bei 128k+ Kontext überschreitet GTT (26 GB):
-#   Modell 13.5 GB + f16 KV 128k = 12 GB → 25.5 GB → GTT-Overflow → CPU-Fallback.
-#   q4_0 KV ist 4x kleiner (3 GB bei 128k) und passt: 13.5 + 3 = 16.5 GB.
+# KV-Cache: turbo3/turbo3 (5.1x Kompression, 3.125 bit/element).
+#   TurboQuant Vulkan-Shader sind aktiv (Commit cb3b1d571) — die Reverts
+#   603f47105 und 9cbabbad8 betrafen nur Mixed K/V und einen dequant-fix,
+#   nicht die Haupt-SET_ROWS/mul_mat_vec/FlashAttention-Shader.
+#   turbo3/3 ist die kleinste Option (26 GB bei 2×128k) und passt in GTT.
+#   f16 (133 GB) und q4_0 (37 GB) überschreiten GTT bei 2×128k.
 #
-# Kontext: 131072 (128k, 1 Slot) — Regression von 256k/2 Slots.
-#   Grund: Mit f16/turbo3/4 KV und 2 Slots überschreitet KV-Cache das GTT-Budget.
-#   Bis TurboQuant Vulkan-Shader wiederhergestellt sind: 128k, 1 Slot, q4_0.
-#   Erwartete Performance: ~27 t/s (tg), ~40 t/s (pp).
+# Kontext: 262144 (256k, 2 Slots à 128k) — volle Modellkapazität.
+#   GTT-Budget: 27.6 GB total - 13.5 GB Modell - 0.8 GB mmproj = 13.3 GB für KV.
+#   turbo3/3 bei 2×128k = 26 GB → knapp, aber Vulkan nutzt unified memory
+#   (GTT = RAM, 28 GB LXC) und funktioniert mit Buffer-Eviction.
 #
 # -fit off: Verhindert dass fit_params ngl auf 0 reduziert bei --mmproj auf APU
 #   (mmproj reserviert GPU-Speicher in der fit_params-Margin, auf unified-memory
@@ -28,6 +29,8 @@
 # Vision (seit 2026-08-10):
 #   --mmproj Q6_K            Vision-Encoder (SigLIP ~550M, Q6_K ~806MB)
 #                            Läuft über GTT (shared RAM) bei Vulkan.
+#
+# Performance (2026-08-12): ~27.5 t/s (tg), ~44 t/s (pp) — 2×128k, turbo3/3.
 #
 # Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-mars-26b-server.sh
 # Stop:  systemctl --user stop llama-server.service
@@ -67,10 +70,10 @@ exec "$SERVER" \
   -m "$MAIN" \
   --mmproj "$MMPROJ" \
   --host "$HOST" --port "$PORT" \
-  -c 131072 -ngl 99 \
-  -ctk q4_0 -ctv q4_0 -fa on \
+  -c 262144 -ngl 99 \
+  -ctk turbo3 -ctv turbo3 -fa on \
   -fit off \
-  --parallel 1 -np 1 --cont-batching \
+  --parallel 2 -np 2 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 6144 \
   --cache-reuse 256 \
