@@ -6,6 +6,88 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-08-13
+
+### investigation: turbo3/4 + mmproj + 262144 — RADV Shader-Kompilierung ist der Flaschenhals
+
+**Ursprüngliche Diagnose (2026-08-12):** "turbo4 V + mmproj + 262144 = CPU-Fallback (RADV Shader-Bug)"
+
+**Korrigierte Diagnose (2026-08-13):** Kein CPU-Fallback. Der Scheduler assignt
+alle schweren Operationen an Vulkan0 (nur GET_ROWS embedding-Suche auf CPU,
+identisch mit turbo3/3). Das Problem ist **RADV's extrem langsame
+Shader-Kompilierung** für turbo4 V FlashAttention:
+
+- RADV (Mesa 25.0.7, PHOENIX) braucht ~14 Minuten pro Pipeline-Variante
+- Jede unterschiedliche Batch-Size erzeugt eine neue FA-Pipeline-Variante
+  (RADV hasht `spec_info` / Specialization Constants in den Pipeline-Cache-Key)
+- `graphs reused = 5` (turbo3/4) vs `18` (turbo3/3) — mehr Varianten
+- Der ggml Vulkan-Pipeline-Cache (`GGML_VK_CACHE_DIR`) speichert
+  VkPipelineCache-Objekte (858 KB), aber RADV's interne Shader-Kompilierung
+  wird nicht effektiv gecacht
+- Mesa-Shader-Cache (`~/.cache/mesa_shader_cache_db/`, 1.2 MB) wird via
+  mmap geladen; Part-Files wachsen, aber Index wird erst bei Prozess-Exit
+  geflushed (kein `msync` im Code-Pfad)
+- Selbst nach 25+ Min Kompilierung und identischem Repeat-Request: 60s Timeout
+
+**Getestete Workarounds:**
+
+| Ansatz | Ergebnis |
+|--------|----------|
+| `GGML_VK_CACHE_DIR` (Pipeline-Cache) | Speichert VkPipelineCache, aber RADV recompiliert trotzdem |
+| `--warmup` | Kompiliert nur Batch=2 Variante, nicht Production-Batch-Sizes |
+| `GGML_VK_DISABLE_COOPMAT=1` | Verbessert 0.02 → 3.99 t/s (pp), aber immer noch 50x langsamer als turbo3/3 (200 t/s) |
+| `MESA_SHADER_CACHE_SHOW_STATS=true` | Diagnose-Tool, kein Fix |
+
+**Root Cause (verifiziert durch Webrecherche):**
+- Cooperative-Matrix-NIR-Lowering auf RDNA3 ist ACO-intern extrem teuer
+- Jede Batch-Size erzeugt über Specialization Constants einen neuen Cache-Hash
+- Phoenix (760M, 4 CUs) ist die kleinstmögliche RDNA3-Variante — Kompilierung ist CPU-gebunden
+- Mesa 25.0.7 ist vor llama.cpp-spezifischen Coopmat-Fixes (25.1.1+)
+- `GGML_VK_DISABLE_COOPMAT=1` deaktiviert coopmat, aber turbo4 V FA benötigt
+  immer noch viele Pipeline-Varianten — der nicht-coopmat FA-Pfad ist ebenfalls
+  langsam zu kompilieren bei turbo4 V
+
+**Testmatrix (alle auf Phobos, Vulkan, 2 Slots):**
+
+| KV-Typ | Context | mmproj | t/s | Status |
+|--------|---------|--------|-----|--------|
+| turbo3/3 | 262144 | ja | 27.3 | OK (Produktion) |
+| turbo3/4 | 262144 | nein | 27.3 | OK |
+| turbo3/4 | 131072 | ja | 27.5 | OK |
+| turbo3/4 | 262144 | ja | 0.02 | **nicht brauchbar** |
+| turbo3/4+DISABLE_COOPMAT | 262144 | ja | 3.99 | **nicht brauchbar** |
+
+**Vulkan-Limits verifiziert (keine Limitierung):**
+- `maxMemoryAllocationSize`: 4095 MiB (Maintenance3)
+- `maxBufferSize`: 4095 MiB (Maintenance4)
+- `maxStorageBufferRange`: 4095 MiB
+- Alle weit über dem 1180 MiB turbo3/4 KV-Buffer
+
+**Scheduler-Debug (fprintf-Patch, revertiert):**
+- SPLIT #0: CPU (0 inputs) — nur GET_ROWS embedding-Suche
+- SPLIT #1: Vulkan0 (9 inputs) — alle schweren Operationen
+- Identisch mit turbo3/3 Scheduler-Zuweisungen
+
+**`supports_op` Analyse:**
+- turbo3 und turbo4 werden in `ggml_backend_vk_device_supports_op` identisch
+  behandelt (FA, SET_ROWS, etc.)
+- Einzige Asymmetrie: `is_turbo3` Platzhalter in FA SPIR-V-Generierung
+  (Zeilen 3988, 4039) — aktuell No-Op
+
+**Mögliche zukünftige Fixes (nicht aktuell verfügbar):**
+- Mesa-Upgrade auf ≥25.1.1 (enthält llama.cpp-spezifische Coopmat-Fixes)
+- llama.cpp PR #23641 (Vulkan: don't hold device mutex during pipeline compilation)
+- Batch-Size als Runtime-Uniform statt Specialization Constant (ggml-Code-Änderung)
+- Coopmat-Pfad nur für GPUs mit ≥8 CUs aktivieren (Phoenix hat nur 4)
+
+**Konsequenz:**
+- turbo3/3 bleibt Production-Default für Vulkan + mmproj + large-context
+- turbo3/4 ist experimentell — funktioniert ohne mmproj oder mit ≤131072 Kontext
+- `GGML_VK_SUBALLOCATION_BLOCK_SIZE=2GiB` bleibt gesetzt als Sicherheits-Puffer
+- Start-Script dokumentiert turbo3/4 als experimentell mit Reproduktionsanleitung
+
+---
+
 ## 2026-08-12 (Update 2)
 
 ### fix: Turbo3/3 KV auf Vulkan + 256k/2 Slots + mmproj — volle Modellkapazität wiederhergestellt
