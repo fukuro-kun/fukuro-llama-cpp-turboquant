@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Mars/phobos llama-server für InferenzQuelle.
-# Gemma-4 26B-A4B QAT, Vulkan, turbo3/3 KV-Cache, 2 Slots à 128k, +Vision (mmproj).
+# Gemma-4 26B-A4B QAT, Vulkan, turbo3/3 KV-Cache, 2 Slots à 128k.
+# Vision (mmproj) DEAKTIVIERT seit 13.08.2026 — siehe §5.11 in Trilium SWumEN7WOXBI.
 #
 # KV-Cache: turbo3/turbo3 (K+V=turbo3, 5.1x Kompression).
-#   Production-Default. turbo3/3 funktioniert zuverlässig mit mmproj + 262144.
+#   Production-Default. turbo3/3 funktioniert zuverlässig mit 262144 (ohne mmproj).
 #
 #   turbo3/4 (V=turbo4, 3.8x, höhere Präzision) ist EXPERIMENTELL — siehe unten.
 #
@@ -47,9 +48,11 @@
 #   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key)
 #
-# Vision (seit 2026-08-10):
+# Vision (seit 2026-08-10, DEAKTIVIERT 2026-08-13):
 #   --mmproj Q6_K            Vision-Encoder (SigLIP ~550M, Q6_K ~806MB)
-#                            Läuft über GTT (shared RAM) bei Vulkan.
+#   ⚠️ mmproj + 262144 + turbo3/3 = 0.01 t/s durch RADV-Kompilierung (§5.11 SWumEN7WOXBI)
+#   Übergangsweise deaktiviert. Vision-Requests → venus/uranus.
+#   Reaktivierung nach Mesa-Upgrade ≥25.1.x oder Precompile-Strategie.
 #
 # Performance (2026-08-12): ~27.3 t/s (tg), ~49.6 t/s (pp) — 2×128k, turbo3/3.
 #
@@ -102,7 +105,6 @@ export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-/home/fukuro/.cache/ggml-vk-pipel
 cd "$ROOT"
 exec "$SERVER" \
   -m "$MAIN" \
-  --mmproj "$MMPROJ" \
   --host "$HOST" --port "$PORT" \
   -c 262144 -ngl 99 \
   -ctk turbo3 -ctv turbo3 -fa on \
