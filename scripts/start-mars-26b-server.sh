@@ -101,6 +101,16 @@ export GGML_VK_SUBALLOCATION_BLOCK_SIZE="${GGML_VK_SUBALLOCATION_BLOCK_SIZE:-214
 #          turbo4 V FA-Shader trotz Pipeline-Cache — siehe Header-Kommentar).
 export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-/home/fukuro/.cache/ggml-vk-pipeline-cache}"
 
+# Mesa/RADV Shader-Cache — speichert kompilierte Shader-ISA (NIR→ISA).
+# Wird async von Mesa's Background-Thread geschrieben, bei vkDestroyDevice geflusht.
+# MESA_SHADER_CACHE_DIR ist der Basis-Pfad; Mesa legt Subdirs (mesa_shader_cache/,
+# radv_builtin_shaders/) darunter an. Default-Backend: mesa_shader_cache_db (Mesa-DB).
+# Backup: /home/fukuro/.cache/vulkan-cache-backups/ (siehe precompile-vulkan-shaders.sh)
+export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-/home/fukuro/.cache/mesa-shader-cache}"
+export MESA_SHADER_CACHE_MAX_SIZE="${MESA_SHADER_CACHE_MAX_SIZE:-2G}"
+# NIR-Cache beschleunigt Replay bei Graphics Pipeline Libraries
+export RADV_PERFTEST="${RADV_PERFTEST:-nircache}"
+
 cd "$ROOT"
 exec "$SERVER" \
   -m "$MAIN" \
