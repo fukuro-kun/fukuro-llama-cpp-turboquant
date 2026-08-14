@@ -8,6 +8,27 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-08-15
 
+### breakthrough: 262144+mmproj mit nogttspill — volle 128k/Slot mit Vision
+
+**Fix:** `RADV_PERFTEST=nircache,nogttspill` im Start-Skript.
+Deaktiviert RADV's GTT-Spill-Heuristik die auf UMA-APUs (gfx1103) bei
+großen KV-Cache-Buffern + mmproj pathologisch wurde (0.07 t/s → 23 t/s).
+
+**Test-Matrix:**
+| RADV_PERFTEST | n_ctx | mmproj | Startup | t/s | Status |
+|---|---|---|---|---|---|
+| nircache | 262144 | ja | 220s | 0.07 | ❌ Pathologisch |
+| nircache,nogttspill | 262144 | ja | 80s | 23 | ✅ Behoben |
+| nircache,cswave32 | 262144 | ja | 270s+ | — | ❌ Hängt |
+| nircache,cswave32,nogttspill | 262144 | ja | 110s | 23 | ✅ |
+| nircache | 163840 | ja | 60s | 20 | ✅ (Mesa 26.1.6 Fix) |
+| nircache | 262144 | nein | 290s | 21 | ✅ |
+
+**Production:** 161792 → 262144 (2×128k). Commit `0311122e6`.
+**Warum nogttspill auf APU hilft:** GTT == System-RAM auf UMA, Spilling ist
+kostenlos — aber die Heuristik aktiviert einen pathologischen Compiler-Pfad.
+cswave32 allein hängt, nogttspill allein reicht.
+
 ### test: Mesa 26.1.6 Upgrade + 262144+mmproj Test — Teilerfolg
 
 **Mesa-Upgrade:** 26.1.2 → 26.1.6-1 (via sid-Paket, sid-Repo nach Installation
