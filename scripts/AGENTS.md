@@ -43,6 +43,8 @@
 | `run-gemma4-e4b-mtp-mmproj-server.sh` | Gemma 4 E4B multimodaler MTP-Server starten. |
 | `run-gemma4-12b-iq4nl-pascal-server.sh` | Gemma 4 12B IQ4_NL MTP-Server (Pascal-Host, Port 18080). |
 | `run-gemma4-26b-a4b-mtp-pascal-server.sh` | Gemma 4 26B-A4B MoE MTP-Server mit thecodacus Pinning+Prefetch (Pascal-Host). |
+| `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT Server (Vulkan, turbo3/3, mmproj, 161792 ctx). |
+| `precompile-vulkan-shaders.sh` | Systematisches Precompile aller FA-Pipeline-Varianten mit Cache-Backup. |
 | `start-venus-26b-server.sh` | Gemma 4 26B-A4B QAT Vulkan-Server mit `--mmproj` (Vision/SigLIP). f16 KV, 256k Ctx, 2 Slots. Siehe `docs/fork/2026-08-14_GEMMA4_VISION_MMPROX.md`. |
 | `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT Vulkan-Server (RDNA3). turbo3/3 KV, 161792 Ctx (2×79k), mmproj aktiviert. RADV-Kontext-Limit bei ≥163840. |
 | `start-styx-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Pascal). turbo3/4 KV, 196k Ctx. |
