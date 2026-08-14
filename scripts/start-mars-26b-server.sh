@@ -1,28 +1,27 @@
 #!/usr/bin/env bash
 # Mars/phobos llama-server für InferenzQuelle.
-# Gemma-4 26B-A4B QAT, Vulkan, turbo3/3 KV-Cache, 2 Slots à ~79k.
-# Vision (mmproj) AKTIVIERT seit 14.08.2026 — Kontext auf 161792 reduziert.
+# Gemma-4 26B-A4B QAT, Vulkan, turbo3/3 KV-Cache, 2 Slots à 128k.
+# Vision (mmproj) AKTIVIERT — volle 262144 Kontext mit nogttspill-Workaround.
 #
 # KV-Cache: turbo3/turbo3 (K+V=turbo3, 5.1x Kompression).
 #   Production-Default. turbo3/3 funktioniert zuverlässig.
 #
-#   turbo3/4 (V=turbo4, 3.8x, höhere Präzision) ist EXPERIMENTELL — siehe unten.
-#
 # Echte KV-Buffer-Größen (GQA-korrigiert, gemessen auf Phobos):
-#   turbo3/3 bei 2x80k = 0.63 GB (passt in 1 GiB Default-Suballocation)
 #   turbo3/3 bei 2x128k = 1.0 GB (passt in 1 GiB Default-Suballocation)
 #   turbo3/4 bei 2x128k = 1.3 GB  (braucht 2 GiB Suballocation)
 # Alle passen problemlos in GTT (27.6 GB). GTT ist nicht limitierend.
 #
-# ⚠️ Kontext-Limit bei mmproj + turbo3/3 + Vulkan/RADV (2026-08-14):
-#   Bei n_ctx >= 163840 (160k) mit mmproj kompiliert RADV (Mesa 26.1.2, PHOENIX)
-#   FlashAttention-Shader extrem langsam (~110s pro 8 Tokens, 0.07 t/s).
-#   Bei n_ctx <= 161792 (158k) mit mmproj funktioniert es einwandfrei (32 t/s).
-#   Der Schwellwert liegt exakt bei 163840 — vermutlich durch einen RADV-Compiler-
-#   Pfad der bei großen Buffer-Größen eine andere Code-Generierung wählt.
-#   Mesa-Upgrade (25.0.7→26.1.2) und Precompile-Cache lösten das Problem nicht.
-#   Lösung: Kontext auf 161792 reduzieren (2 Slots à 80896 Tokens ≈ 79k).
-#   Siehe Trilium SWumEN7WOXBI §5.11 für vollständige Diagnose.
+# ⚠️ RADV GTT-Spill-Pathologie bei mmproj + 262144 (2026-08-15):
+#   Bei n_ctx=262144 mit mmproj auf gfx1103 (RADV PHOENIX) kompiliert RADV
+#   FlashAttention-Shader extrem langsam (0.07 t/s, 110s pro 8 Tokens).
+#   Ursache: RADV's GTT-Spill-Heuristik aktiviert bei großen KV-Cache-Buffern
+#   einen Compiler-Pfad der auf UMA/APUs pathologisch wird.
+#   Fix: RADV_PERFTEST=nogttspill — deaktiviert GTT-Spill-Heuristik.
+#   Auf UMA-APUs ist GTT == System-RAM, Spilling ist "kostenlos" — der Flag
+#   ist safe und korrigiert eine falsche Heuristik.
+#   Mesa 26.1.6 allein hat den 163840-Schwellwert behoben (nir_opt_dead_write_vars
+#   Bug), aber 262144+mmproj brauchte zusätzlich nogttspill.
+#   Siehe Trilium SWumEN7WOXBI §5.15 für vollständige Diagnose.
 #
 # GGML_VK_SUBALLOCATION_BLOCK_SIZE=2147483648 (2 GiB):
 #   Default ist 1 GiB (ggml-vulkan.cpp, Fragmentierungs-Limit, NICHT BIOS-Carveout).
@@ -32,9 +31,8 @@
 #   Für turbo3/3 nicht streng nötig (1.0 GB <= 1 GiB), aber als Sicherheits-
 #   Puffer gesetzt — verhindert Edge-Case-Fallback bei Fragmentierung.
 #
-# Kontext: 161792 (158k, 2 Slots à 80896 ≈ 79k) — mmproj-kompatibel.
-#   Ohne mmproj wären 262144 (256k, 2×128k) möglich — volle Modellkapazität.
-#   Trade-off: 79k Kontext pro Slot statt 128k, dafür Vision-Unterstützung.
+# Kontext: 262144 (256k, 2 Slots à 131072 = 128k) — volle Modellkapazität + mmproj.
+#   Seit 2026-08-15: nogttspill ermöglicht 262144+mmproj (vorher auf 161792 reduziert).
 #
 # -fit off: Verhindert dass fit_params ngl auf 0 reduziert bei --mmproj auf APU
 #   (mmproj reserviert GPU-Speicher in der fit_params-Margin, auf unified-memory
@@ -50,10 +48,9 @@
 #
 # Vision (seit 2026-08-10, DEAKTIVIERT 13.08., REAKTIVIERT 14.08.2026):
 #   --mmproj Q6_K            Vision-Encoder (SigLIP ~550M, Q6_K ~806MB)
-#   Mit n_ctx=161792 funktioniert mmproj+turbo3/3+Vulkan zuverlässig (32 t/s).
-#   n_ctx>=163840 mit mmproj → 0.07 t/s (RADV-Compiler-Pathologie).
+#   Seit 2026-08-15: 262144+mmproj mit nogttspill — volle Kapazität + Vision.
 #
-# Performance (2026-08-14): ~32 t/s (tg), ~43 t/s (pp) — 2×79k, turbo3/3, mmproj.
+# Performance (2026-08-15): ~23 t/s (tg) — 2×128k, turbo3/3, mmproj, nogttspill.
 #
 # Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-mars-26b-server.sh
 # Stop:  systemctl --user stop llama-server.service
@@ -108,15 +105,18 @@ export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-/home/fukuro/.cache/ggml-vk-pipel
 # Backup: /home/fukuro/.cache/vulkan-cache-backups/ (siehe precompile-vulkan-shaders.sh)
 export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-/home/fukuro/.cache/mesa-shader-cache}"
 export MESA_SHADER_CACHE_MAX_SIZE="${MESA_SHADER_CACHE_MAX_SIZE:-2G}"
-# NIR-Cache beschleunigt Replay bei Graphics Pipeline Libraries
-export RADV_PERFTEST="${RADV_PERFTEST:-nircache}"
+# NIR-Cache beschleunigt Replay bei Graphics Pipeline Libraries.
+# nogttspill: Deaktiviert RADV GTT-Spill-Heuristik — fixt 262144+mmproj Pathologie
+# auf gfx1103 (UMA-APU, GTT == System-RAM, Spilling ist kostenlos).
+# Siehe Trilium SWumEN7WOXBI §5.15.
+export RADV_PERFTEST="${RADV_PERFTEST:-nircache,nogttspill}"
 
 cd "$ROOT"
 exec "$SERVER" \
   -m "$MAIN" \
   --mmproj "$MMPROJ" \
   --host "$HOST" --port "$PORT" \
-  -c 161792 -ngl 99 \
+  -c 262144 -ngl 99 \
   -ctk turbo3 -ctv turbo3 -fa on \
   -fit off \
   --parallel 2 -np 2 --cont-batching \
