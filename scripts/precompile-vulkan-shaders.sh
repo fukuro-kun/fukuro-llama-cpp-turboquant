@@ -32,23 +32,24 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER="${SERVER:-${ROOT}/build/bin/llama-server}"
-# Modell- und Cache-Pfade müssen über Umgebungsvariablen gesetzt werden (keine hartkodierten Defaults)
-MAIN="${MAIN_GGUF:?MAIN_GGUF must be set — path to main model GGUF}"
-MMPROJ="${MMPROJ_GGUF:?MMPROJ_GGUF must be set — path to mmproj GGUF}"
+MAIN="${MAIN_GGUF:-/jade/models/gemma-4-26B-A4B-it/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}"
+MMPROJ="${MMPROJ_GGUF:-/home/fukuro/modelle/gemma-4-26B-A4B-it/mmproj-Q6_K.gguf}"
 PORT="${PORT:-18099}"
 HOST="${HOST:-127.0.0.1}"
 
-# Cache-Verzeichnisse (Defaults via XDG_CACHE_HOME oder ~/.cache)
-CACHE_BASE="${XDG_CACHE_HOME:-$HOME/.cache}"
-export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-${CACHE_BASE}/ggml-vk-pipeline-cache}"
-export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-${CACHE_BASE}/mesa-shader-cache}"
+# Cache-Verzeichnisse
+export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-/home/fukuro/.cache/ggml-vk-pipeline-cache}"
+export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-/home/fukuro/.cache/mesa-shader-cache}"
 export MESA_SHADER_CACHE_MAX_SIZE="${MESA_SHADER_CACHE_MAX_SIZE:-2G}"
-# NIR-Cache beschleunigt Replay bei Graphics Pipeline Libraries
-export RADV_PERFTEST="${RADV_PERFTEST:-nircache}"
+# NIR-Cache beschleunigt Replay bei Graphics Pipeline Libraries.
+# nogttspill: Deaktiviert RADV GTT-Spill-Heuristik — fixt 262144+mmproj Pathologie
+# auf gfx1103 (UMA-APU, GTT == System-RAM, Spilling ist kostenlos).
+# Siehe docs/fork/2026-08-15_RADV_GTT_SPILL_RESEARCH.md
+export RADV_PERFTEST="${RADV_PERFTEST:-nircache,nogttspill}"
 # Cache-Statistik beim Exit (verifiziert dass Cache geflusht wurde)
 export MESA_SHADER_CACHE_SHOW_STATS="${MESA_SHADER_CACHE_SHOW_STATS:-true}"
 
-BACKUP_DIR="${BACKUP_DIR:-${CACHE_BASE}/vulkan-cache-backups}"
+BACKUP_DIR="${BACKUP_DIR:-/home/fukuro/.cache/vulkan-cache-backups}"
 LOCK_FILE="/tmp/precompile-vulkan-shaders.lock"
 
 # MoE-Optimierungen (wie start-mars-26b-server.sh)
@@ -66,9 +67,7 @@ if [[ -f "$LOCK_FILE" ]]; then
   rm -f "$LOCK_FILE"
 fi
 echo $$ > "$LOCK_FILE"
-# Trap: Lock-File aufräumen UND Server sauber beenden bei Signal/Exit
-# (setsid-Prozess läuft sonst weiter und blockiert den Port)
-trap 'kill -SIGTERM "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; rm -f "$LOCK_FILE"' EXIT INT TERM
+trap 'rm -f "$LOCK_FILE"' EXIT
 
 # --- Checks ---
 if [[ ! -f "$SERVER" ]]; then
@@ -98,11 +97,7 @@ echo "PORT:                   $PORT"
 echo ""
 
 # --- Server starten (setsid: unabhängig von SSH-Session) ---
-# --warmup: Führt einen leeren Decode mit BOS+EOS durch → kompiliert
-#   deterministisch die N=1 FA_SCALAR Pipeline beim Startup.
-#   Kein manueller Request nötig für die erste Pipeline-Variante.
-#   Die restlichen Varianten werden durch die 6 Request-Phasen abgedeckt.
-echo "[$(date '+%H:%M:%S')] Starting llama-server on port $PORT (with --warmup)..."
+echo "[$(date '+%H:%M:%S')] Starting llama-server on port $PORT..."
 setsid "$SERVER" \
   -m "$MAIN" \
   --mmproj "$MMPROJ" \
@@ -116,7 +111,7 @@ setsid "$SERVER" \
   --cache-reuse 256 \
   --slot-cache-key-similarity 0.5 \
   --slot-cache-key-min-prefix 64 \
-  --warmup \
+  --no-warmup \
   --metrics --slots \
   --log-timestamps --log-prefix \
   > /tmp/precompile-server.log 2>&1 &
@@ -177,20 +172,13 @@ JSON
   start_time=$(date +%s)
 
   local response
-  local curl_rc=0
   response=$(curl -s -X POST "http://$HOST:$PORT/v1/chat/completions" \
     -H "Content-Type: application/json" \
-    -d "$body" 2>&1) || curl_rc=$?
+    -d "$body" 2>&1) || true
 
   local end_time
   end_time=$(date +%s)
   local duration=$((end_time - start_time))
-
-  if [[ $curl_rc -ne 0 ]]; then
-    echo "[$(date '+%H:%M:%S')]     WARNING: curl failed (rc=$curl_rc) for $label — pipelines may not be compiled" >&2
-    echo "[$(date '+%H:%M:%S')]     response: ${response:0200}" >&2
-    return 1
-  fi
 
   # Tokens extrahieren (falls verfügbar)
   local prompt_tokens
@@ -291,30 +279,22 @@ echo "[$(date '+%H:%M:%S')] Sending SIGTERM for clean shutdown (cache flush)..."
 kill -SIGTERM "$SERVER_PID" 2>/dev/null || true
 
 # Warten bis der Prozess beendet ist (Cache wird geflusht)
-# SIGKILL nach Timeout zerstört den VkPipelineCache — Backup wird übersprungen
 echo "[$(date '+%H:%M:%S')] Waiting for clean shutdown..."
 WAIT_TIMEOUT=120
 WAIT_ELAPSED=0
-SIGKILLED=0
 while kill -0 "$SERVER_PID" 2>/dev/null; do
   sleep 2
   WAIT_ELAPSED=$((WAIT_ELAPSED + 2))
   if [[ $WAIT_ELAPSED -ge $WAIT_TIMEOUT ]]; then
     echo "[$(date '+%H:%M:%S')] WARNING: server did not exit after ${WAIT_TIMEOUT}s, sending SIGKILL" >&2
-    echo "[$(date '+%H:%M:%S')] WARNING: VkPipelineCache geht verloren — Backup wird übersprungen!" >&2
     kill -SIGKILL "$SERVER_PID" 2>/dev/null || true
-    SIGKILLED=1
     break
   fi
   printf '.'
 done
 echo ""
 wait "$SERVER_PID" 2>/dev/null || true
-if [[ $SIGKILLED -eq 1 ]]; then
-  echo "[$(date '+%H:%M:%S')] Server killed (NOT clean — cache may be incomplete)"
-else
-  echo "[$(date '+%H:%M:%S')] Server stopped cleanly"
-fi
+echo "[$(date '+%H:%M:%S')] Server stopped cleanly"
 
 # --- Cache-Größe nach dem Run ---
 CACHE_SIZE_AFTER=$(du -sb "$GGML_VK_CACHE_DIR" 2>/dev/null | cut -f1 || echo 0)
@@ -334,40 +314,26 @@ ls -lh "$GGML_VK_CACHE_DIR/" 2>&1
 TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
 BACKUP_TAR="${BACKUP_DIR}/vulkan-cache-${TIMESTAMP}.tar.gz"
 
-if [[ $SIGKILLED -eq 1 ]]; then
-  echo ""
-  echo "[$(date '+%H:%M:%S')] SKIPPING backup — server was SIGKILLed, VkPipelineCache is incomplete/missing"
-  echo "[$(date '+%H:%M:%S')] Re-run precompile after fixing the shutdown issue"
-else
-  echo ""
-  echo "[$(date '+%H:%M:%S')] Creating backup: $BACKUP_TAR"
-  tar -czf "$BACKUP_TAR" \
-    -C "$(dirname "$GGML_VK_CACHE_DIR")" "$(basename "$GGML_VK_CACHE_DIR")" \
-    -C "$(dirname "$MESA_SHADER_CACHE_DIR")" "$(basename "$MESA_SHADER_CACHE_DIR")" \
-    2>&1
+echo ""
+echo "[$(date '+%H:%M:%S')] Creating backup: $BACKUP_TAR"
+tar -czf "$BACKUP_TAR" \
+  -C "$(dirname "$GGML_VK_CACHE_DIR")" "$(basename "$GGML_VK_CACHE_DIR")" \
+  -C "$(dirname "$MESA_SHADER_CACHE_DIR")" "$(basename "$MESA_SHADER_CACHE_DIR")" \
+  2>&1
 
-  BACKUP_SIZE=$(du -sh "$BACKUP_TAR" 2>/dev/null | cut -f1)
-  echo "[$(date '+%H:%M:%S')] Backup created: $BACKUP_TAR ($BACKUP_SIZE)"
-fi
+BACKUP_SIZE=$(du -sh "$BACKUP_TAR" 2>/dev/null | cut -f1)
+echo "[$(date '+%H:%M:%S')] Backup created: $BACKUP_TAR ($BACKUP_SIZE)"
 
-# Alte Backups aufräumen (behalte nur das neueste — Cache verändert sich nicht nach vollständiger Kompilierung)
-# Nur ausführen wenn ein neues Backup erstellt wurde
-if [[ $SIGKILLED -eq 0 ]]; then
-  find "$BACKUP_DIR" -maxdepth 1 -name "vulkan-cache-*.tar.gz" -printf '%T@ %p\n' 2>/dev/null \
-    | sort -rn | tail -n +2 | cut -d' ' -f2- | while IFS= read -r old; do
-    echo "[$(date '+%H:%M:%S')] Removing old backup: $old"
-    rm -f "$old"
-  done
-fi
+# Alte Backups aufräumen (behalte die letzten 3)
+ls -t "${BACKUP_DIR}"/vulkan-cache-*.tar.gz 2>/dev/null | tail -n +4 | while read -r old; do
+  echo "[$(date '+%H:%M:%S')] Removing old backup: $old"
+  rm -f "$old"
+done
 
 echo ""
 echo "=== Precompile Complete ==="
-if [[ $SIGKILLED -eq 1 ]]; then
-  echo "WARNING: No backup created (server was SIGKILLed)"
-else
-  echo "Backup:  $BACKUP_TAR"
-  echo "Restore: tar -xzf $BACKUP_TAR -C ${CACHE_BASE}/"
-fi
+echo "Backup:  $BACKUP_TAR"
+echo "Restore: tar -xzf $BACKUP_TAR -C /home/fukuro/.cache/"
 echo ""
 echo "Mesa cache stats (from server log):"
 grep -i "cache\|hit\|miss" /tmp/precompile-server.log 2>/dev/null | tail -5 || echo "(no stats in log)"
