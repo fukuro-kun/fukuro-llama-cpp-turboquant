@@ -6,6 +6,72 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-08-15
+
+### research: RADV 163840-Schwellwert — vollständige Ursachenanalyse (3 Subagents)
+
+**Problem:** Bei n_ctx >= 163840 (160×1024) mit mmproj auf Phobos (gfx1103,
+RADV Mesa 26.1.2) kompiliert RADV FlashAttention-Shader extrem langsam
+(0.07 t/s, 110s pro 8 Tokens). Bei n_ctx <= 161792 funktioniert es (32 t/s).
+
+**Primäre Ursache — nir_opt_dead_write_vars Bug (Mesa 26.1.2):**
+- Mesa MR !42038 (`radv: Only call nir_opt_dead_write_vars once`)
+- RADV rief den NIR-Pass in der Optimierungsschleife wiederholt auf →
+  quadratische/exponentielle Compile-Zeit bei großen Shadern
+- llama.cpp Issue #23755: "Hang loading Gemma 4 on Vulkan RADV" auf gfx1100
+  (gleiche GPU-Familie wie gfx1103)
+- Mesa Work Item #15550: Infinite loop in nir_opt_dead_write_vars
+- **Fix ist in Mesa 26.1.3** (released 2026-06-18) — wir sind auf 26.1.2
+- Fix-Commit: bf0e04a (eine Zeile in radv_shader.c)
+
+**Verstärker 1 — NIR Loop-Unrolling:**
+- RADV: max_unroll_iterations_aggressive = 128
+- can_pipeline_loads = true bei indirekten SSBO-Loads (FA-Shader)
+- Aggressives Unrolling → Shader wächst auf Tausende Instruktionen
+- Kostenlimit: 128 × 26 = 3328 Instruktionen pro Loop
+
+**Verstärker 2 — turbo3 FA + SWA (Gemma 4):**
+- llama.cpp Issue #22842: turbo3 KV produces garbage on RDNA3.5 mit SWA
+- Fork-Commit 7d5ac40: glslc hängt auf turbo3 FA-Permutationen
+- Auf gfx1103 (RDNA3, nicht 3.5) möglicherweise nicht betroffen — testen
+
+**Verstärker 3 — UMA-Speicherdruck:**
+- 8 CUs, shared RAM/VRAM, Shader-Kompilierung frisst RAM
+- RADV_PERFTEST=nogttspill verhindert GTT-Swap-Bug
+
+**Was NICHT die Ursache ist:**
+- 163840 ist keine GFX11-Hardwaregrenze (Limits: 1024 Work-Items, 64KB LDS)
+- Kein GFX11-spezifischer Bug (betrifft alle RADV-GPUs)
+- Kein LDS-Overflow (FA-Tiling respektiert 64KB)
+- ROCm keine Alternative (rocBLAS fehlt gfx1103-Tensile-Kernels)
+
+**Aktionen:**
+- P0: Mesa auf >= 26.1.3 upgraden → behebt den Infinite-Loop
+- P1: RADV_PERFTEST=nogttspill,cswave32 setzen
+- P1: Nach Upgrade n_ctx=262144 (2×128k) mit mmproj testen
+- P2: RADV_DEBUG=nooptimizer Test zur Bug-Bestätigung
+- P3: Upstream-PRs #19625 + #19075 in Fork mergen
+
+### fix: precompile-vulkan-shaders.sh Code-Review-Fixes
+
+High-Severity:
+- Trap um SIGTERM/SIGINT erweitert: Server wird bei Abbruch sauber beendet
+- SIGKILL-Fallback: Backup wird übersprungen (VkPipelineCache incomplete)
+- Backup-Rotation geschützt: nur bei erfolgreichem Backup
+
+Medium-Severity:
+- Hartkodierte Pfade entfernt: MAIN_GGUF/MMPROJ_GGUF Pflicht via ${VAR:?}
+- curl-Fehler nicht mehr geschluckt: Warning bei Request-Fehler
+- Backup-Rotation: find statt ls (robuster)
+
+--warmup statt --no-warmup:
+- Warmup kompiliert deterministisch N=1 FA_SCALAR Pipeline
+- Backup-Retention von 3 auf 1 reduziert
+
+Commit: df7803415
+
+---
+
 ## 2026-08-13
 
 ### investigation: turbo3/4 + mmproj + 262144 — RADV Shader-Kompilierung ist der Flaschenhals
