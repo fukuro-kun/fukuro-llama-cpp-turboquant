@@ -8,6 +8,44 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-08-15
 
+### test: Mesa 26.1.6 Upgrade + 262144+mmproj Test — Teilerfolg
+
+**Mesa-Upgrade:** 26.1.2 → 26.1.6-1 (via sid-Paket, sid-Repo nach Installation
+entfernt). Enthält den nir_opt_dead_write_vars-Fix aus MR !42038.
+
+**Testergebnisse mit Mesa 26.1.6:**
+
+| Config | Startup | Performance | Status |
+|--------|---------|-------------|--------|
+| 163840 + mmproj | 60s | 20 t/s | ✅ Funktioniert (früher 0.07 t/s!) |
+| 262144 + mmproj | 220s | 0.07 t/s | ❌ Pathologie besteht |
+| 262144 ohne mmproj | 290s | 21 t/s | ✅ Funktioniert |
+
+**Erkenntnis 1:** Mesa 26.1.6 hat den 163840-Schwellwert behoben. Die früher
+pathologische Config funktioniert jetzt mit normaler Performance.
+
+**Erkenntnis 2:** 262144 ohne mmproj funktioniert — der Kontext selbst ist
+nicht das Problem. mmproj ist der Verstärker der die Shader-Komplexität über
+eine kritische Schwelle treibt.
+
+**Erkenntnis 3:** RADV_DEBUG=nooptimizer hat nicht geholfen — die Pathologie
+liegt nicht in der NIR-Optimierung sondern in der Pipeline-Creation selbst.
+
+**Erkenntnis 4:** Die Pathologie bei 262144+mmproj ist NICHT der
+nir_opt_dead_write_vars-Bug. Es ist ein anderes Problem — wahrscheinlich die
+scheren Shader-Größe durch Loop-Unrolling bei 128k KV-Cache + mmproj-spezifische
+Pipelines. ACO-Compile-Zeit skaliert mit Shader-Größe und wird hier pathologisch.
+
+**Production-Status:** Bleibt auf 161792+mmproj (bewährter Workaround).
+Upgrade auf 262144+mmproj zurückgestellt — benötigt weitere Untersuchung.
+
+**Nächste Schritte für 262144+mmproj:**
+- RADV_PERFTEST=cswave32 testen (Wave32 für VOPD-Dual-Issue)
+- RADV_PERFTEST=nogttspill testen (GTT-Swap-Bug)
+- NIR-Dump vergleichen: 163840+mmproj vs 262144+mmproj
+- Upstream-PRs #19625 + #19075 in Fork mergen
+- llama.cpp Issue #23755 Kommentar mit Mesa 26.1.6 Ergebnis
+
 ### research: RADV 163840-Schwellwert — vollständige Ursachenanalyse (3 Subagents)
 
 **Problem:** Bei n_ctx >= 163840 (160×1024) mit mmproj auf Phobos (gfx1103,
