@@ -1,30 +1,28 @@
 #!/usr/bin/env bash
 # Mars/phobos llama-server für InferenzQuelle.
-# Gemma-4 26B-A4B QAT, Vulkan, turbo3/3 KV-Cache, 2 Slots à 128k.
-# Vision (mmproj) DEAKTIVIERT seit 13.08.2026 — siehe §5.11 in Trilium SWumEN7WOXBI.
+# Gemma-4 26B-A4B QAT, Vulkan, turbo3/3 KV-Cache, 2 Slots à ~79k.
+# Vision (mmproj) AKTIVIERT seit 14.08.2026 — Kontext auf 161792 reduziert.
 #
 # KV-Cache: turbo3/turbo3 (K+V=turbo3, 5.1x Kompression).
-#   Production-Default. turbo3/3 funktioniert zuverlässig mit 262144 (ohne mmproj).
+#   Production-Default. turbo3/3 funktioniert zuverlässig.
 #
 #   turbo3/4 (V=turbo4, 3.8x, höhere Präzision) ist EXPERIMENTELL — siehe unten.
 #
 # Echte KV-Buffer-Größen (GQA-korrigiert, gemessen auf Phobos):
-#   turbo3/3 bei 2x128k = 1.0 GB  (passt in 1 GiB Default-Suballocation)
+#   turbo3/3 bei 2x80k = 0.63 GB (passt in 1 GiB Default-Suballocation)
+#   turbo3/3 bei 2x128k = 1.0 GB (passt in 1 GiB Default-Suballocation)
 #   turbo3/4 bei 2x128k = 1.3 GB  (braucht 2 GiB Suballocation)
-#   turbo4/4 bei 2x128k = 1.4 GB
 # Alle passen problemlos in GTT (27.6 GB). GTT ist nicht limitierend.
 #
-# ⚠️ turbo3/4 + mmproj + 262144 = NICHT PRODUKTIONS-TAUGLICH (2026-08-13):
-#   RADV (Mesa 25.0.7, PHOENIX) kompiliert turbo4 V FlashAttention-Shader
-#   extrem langsam (~14 Min pro Pipeline-Variante). Jede unterschiedliche
-#   Batch-Size erzeugt eine neue Variante. Der ggml Vulkan-Pipeline-Cache
-#   (GGML_VK_CACHE_DIR) speichert VkPipelineCache-Objekte, aber RADV's
-#   interne Shader-Kompilierung wird nicht effektiv gecacht — der Mesa-
-#   Shader-Cache (~/.cache/mesa_shader_cache_db/) wird via mmap geladen aber
-#   nicht zurückgeschrieben (index seit Mai 2025 unverändert, 934 KB).
-#   turbo3/4 ohne mmproj oder mit 131072 Kontext funktioniert (27.3 t/s).
-#   Nur die Kombination turbo3/4 + mmproj + 262144 ist betroffen.
-#   Für turbo3/4-Experimente: CTV=turbo4 setzen + GGML_VK_SUBALLOCATION_BLOCK_SIZE=2GiB.
+# ⚠️ Kontext-Limit bei mmproj + turbo3/3 + Vulkan/RADV (2026-08-14):
+#   Bei n_ctx >= 163840 (160k) mit mmproj kompiliert RADV (Mesa 26.1.2, PHOENIX)
+#   FlashAttention-Shader extrem langsam (~110s pro 8 Tokens, 0.07 t/s).
+#   Bei n_ctx <= 161792 (158k) mit mmproj funktioniert es einwandfrei (32 t/s).
+#   Der Schwellwert liegt exakt bei 163840 — vermutlich durch einen RADV-Compiler-
+#   Pfad der bei großen Buffer-Größen eine andere Code-Generierung wählt.
+#   Mesa-Upgrade (25.0.7→26.1.2) und Precompile-Cache lösten das Problem nicht.
+#   Lösung: Kontext auf 161792 reduzieren (2 Slots à 80896 Tokens ≈ 79k).
+#   Siehe Trilium SWumEN7WOXBI §5.11 für vollständige Diagnose.
 #
 # GGML_VK_SUBALLOCATION_BLOCK_SIZE=2147483648 (2 GiB):
 #   Default ist 1 GiB (ggml-vulkan.cpp, Fragmentierungs-Limit, NICHT BIOS-Carveout).
@@ -34,7 +32,9 @@
 #   Für turbo3/3 nicht streng nötig (1.0 GB <= 1 GiB), aber als Sicherheits-
 #   Puffer gesetzt — verhindert Edge-Case-Fallback bei Fragmentierung.
 #
-# Kontext: 262144 (256k, 2 Slots à 128k) — volle Modellkapazität.
+# Kontext: 161792 (158k, 2 Slots à 80896 ≈ 79k) — mmproj-kompatibel.
+#   Ohne mmproj wären 262144 (256k, 2×128k) möglich — volle Modellkapazität.
+#   Trade-off: 79k Kontext pro Slot statt 128k, dafür Vision-Unterstützung.
 #
 # -fit off: Verhindert dass fit_params ngl auf 0 reduziert bei --mmproj auf APU
 #   (mmproj reserviert GPU-Speicher in der fit_params-Margin, auf unified-memory
@@ -48,13 +48,12 @@
 #   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key)
 #
-# Vision (seit 2026-08-10, DEAKTIVIERT 2026-08-13):
+# Vision (seit 2026-08-10, DEAKTIVIERT 13.08., REAKTIVIERT 14.08.2026):
 #   --mmproj Q6_K            Vision-Encoder (SigLIP ~550M, Q6_K ~806MB)
-#   ⚠️ mmproj + 262144 + turbo3/3 = 0.01 t/s durch RADV-Kompilierung (§5.11 SWumEN7WOXBI)
-#   Übergangsweise deaktiviert. Vision-Requests → venus/uranus.
-#   Reaktivierung nach Mesa-Upgrade ≥25.1.x oder Precompile-Strategie.
+#   Mit n_ctx=161792 funktioniert mmproj+turbo3/3+Vulkan zuverlässig (32 t/s).
+#   n_ctx>=163840 mit mmproj → 0.07 t/s (RADV-Compiler-Pathologie).
 #
-# Performance (2026-08-12): ~27.3 t/s (tg), ~49.6 t/s (pp) — 2×128k, turbo3/3.
+# Performance (2026-08-14): ~32 t/s (tg), ~43 t/s (pp) — 2×79k, turbo3/3, mmproj.
 #
 # Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-mars-26b-server.sh
 # Stop:  systemctl --user stop llama-server.service
@@ -105,8 +104,9 @@ export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-/home/fukuro/.cache/ggml-vk-pipel
 cd "$ROOT"
 exec "$SERVER" \
   -m "$MAIN" \
+  --mmproj "$MMPROJ" \
   --host "$HOST" --port "$PORT" \
-  -c 262144 -ngl 99 \
+  -c 161792 -ngl 99 \
   -ctk turbo3 -ctv turbo3 -fa on \
   -fit off \
   --parallel 2 -np 2 --cont-batching \

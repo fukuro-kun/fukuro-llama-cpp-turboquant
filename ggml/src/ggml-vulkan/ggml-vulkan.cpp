@@ -3392,8 +3392,11 @@ static vk_fa_tuning_params get_fa_tuning_params(const vk_device& device, uint32_
         }
     }
 
-    // scalar is faster than coopmat when N==1
-    if (n_rows == 1 && (path == FA_COOPMAT1 || path == FA_COOPMAT2)) {
+    // scalar is faster than coopmat when N==1, but coopmat uses fixed Br/Bc
+    // (1 variant vs 5+ scalar variants). On RADV where each variant triggers
+    // expensive shader compilation, forcing coopmat eliminates variant explosion.
+    // GGML_VK_FA_FORCE_COOPMAT=1 skips the scalar fallback for N==1.
+    if (n_rows == 1 && (path == FA_COOPMAT1 || path == FA_COOPMAT2) && !getenv("GGML_VK_FA_FORCE_COOPMAT")) {
         path = FA_SCALAR;
     }
 
