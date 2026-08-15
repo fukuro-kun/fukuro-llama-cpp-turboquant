@@ -2630,6 +2630,16 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         pipeline->compile_pending = false;
     }
     device->compile_cv.notify_all();
+
+    // Periodic pipeline cache flush — saves progress after each compilation
+    // so the cache survives even if the process is killed (OOM, SIGKILL, etc.).
+    // Without this, the VK pipeline cache is only saved at clean shutdown.
+    // The pipeline_cache_saved guard is reset here to allow repeated saves.
+    {
+        std::lock_guard<std::recursive_mutex> lock(device->mutex);
+        device->pipeline_cache_saved = false;
+    }
+    ggml_vk_save_pipeline_cache(device);
 }
 
 static void ggml_vk_destroy_pipeline(vk::Device& device, vk_pipeline& pipeline) {
