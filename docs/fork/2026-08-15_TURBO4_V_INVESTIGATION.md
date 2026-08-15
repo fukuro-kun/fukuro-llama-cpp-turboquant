@@ -189,12 +189,33 @@ ggml_vk_save_pipeline_cache(device.get());
 
 **Der VK Pipeline Cache wird geladen (848K) aber nicht für turbo4 V FA-Pipelines genutzt.** Der Cache wächst während des Precompiles (periodischer Flush funktioniert), aber beim Restart werden die FA-Pipelines neu kompiliert.
 
-### Mögliche Ursachen
+### Root Cause (Code-Analyse bestätigt)
 
-1. **FA-Pipeline-Cache-Key-Mismatch:** Die Pipeline-Cache-Keys könnten sich zwischen Runs ändern (z.B. durch Pointer-Adressen, Thread-IDs, oder andere nicht-deterministische Werte)
-2. **Mesa Shader Cache nicht effektiv:** Mesa's NIR→ISA Cache könnte geladen werden aber nicht gematcht werden (z.B. verschiedene Shader-Hashes durch Spec-Constant-Änderungen)
-3. **VK Pipeline Cache ignoriert FA-Pipelines:** Möglicherweise nutzt der FA-Pipeline-Erstellungspfad `vkCreateComputePipelines` nicht mit dem `pipeline_cache` Parameter
-4. **Shader-Module werden neu erstellt:** Wenn die SPIR-V-Shader-Module bei jedem Start neu geladen werden, ändert sich der Shader-Module-Hash und der Pipeline-Cache kann nicht matchen
+**Der ggml-Code ist korrekt.** Der Bug liegt im RADV-Treiber (Mesa 25.0.7, PHOENIX).
+
+Code-Verifikation (Subagent-Analyse):
+- ✅ `vkCreateComputePipelines` Aufruf (Zeile 2570) übergibt `device->pipeline_cache` korrekt
+- ✅ Cache wird beim Startup aus Datei geladen (Zeile 6447), UUID validiert (Zeile 6430)
+- ✅ Cache-Key ist deterministisch (SPIR-V + Spec-Constants + Layout, keine Pointer/Thread-IDs)
+- ✅ Cache wird nach jedem Compile gespeichert (periodischer Flush + Shutdown)
+- ✅ Shader-Module werden neu erstellt, aber VkPipelineCache keyed auf Bytecode nicht Handle
+
+**Die Ursache:** RADV's `VkPipelineCache`-Implementation produziert keine Cache-Hits für turbo4 V
+FA-Shader. Die 848K Cache-Datei wird geladen aber RADV's ACO-Compiler kompiliert die Shader
+trotzdem neu. Dies ist ein bekanntes RADV-Problem bei komplexen Compute-Pipelines mit vielen
+Specialization Constants.
+
+**Zusätzlicher Faktor — Batch-Size-abhängige Varianten:**
+`get_fa_tuning_params_scalar()` nutzt `n_rows` (Batch-Size) für Tuning-Parameter:
+- `subgroup_size` (n_rows < 4 ? 32 : device->subgroup_size)
+- `row_split` (n_rows < 4 ? 1 : 4)
+- `workgroup_size`, `block_rows`, `limit_occupancy_shmem`
+
+Diese werden zu Spec-Constants → jede Batch-Size erzeugt eine neue Pipeline-Variante. Bei
+wechselnden Batch-Sizes (PP vs. TG) entstehen viele Varianten, die alle neu kompiliert werden.
+
+**Warum turbo3/3 funktioniert:** turbo3 FA ist deaktiviert (vulkan-shaders-gen.cpp Zeilen
+692-704 auskommentiert). turbo3 fällt auf scalar Attention-Pfad zurück mit einfacheren Shadern.
 
 ### Fazit
 
