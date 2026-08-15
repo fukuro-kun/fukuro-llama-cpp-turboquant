@@ -159,7 +159,52 @@ ggml_vk_save_pipeline_cache(device.get());
 
 | # | Frage | Status |
 |---|-------|--------|
-| 1 | Wie lange dauert der turbo4 V Startup mit vollständigem Pipeline-Cache? | Nicht getestet — muss im Wartungsfenster verifiziert werden |
-| 2 | Kann `--cache-ram` nach Pipeline-Cache-Füllung erhöht werden? | Nicht getestet — muss nach Precompile verifiziert werden |
+| 1 | Wie lange dauert der turbo4 V Startup mit vollständigem Pipeline-Cache? | ❌ GETESTET — Cache bringt KEINEN Vorteil (411s vs 440s ohne Cache) |
+| 2 | Kann `--cache-ram` nach Pipeline-Cache-Füllung erhöht werden? | ❌ N/A — Cache funktioniert nicht für FA-Pipelines |
 | 3 | Ist turbo4 V Quality merklich besser als turbo3/3? | Nicht getestet — Quality-Benchmark ausstehend |
-| 4 | Gibt es einen Mesa Bug-Report für ACO's pathologische Compile-Zeit? | Nicht erstellt — niedrige Priorität da Precompile workaround existiert |
+| 4 | Gibt es einen Mesa Bug-Report für ACO's pathologische Compile-Zeit? | Nicht erstellt — niedrige Priorität |
+| 5 | Warum nutzt der VK Pipeline Cache die turbo4 V FA-Pipelines nicht? | ❌ OFFEN — Cache wächst (209K→848K) aber Restart ist nicht schneller |
+
+---
+
+## Wartungsfenster-Test (15.08.2026, 17:23-18:30)
+
+### Durchgeführt
+
+1. Production (turbo3/3) gestoppt
+2. turbo4 V Precompile mit `KV_CACHE_VARIANT=turbo4` gestartet
+3. Server healthy nach 440s (7.3min)
+4. 6 systematische Requests mit `max_tokens=1` (Decode, Small/Medium/Large/VeryLarge Prompt, Vision)
+5. Cache wuchs von 209K → 848K (VK Pipeline Cache) + 2.4M → 3.4M (Mesa Shader Cache)
+6. Server mit SIGTERM heruntergefahren (sauberer Cache-Flush)
+7. turbo4 V mit Cache neu gestartet
+
+### Ergebnis: NEGATIV
+
+| Metric | Ohne Cache | Mit Cache | Verbesserung |
+|--------|-----------|-----------|-------------|
+| Startup bis /health | 440s | 411s | -7% (Rauschen) |
+| Erster Request (Hi, max_tokens=1) | 5min 34s | 4min 56s | -11% (Rauschen) |
+| PP Rate erster Request | 0.09 t/s | 0.1 t/s | minimal |
+
+**Der VK Pipeline Cache wird geladen (848K) aber nicht für turbo4 V FA-Pipelines genutzt.** Der Cache wächst während des Precompiles (periodischer Flush funktioniert), aber beim Restart werden die FA-Pipelines neu kompiliert.
+
+### Mögliche Ursachen
+
+1. **FA-Pipeline-Cache-Key-Mismatch:** Die Pipeline-Cache-Keys könnten sich zwischen Runs ändern (z.B. durch Pointer-Adressen, Thread-IDs, oder andere nicht-deterministische Werte)
+2. **Mesa Shader Cache nicht effektiv:** Mesa's NIR→ISA Cache könnte geladen werden aber nicht gematcht werden (z.B. verschiedene Shader-Hashes durch Spec-Constant-Änderungen)
+3. **VK Pipeline Cache ignoriert FA-Pipelines:** Möglicherweise nutzt der FA-Pipeline-Erstellungspfad `vkCreateComputePipelines` nicht mit dem `pipeline_cache` Parameter
+4. **Shader-Module werden neu erstellt:** Wenn die SPIR-V-Shader-Module bei jedem Start neu geladen werden, ändert sich der Shader-Module-Hash und der Pipeline-Cache kann nicht matchen
+
+### Fazit
+
+**turbo4 V + mmproj + 262144 ist NICHT production-tauglich auf Phobos.** Der Precompile-Ansatz funktioniert nicht weil der VK Pipeline Cache die FA-Pipelines nicht cached. Jeder Restart erfordert 5+min pro Pipeline-Variante, was bei 15+ Varianten 75+min bedeutet.
+
+**turbo3/3 bleibt Production-Standard.** Die turbo3 V FA-Pipelines sind deaktiviert (scalar Attention fallback), daher tritt das Problem dort nicht auf.
+
+### Nächste Schritte (falls turbo4 V angestrebt wird)
+
+1. **Root Cause Analysis:** Warum nutzt der VK Pipeline Cache die FA-Pipelines nicht? Code-Inspektion von `vkCreateComputePipelines` Aufruf mit `pipeline_cache` Parameter im FA-Pipeline-Erstellungspfad.
+2. **VK_EXT_pipeline_creation_cache_control:** Non-blocking Pipeline-Kompilierung — erlaubt der App, Pipeline-Kompilierung asynchron durchzuführen.
+3. **Mesa Bug Report:** ACO's pathologische Compile-Zeit für turbo4 V FA-Shader auf RDNA3/UMA melden.
+4. **Alternative:** turbo3/4 ohne mmproj testen (weniger Pipeline-Varianten, möglicherweise schnellerer Startup).
