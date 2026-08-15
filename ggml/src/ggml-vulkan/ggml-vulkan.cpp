@@ -2639,7 +2639,7 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         std::lock_guard<std::recursive_mutex> lock(device->mutex);
         device->pipeline_cache_saved = false;
     }
-    ggml_vk_save_pipeline_cache(device);
+    ggml_vk_save_pipeline_cache(device.get());
 }
 
 static void ggml_vk_destroy_pipeline(vk::Device& device, vk_pipeline& pipeline) {
