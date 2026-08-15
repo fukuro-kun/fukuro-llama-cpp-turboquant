@@ -1,9 +1,21 @@
 # turbo4 V + mmproj + 262144 Untersuchung (15.08.2026)
 
-**Status:** OPEN — turbo3/3 ist Production-Default, turbo4 V ist Ziel aber benötigt Precompile
+> **KORREKTUR-NOTIZ (2026-08-15):** Diese Untersuchung testete `-ctk turbo3 -ctv turbo4`
+> (K=turbo3, V=turbo4) — eine **systematische K/V-Verwechslung**. K (Keys) ist
+> empfindlicher als V (Values), weil Q·K die Attention-Gewichtung determiniert.
+> Fehler in K verfälschen welche Tokens überhaupt beachtet werden, während V nur
+> den gewichteten Output liefert. **Korrekte Zuweisung:** K=turbo4 (4.25 bit,
+> höhere Präzision), V=turbo3 (3.125 bit, stärkere Kompression) → `-ctk turbo4 -ctv turbo3`.
+> Die hier dokumentierten Ergebnisse beziehen sich auf die falsche Zuweisung
+> (V=turbo4). Der Production-Standard ist jetzt turbo4/3 (K=turbo4, V=turbo3)
+> ohne mmproj. Die "turbo4 V" Shader-Kompilierungs-Problematik betrifft V=turbo4
+> FA-Shader und ist mit der korrekten Zuweisung (V=turbo3) nicht relevant.
+
+**Status:** ❌ BLOCKED — turbo4 V + mmproj + 262144 funktioniert nicht (Pipeline-Cache ineffective)
 **Betroffen:** AMD gfx1103 (Radeon 760M, RDNA3 Phoenix APU, UMA) mit Vulkan/RADV
 **Production-Commit (turbo3/3):** `0311122e6`
 **Cache-Flush-Fix:** `d795404be`
+**Production-Standard (seit 15.08.2026):** turbo4/3 ohne mmproj, Commit `6c54299ac`
 
 ---
 

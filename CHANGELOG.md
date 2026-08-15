@@ -8,6 +8,41 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-08-15
 
+### fix: K/V-Cache-Zuweisung systematisch korrigiert — K=turbo4, V=turbo3
+
+**Problem:** Alle Start-Skripte und Doku verwendeten `-ctk turbo3 -ctv turbo4`
+(K=turbo3, V=turbo4) — eine systematische Verwechslung. K (Keys) ist
+empfindlicher als V (Values), weil Q·K die Attention-Gewichtung determiniert.
+Fehler in K verfälschen **welche Tokens überhaupt beachtet werden**, während
+V nur den gewichteten Output liefert und fehlertoleranter ist.
+
+**Korrektur:** K bekommt turbo4 (4.25 bit, höhere Präzision), V bekommt turbo3
+(3.125 bit, stärkere Kompression) → `-ctk turbo4 -ctv turbo3`.
+Kurznotation: turbo4/3 (statt vorher turbo3/4).
+
+**Betroffene Dateien (alle korrigiert):**
+- `scripts/start-mars-26b-server.sh` — ctk/ctv getauscht, Kommentare aktualisiert
+- `scripts/start-mars-26b-server-turbo4.sh` — ctk/ctv getauscht, Kommentare aktualisiert
+- `scripts/start-uranus-26b-server.sh` — ctk/ctv getauscht
+- `scripts/start-styx-26b-server.sh` — ctk/ctv getauscht
+- `scripts/llama-server-mars-26b-a4b.service` — Description aktualisiert
+- `scripts/llama-server-styx-26b-a4b.service` — Description aktualisiert
+- `AGENTS.md` — Vulkan KV-Cache Sektion + Kontext-Tabelle
+- `docs/fork/ROADMAP.md` — #34, #69, #98
+- `scripts/AGENTS.md` — Skript-Beschreibungen
+- `docs/fork/2026-08-15_TURBO4_V_INVESTIGATION.md` — Korrektur-Notiz am Anfang
+
+**Nicht geändert:**
+- Code-Dateien (template-instances, fattn.cu, ggml-metal.metal) — Typ-Bezeichner, keine K/V-Zuweisung
+- `docs/fork/archive/` — historische Test-Dokumentation
+- Historische CHANGELOG-Einträge — beschreiben was damals getestet wurde
+
+**Beobachtung:** Die bisherigen Tests mit der falschen Zuweisung (K=turbo3, V=turbo4)
+lieferten trotzdem gute Ergebnisse, weil turbo3 K (3.125 bit) für die Attention
+ausreicht und turbo4 V (4.25 bit) den Output präziser macht. Die korrekte Zuweisung
+(K=turbo4, V=turbo3) sollte mindestens gleich gut oder besser sein, da die
+Attention-Gewichtung präziser wird bei gleichem Speicherverbrauch.
+
 ### breakthrough: 262144+mmproj mit nogttspill — volle 128k/Slot mit Vision
 
 **Fix:** `RADV_PERFTEST=nircache,nogttspill` im Start-Skript.

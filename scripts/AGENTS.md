@@ -43,11 +43,11 @@
 | `run-gemma4-e4b-mtp-mmproj-server.sh` | Gemma 4 E4B multimodaler MTP-Server starten. |
 | `run-gemma4-12b-iq4nl-pascal-server.sh` | Gemma 4 12B IQ4_NL MTP-Server (Pascal-Host, Port 18080). |
 | `run-gemma4-26b-a4b-mtp-pascal-server.sh` | Gemma 4 26B-A4B MoE MTP-Server mit thecodacus Pinning+Prefetch (Pascal-Host). |
-| `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT Server (Vulkan, turbo3/3, mmproj, 161792 ctx). |
+| `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT Server (Vulkan, turbo4/3, kein mmproj, 262144 ctx). |
 | `precompile-vulkan-shaders.sh` | Systematisches Precompile aller FA-Pipeline-Varianten mit Cache-Backup. |
 | `start-venus-26b-server.sh` | Gemma 4 26B-A4B QAT Vulkan-Server mit `--mmproj` (Vision/SigLIP). f16 KV, 256k Ctx, 2 Slots. Siehe `docs/fork/2026-08-14_GEMMA4_VISION_MMPROX.md`. |
-| `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT Vulkan-Server (RDNA3). turbo3/3 KV, 161792 Ctx (2×79k), mmproj aktiviert. RADV-Kontext-Limit bei ≥163840. |
-| `start-styx-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Pascal). turbo3/4 KV, 196k Ctx. |
+| `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT Vulkan-Server (RDNA3). turbo4/3 KV, 262144 Ctx (2×128k), kein mmproj. |
+| `start-styx-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Pascal). turbo4/3 KV, 196k Ctx. |
 | `start-uranus-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Ada). MoE-Offload, MTP. |
 
 - Anpassen vor Verwendung: Kontextlaenge, GPU-Layer, Modellpfad, Port.
@@ -62,7 +62,7 @@
 | `bench-mtp-matrix.sh` | Universelles MTP-Matrix Benchmark (konfigurierbar fuer alle Modelle). CSV-Output, VRAM-Monitoring. |
 | `bench-mtp-matrix-196k.sh` | Vollstaendige MTP-Matrix @ ctx=196608 fuer Gemma-4 12B (9 Targets × 12 Drafts). |
 | `bench-b1-vulkan-q3k-q6k.sh` | Vulkan Q3_K/Q6_K Block-Load Benchmark (Cherry-Pick B1 Ergebnisse). Siehe [docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md](../docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md). |
-| `bench-vulkan-kv-cache.sh` | Vulkan KV-Cache Benchmark: turbo3/3, turbo3/4, turbo4/4, f16 bei pp512-8192 mit 26B-A4B. GTT-Cleanup zwischen Tests. Siehe [docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md](../docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md). |
+| `bench-vulkan-kv-cache.sh` | Vulkan KV-Cache Benchmark: turbo3/3, turbo4/3, turbo4/4, f16 bei pp512-8192 mit 26B-A4B. GTT-Cleanup zwischen Tests. Siehe [docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md](../docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md). |
 | `bench-qwen-udt-matrix-local.sh` | Lokale Matrix-Benchmarks fuer Qwen UDT. |
 | `bench-qwen-udt-quality.sh` | Qualitaetsbewertung fuer Qwen UDT. |
 | `bench-ea-phase3.sh` | EA Phase 3 Benchmark: EA disabled vs enabled bei 4k/16k/64k/128k Kontextlängen. Nutzt `LLAMA_ARG_EA_RATIO` env var. Siehe [docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md](../docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md). |

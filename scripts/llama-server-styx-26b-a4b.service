@@ -1,5 +1,5 @@
 [Unit]
-Description=Gemma-4 26B-A4B QAT Server (styx) — 224k ctx, turbo3/4, MoE-Offload
+Description=Gemma-4 26B-A4B QAT Server (styx) — 224k ctx, turbo4/3, MoE-Offload
 After=network.target
 
 [Service]

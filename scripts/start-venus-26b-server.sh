@@ -2,9 +2,9 @@
 # Venus llama-server für InferenzQuelle.
 # Gemma-4 26B-A4B QAT, Vulkan, f16 KV-Cache, 2 Slots à 128k, +Vision (mmproj).
 #
-# Venus hat eine AMD Vega iGPU (GCN/Renoir). Auf GCN ist turbo3/4 bei PP
+# Venus hat eine AMD Vega iGPU (GCN/Renoir). Auf GCN ist turbo4/3 bei PP
 # 35-54% langsamer als f16 (scalar FA fallback, Dequant-Overhead).
-# Daher: f16 KV statt turbo3/4. 62 GB RAM bieten genug Platz für f16 bei 256k.
+# Daher: f16 KV statt turbo4/3. 62 GB RAM bieten genug Platz für f16 bei 256k.
 #
 # -fit off: Verhindert dass fit_params ngl auf 0 reduziert bei --mmproj auf APU
 #   (gleicher Bug wie auf Mars — fit_params reserviert GPU-Speicher für mmproj).

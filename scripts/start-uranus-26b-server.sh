@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Uranus llama-server für InferenzQuelle Router.
-# Gemma-4 26B-A4B QAT, MoE-Offload, turbo3/4 KV-Cache.
+# Gemma-4 26B-A4B QAT, MoE-Offload, turbo4/3 KV-Cache.
 # 1 Instanz auf GPU 0, 2 Slots × 128k. GPU 1 frei für VLM/FLUX.
 #
 # Rasch auf-/abbaubar:
@@ -126,7 +126,7 @@ setsid "$SERVER" \
   --host "$HOST" --port "$PORT" \
   -dev CUDA0 \
   -c "$CTX" -ngl 999 --n-cpu-moe "$MOE" \
-  -ctk turbo3 -ctv turbo4 -fa on \
+  -ctk turbo4 -ctv turbo3 -fa on \
   --parallel "$SLOTS" -np "$SLOTS" --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram "$CACHE_RAM" \

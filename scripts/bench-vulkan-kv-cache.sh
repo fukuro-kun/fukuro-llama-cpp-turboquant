@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Vulkan KV-Cache Benchmark: turbo3/3 vs turbo3/4 vs turbo4/4 vs f16
+# Vulkan KV-Cache Benchmark: turbo3/3 vs turbo4/3 vs turbo4/4 vs f16
 # ============================================================================
 # Multi-Prompt (-p 512, 2048, 4096, 8192, -n 64), verschiedene KV-Cache Typen
 # Modell: Gemma-4 26B-A4B IQ4_NL (MoE, 4B aktive Parameter)

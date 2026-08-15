@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Styx llama-server für InferenzQuelle + pandora-voice-service.
-# Gemma-4 26B-A4B QAT, MoE-Offload, turbo3/4 KV-Cache.
+# Gemma-4 26B-A4B QAT, MoE-Offload, turbo4/3 KV-Cache.
 #
 # Kontext: 196608 (196k) statt 224k — Stabilität (2026-07-19):
 #   Bei 224k vollem Kontext würde RSS 31.4 GB > 31 GB RAM → Swap → CPU-I/O
@@ -50,7 +50,7 @@ exec "$SERVER" \
   -m "$MAIN" \
   --host "$HOST" --port "$PORT" \
   -c 196608 -ngl 999 --n-cpu-moe 20 \
-  -ctk turbo3 -ctv turbo4 -fa on \
+  -ctk turbo4 -ctv turbo3 -fa on \
   --parallel 1 -np 1 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 16384 \

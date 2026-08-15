@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 # Mars/phobos llama-server für InferenzQuelle.
-# Gemma-4 26B-A4B QAT, Vulkan, turbo3/4 KV-Cache, 2 Slots à 128k.
-# Vision (mmproj) DEAKTIVIERT — turbo3/4 ohne mmproj für maximale TG-Performance.
+# Gemma-4 26B-A4B QAT, Vulkan, turbo4/3 KV-Cache, 2 Slots à 128k.
+# Vision (mmproj) DEAKTIVIERT — turbo4/3 ohne mmproj für maximale TG-Performance.
 #
 # KV-Cache: turbo3/turbo4 (K=turbo3 5.1x, V=turbo4 4.25x Kompression).
 #   V-Cache höhere Präzision als turbo3/3 (4.25 vs 3.125 bit).
-#   turbo3/4 ohne mmproj funktioniert zuverlässig mit 262144 Kontext.
-#   turbo3/4 + mmproj + 262144 → ❌ BLOCKED (RADV VkPipelineCache defekt, §5.17).
+#   turbo4/3 ohne mmproj funktioniert zuverlässig mit 262144 Kontext.
+#   turbo4/3 + mmproj + 262144 → ❌ BLOCKED (RADV VkPipelineCache defekt, §5.17).
 #
 # Echte KV-Buffer-Größen (GQA-korrigiert, gemessen auf Phobos):
 #   turbo3/3 bei 2x128k = 1.0 GB (passt in 1 GiB Default-Suballocation)
-#   turbo3/4 bei 2x128k = 1.3 GB  (braucht 2 GiB Suballocation)
+#   turbo4/3 bei 2x128k = 1.3 GB  (braucht 2 GiB Suballocation)
 # Alle passen problemlos in GTT (27.6 GB). GTT ist nicht limitierend.
 #
 # ⚠️ turbo4 V + mmproj + 262144 Wartungsfenster-Test (2026-08-15, §5.17):
 #   RADV VkPipelineCache produziert keine Cache-Hits für turbo4 V FA-Shader.
 #   Precompile nutzlos — jeder Restart erfordert 5+min pro Pipeline-Variante.
-#   turbo3/4 ohne mmproj funktioniert: Pipeline-Cache wird effektiv genutzt.
+#   turbo4/3 ohne mmproj funktioniert: Pipeline-Cache wird effektiv genutzt.
 #   Siehe Trilium SWumEN7WOXBI §5.17 und docs/fork/2026-08-15_TURBO4_V_INVESTIGATION.md.
 #
 # GGML_VK_SUBALLOCATION_BLOCK_SIZE=2147483648 (2 GiB):
 #   Default ist 1 GiB (ggml-vulkan.cpp, Fragmentierungs-Limit, NICHT BIOS-Carveout).
-#   turbo3/4 non-SWA KV-Cache = 1180 MiB > 1 GiB Default.
+#   turbo4/3 non-SWA KV-Cache = 1180 MiB > 1 GiB Default.
 #   Ohne Erhoehung: KV-Cache-Buffer-Allocation schlaegt fehl -> CPU-Fallback.
 #   Buffer > 1 GiB landen automatisch im GTT (System-RAM) — Normalfall auf APU.
 #
@@ -40,11 +40,11 @@
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key)
 #
 # Vision: DEAKTIVIERT. Vision-Requests werden an venus geroutet.
-#   turbo3/4 + mmproj + 262144 → ❌ BLOCKED (RADV Pipeline-Cache defekt).
+#   turbo4/3 + mmproj + 262144 → ❌ BLOCKED (RADV Pipeline-Cache defekt).
 #   turbo3/3 + mmproj + 262144 + nogttspill funktionierte, aber TG langsamer.
 #
-# Performance (2026-08-15): ~16.8 t/s (tg parallel) — 2×128k, turbo3/4, kein mmproj.
-#   Erster Request mit Pipeline-Cache: 2.9s (Cache funktioniert für turbo3/4 ohne mmproj).
+# Performance (2026-08-15): ~16.8 t/s (tg parallel) — 2×128k, turbo4/3, kein mmproj.
+#   Erster Request mit Pipeline-Cache: 2.9s (Cache funktioniert für turbo4/3 ohne mmproj).
 #   Startup: ~290s (Pipeline-Kompilierung, nur beim ersten Start nach Cache-Reset).
 #
 # Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-mars-26b-server.sh
@@ -76,7 +76,7 @@ fi
 export GGML_SCHED_PREFETCH_EXPERTS="${GGML_SCHED_PREFETCH_EXPERTS:-1}"
 export GGML_SCHED_PREFETCH_SLOTS="${GGML_SCHED_PREFETCH_SLOTS:-2}"
 
-# turbo3/4 KV-Cache braucht 2 GiB Suballocation-Block (Default: 1 GiB).
+# turbo4/3 KV-Cache braucht 2 GiB Suballocation-Block (Default: 1 GiB).
 # turbo3/3 braucht es nicht zwingend (KV-Buffer 1.0 GB <= 1 GiB Default),
 # aber als Sicherheits-Puffer gegen Fragmentierung gesetzt.
 export GGML_VK_SUBALLOCATION_BLOCK_SIZE="${GGML_VK_SUBALLOCATION_BLOCK_SIZE:-2147483648}"
@@ -84,7 +84,7 @@ export GGML_VK_SUBALLOCATION_BLOCK_SIZE="${GGML_VK_SUBALLOCATION_BLOCK_SIZE:-214
 # Vulkan Pipeline-Cache auf Disk — vermeidet Re-Kompilierung bei Restart.
 # Wird beim sauberen Shutdown (SIGTERM) geschrieben. Bei SIGKILL geht der Cache verloren.
 # Cache wird validiert gegen pipelineCacheUUID (driver/GPU-Wechsel → automatischer Reset).
-# Hinweis: Für turbo3/4 ohne mmproj ist der Cache effektiv (erster Request 2.9s mit Cache).
+# Hinweis: Für turbo4/3 ohne mmproj ist der Cache effektiv (erster Request 2.9s mit Cache).
 #          Für turbo4 V + mmproj + 262144 ist der Cache ineffective (RADV recompiliert
 #          turbo4 V FA-Shader trotz Pipeline-Cache — siehe §5.17).
 export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-/home/fukuro/.cache/ggml-vk-pipeline-cache}"
@@ -107,7 +107,7 @@ exec "$SERVER" \
   -m "$MAIN" \
   --host "$HOST" --port "$PORT" \
   -c 262144 -ngl 99 \
-  -ctk turbo3 -ctv turbo4 -fa on \
+  -ctk turbo4 -ctv turbo3 -fa on \
   -fit off \
   --parallel 2 -np 2 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \

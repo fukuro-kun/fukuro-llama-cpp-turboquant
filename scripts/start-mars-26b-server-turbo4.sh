@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Mars/phobos llama-server für InferenzQuelle — turbo3/4 VARIANTE.
-# Gemma-4 26B-A4B QAT, Vulkan, turbo3/4 KV-Cache, 2 Slots à 128k, +Vision (mmproj).
+# Mars/phobos llama-server für InferenzQuelle — turbo4/3 VARIANTE.
+# Gemma-4 26B-A4B QAT, Vulkan, turbo4/3 KV-Cache, 2 Slots à 128k, +Vision (mmproj).
 #
 # ⚠️ EXPERIMENTELL — nicht als Production-Default nutzen!
-#   turbo3/4 + mmproj + 262144 hat zwei bekannte Probleme:
-#   1. OOM: turbo3/4 braucht 1.8 GB mehr KV-Speicher als turbo3/3.
+#   turbo4/3 + mmproj + 262144 hat zwei bekannte Probleme:
+#   1. OOM: turbo4/3 braucht 1.8 GB mehr KV-Speicher als turbo3/3.
 #      Mit --cache-ram 6144 (6GB) übersteigt das 28GB RAM → OOM-Kill.
 #      Fix: --cache-ram 0 (kein Prompt-Cache bis Pipeline-Cache vollständig).
 #   2. ACO Pipeline-Kompilierung pathologisch langsam: Jede turbo4 V FA-
@@ -23,8 +23,8 @@
 #   V-Cache ist präziser (4.25 vs 3.125 bit), braucht aber 1.8 GB mehr.
 #   Echte KV-Buffer-Größen (GQA-korrigiert):
 #     turbo3/3 bei 2x128k = 1.0 GB
-#     turbo3/4 bei 2x128k = 1.3 GB (braucht 2 GiB Suballocation)
-#   Gesamt-RAM: turbo3/4 = 25.6 GB (Modell 13.7 + KV 11.9) vs turbo3/3 = 23.8 GB
+#     turbo4/3 bei 2x128k = 1.3 GB (braucht 2 GiB Suballocation)
+#   Gesamt-RAM: turbo4/3 = 25.6 GB (Modell 13.7 + KV 11.9) vs turbo3/3 = 23.8 GB
 #
 # RADV_PERFTEST=nircache,nogttspill — gleiche Flags wie turbo3/3 Production.
 #   nogttspill fixt die GTT-Spill-Heuristik auf UMA-APUs.
@@ -67,7 +67,7 @@ fi
 export GGML_SCHED_PREFETCH_EXPERTS="${GGML_SCHED_PREFETCH_EXPERTS:-1}"
 export GGML_SCHED_PREFETCH_SLOTS="${GGML_SCHED_PREFETCH_SLOTS:-2}"
 
-# turbo3/4 KV-Cache braucht 2 GiB Suballocation-Block (Default: 1 GiB).
+# turbo4/3 KV-Cache braucht 2 GiB Suballocation-Block (Default: 1 GiB).
 export GGML_VK_SUBALLOCATION_BLOCK_SIZE="${GGML_VK_SUBALLOCATION_BLOCK_SIZE:-2147483648}"
 
 # Separater Vulkan Pipeline-Cache für turbo4 V — verhindert Cache-Konflikte
@@ -88,7 +88,7 @@ exec "$SERVER" \
   --mmproj "$MMPROJ" \
   --host "$HOST" --port "$PORT" \
   -c 262144 -ngl 99 \
-  -ctk turbo3 -ctv turbo4 -fa on \
+  -ctk turbo4 -ctv turbo3 -fa on \
   -fit off \
   --parallel 2 -np 2 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
