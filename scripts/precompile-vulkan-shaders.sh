@@ -37,10 +37,19 @@ MMPROJ="${MMPROJ_GGUF:-/home/fukuro/modelle/gemma-4-26B-A4B-it/mmproj-Q6_K.gguf}
 PORT="${PORT:-18099}"
 HOST="${HOST:-127.0.0.1}"
 
-# Cache-Verzeichnisse
-export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-/home/fukuro/.cache/ggml-vk-pipeline-cache}"
-export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-/home/fukuro/.cache/mesa-shader-cache}"
-export MESA_SHADER_CACHE_MAX_SIZE="${MESA_SHADER_CACHE_MAX_SIZE:-2G}"
+# Cache-Verzeichnisse.
+# Für turbo4 V: separater Cache-Pfad um Pipeline-Konflikte mit turbo3/3 zu vermeiden.
+# Override via KV_CACHE_VARIANT=turbo3 für turbo3/3 Precompile.
+KV_CACHE_VARIANT="${KV_CACHE_VARIANT:-turbo4}"
+if [[ "$KV_CACHE_VARIANT" == "turbo4" ]]; then
+  export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-/home/fukuro/.cache/ggml-vk-pipeline-cache-turbo4}"
+  export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-/home/fukuro/.cache/mesa-shader-cache-turbo4}"
+  export MESA_SHADER_CACHE_MAX_SIZE="${MESA_SHADER_CACHE_MAX_SIZE:-4G}"
+else
+  export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-/home/fukuro/.cache/ggml-vk-pipeline-cache}"
+  export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-/home/fukuro/.cache/mesa-shader-cache}"
+  export MESA_SHADER_CACHE_MAX_SIZE="${MESA_SHADER_CACHE_MAX_SIZE:-2G}"
+fi
 # NIR-Cache beschleunigt Replay bei Graphics Pipeline Libraries.
 # nogttspill: Deaktiviert RADV GTT-Spill-Heuristik — fixt 262144+mmproj Pathologie
 # auf gfx1103 (UMA-APU, GTT == System-RAM, Spilling ist kostenlos).
@@ -97,17 +106,32 @@ echo "PORT:                   $PORT"
 echo ""
 
 # --- Server starten (setsid: unabhängig von SSH-Session) ---
-echo "[$(date '+%H:%M:%S')] Starting llama-server on port $PORT..."
+# KV-Cache-Typ und Context-Größe abhängig von Variante.
+# turbo4 V: -ctv turbo4, -c 262144, --cache-ram 0 (OOM-Vermeidung)
+# turbo3/3: -ctv turbo3, -c 262144, --cache-ram 6144
+if [[ "$KV_CACHE_VARIANT" == "turbo4" ]]; then
+  CTV="turbo4"
+  CTX_SIZE=262144
+  CACHE_RAM=0
+  HEALTH_TIMEOUT=3600  # 60min — turbo4 V Pipeline-Kompilierung ist sehr langsam
+else
+  CTV="turbo3"
+  CTX_SIZE=262144
+  CACHE_RAM=6144
+  HEALTH_TIMEOUT=600   # 10min — turbo3/3 ist schnell
+fi
+
+echo "[$(date '+%H:%M:%S')] Starting llama-server on port $PORT (variant=$KV_CACHE_VARIANT, ctv=$CTV, ctx=$CTX_SIZE, cache-ram=$CACHE_RAM)..."
 setsid "$SERVER" \
   -m "$MAIN" \
   --mmproj "$MMPROJ" \
   --host "$HOST" --port "$PORT" \
-  -c 161792 -ngl 99 \
-  -ctk turbo3 -ctv turbo3 -fa on \
+  -c "$CTX_SIZE" -ngl 99 \
+  -ctk turbo3 -ctv "$CTV" -fa on \
   -fit off \
   --parallel 2 -np 2 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
-  --cache-ram 6144 \
+  --cache-ram "$CACHE_RAM" \
   --cache-reuse 256 \
   --slot-cache-key-similarity 0.5 \
   --slot-cache-key-min-prefix 64 \
@@ -122,7 +146,7 @@ echo "[$(date '+%H:%M:%S')] Log: /tmp/precompile-server.log"
 
 # --- Warten bis Server ready ---
 echo "[$(date '+%H:%M:%S')] Waiting for server to become healthy..."
-TIMEOUT=600  # 10 Minuten max
+TIMEOUT=$HEALTH_TIMEOUT
 ELAPSED=0
 while ! curl -s "http://$HOST:$PORT/health" 2>/dev/null | grep -q '"ok"'; do
   sleep 5
@@ -172,7 +196,9 @@ JSON
   start_time=$(date +%s)
 
   local response
-  response=$(curl -s -X POST "http://$HOST:$PORT/v1/chat/completions" \
+  # turbo4 V Pipeline-Kompilierung kann 5-10min pro Request dauern.
+  # curl --max-time 1200 = 20min Timeout pro Request.
+  response=$(curl -s --max-time 1200 -X POST "http://$HOST:$PORT/v1/chat/completions" \
     -H "Content-Type: application/json" \
     -d "$body" 2>&1) || true
 
@@ -280,7 +306,7 @@ kill -SIGTERM "$SERVER_PID" 2>/dev/null || true
 
 # Warten bis der Prozess beendet ist (Cache wird geflusht)
 echo "[$(date '+%H:%M:%S')] Waiting for clean shutdown..."
-WAIT_TIMEOUT=120
+WAIT_TIMEOUT=300  # 5min — turbo4 V Cache-Flush kann länger dauern
 WAIT_ELAPSED=0
 while kill -0 "$SERVER_PID" 2>/dev/null; do
   sleep 2
