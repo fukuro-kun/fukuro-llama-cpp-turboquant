@@ -21,12 +21,14 @@
 #   + 10 Layer GQA (klassischer KV-Cache). Dadurch wächst KV nur auf ¼ der Layer.
 #   IQ4_XS = 18.7 GB, ~4.5 GB größer als Gemma-4 26B-A4B QAT (14.2 GB).
 #
-# WICHTIG — KV-Cache-Typen bei Qwen3 MoE:
-#   turbo3/turbo2 sind bei Qwen3 MoE KILLED (NaN-Divergenz, Commit 4456735).
-#   Ursache: MoE-Roundoff akkumuliert über rekurrente DeltaNet-State-Updates.
-#   turbo4 ist sicher, q8_0 ist der konservative Default.
-#   Wir nutzen q8_0/q8_0 (sicher, +0.01% PPL vs f16).
-#   NICHT turbo3/turbo4 wie bei Gemma-4!
+# WICHTIG — KV-Cache-Typen bei Qwen3 MoE (auf diesem Fork-Build):
+#   turbo3/turbo2: KILLED (NaN-Divergenz, Commit 4456735)
+#   q8_0/q4_0: GIBBERISH — Standard-Quantisierung kaputt für Qwen3.6's hybride
+#   Architektur (Gated DeltaNet + GQA). Getestet 2026-08-16 auf Uranus.
+#   q8_0 K + FA: CRASH (fattn.cu:384)
+#   turbo4/turbo4: FUNKTIONIERT — TurboQuant ist fork-native und kompatibel.
+#   f16/f16: FUNKTIONIERT (Referenz, aber 2× größer als turbo4)
+#   Wir nutzen turbo4/turbo4 (4.25 bit, ~3.8× Kompression vs f16, fork-native).
 #
 # Sampling — Qwen3.6 nutzt presence_penalty (NICHT repetition_penalty):
 #   Non-Thinking: temp 0.7, top_p 0.80, top_k 20, presence_penalty 1.5
@@ -70,19 +72,19 @@ fi
 # als Gemma-4 26B QAT (14.2 GB). 256 Experten auf 40 Layer → ~375 MB/Layer Expert-Gewichte.
 #
 # Profil Non-Thinking (THINKING=0): 2 Slots × 64k, CTX=131072
-#   KV q8_0 pro Slot bei 64k: ~700 MB → 2×700 MB = 1.4 GB total
-#   ab 15 GB → moe=10, 2×64k  (~15 GB GPU, ~1 GB Reserve — knapp)
+#   KV turbo4 pro Slot bei 64k: ~700 MB → 2×700 MB = 1.4 GB total
+#   ab 15 GB → moe=10, 2×64k  (~15 GB GPU, ~1 GB Reserve — knapp, OOM-Risiko!)
 #   ab 12 GB → moe=15, 2×64k  (~13 GB GPU, ~3 GB Reserve — sicher)
 #   ab  9 GB → moe=20, 2×64k  (~11 GB GPU, ~5 GB Reserve)
 #   ab  6 GB → moe=25, 1×64k  (VRAM-Knappheit: 1 Slot)
 #   <   6 GB → Fehler
 #
 # Profil Thinking (THINKING=1): 1 Slot × 128k, CTX=131072
-#   KV q8_0 bei 128k: ~2.8 GB (nur 10 Full-Attn-Layer!)
+#   KV turbo4 bei 128k: ~1.4 GB (nur 10 Full-Attn-Layer!)
 #   HauhauCS empfiehlt 128k Kontext minimum für Thinking-Qualität.
-#   ab 15 GB → moe=15, 1×128k (~13 GB GPU + 2.8 GB KV = ~15.8 GB — sehr knapp)
-#   ab 12 GB → moe=20, 1×128k (~11 GB GPU + 2.8 GB KV = ~13.8 GB — sicher)
-#   ab  9 GB → moe=25, 1×128k (~9 GB GPU + 2.8 GB KV = ~11.8 GB)
+#   ab 15 GB → moe=15, 1×128k (~13 GB GPU + 1.4 GB KV = ~14.4 GB — knapp)
+#   ab 12 GB → moe=20, 1×128k (~11 GB GPU + 1.4 GB KV = ~12.4 GB — sicher)
+#   ab  9 GB → moe=25, 1×128k (~9 GB GPU + 1.4 GB KV = ~10.4 GB)
 #   <   9 GB → Fehler (Thinking braucht mehr VRAM)
 ADAPTIVE=${ADAPTIVE:-1}
 if [[ "$ADAPTIVE" == "1" ]]; then
@@ -101,7 +103,7 @@ if [[ "$ADAPTIVE" == "1" ]]; then
     if [[ "$THINKING" == "1" ]]; then
       # Thinking-Profil: 1×128k
       if   (( VRAM_FREE_GIB >= 15 )); then
-        SLOTS=1; MOE=15; CTX=131072    # 1×128k, aggressiv (sehr knapp)
+        SLOTS=1; MOE=15; CTX=131072    # 1×128k, Default (knapp aber funktionsfähig)
       elif (( VRAM_FREE_GIB >= 12 )); then
         SLOTS=1; MOE=20; CTX=131072    # 1×128k, sicher
       elif (( VRAM_FREE_GIB >= 9  )); then
@@ -116,9 +118,9 @@ if [[ "$ADAPTIVE" == "1" ]]; then
     else
       # Non-Thinking-Profil: 2×64k
       if   (( VRAM_FREE_GIB >= 15 )); then
-        SLOTS=2; MOE=10; CTX=131072    # 2×64k, aggressiv (knapp)
+        SLOTS=2; MOE=15; CTX=131072    # 2×64k, Default (moe=10 OOMt bei erster Request!)
       elif (( VRAM_FREE_GIB >= 12 )); then
-        SLOTS=2; MOE=15; CTX=131072    # 2×64k, sicher (Default)
+        SLOTS=2; MOE=20; CTX=131072    # 2×64k, sicher bei paralleler GPU-Nutzung
       elif (( VRAM_FREE_GIB >= 9  )); then
         SLOTS=2; MOE=20; CTX=131072    # 2×64k, mehr Offload
       elif (( VRAM_FREE_GIB >= 6  )); then
@@ -193,7 +195,7 @@ setsid "$SERVER" \
   --host "$HOST" --port "$PORT" \
   -dev CUDA0 \
   -c "$CTX" -ngl 999 --n-cpu-moe "$MOE" \
-  -ctk q8_0 -ctv q8_0 -fa on \
+  -ctk turbo4 -ctv turbo4 -fa on \
   --parallel "$SLOTS" -np "$SLOTS" --cont-batching \
   "${SAMPLING_FLAGS[@]}" \
   "${REASONING_FLAGS[@]}" \
