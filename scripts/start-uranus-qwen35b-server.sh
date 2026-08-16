@@ -181,8 +181,8 @@ fi
 # --- MTP-Flags ---
 MTP_FLAGS=()
 if [[ "$MTP" == "1" ]]; then
-  # Nativer MTP mit --draft-max 4 (Default 16 → OOM auf 16GB, Issue #1768)
-  MTP_FLAGS=(--draft-max 4)
+  # Nativer MTP mit --spec-draft-n-max 4 (Default 16 → OOM auf 16GB, Issue #1768)
+  MTP_FLAGS=(--spec-draft-n-max 4)
   PROFILE_NAME="${PROFILE_NAME} +MTP"
 fi
 
