@@ -157,7 +157,7 @@ if [[ "$THINKING" == "1" ]]; then
   # Thinking-Profil: temp 1.0, top_p 0.95, Thinking an
   SAMPLING_FLAGS=(
     --temp 1.0 --top-p 0.95 --top-k 20
-    --presence-penalty 1.5 --repetition-penalty 1.0
+    --presence-penalty 1.5 --repeat-penalty 1.0
   )
   REASONING_FLAGS=(
     --reasoning-budget -1
@@ -168,7 +168,7 @@ else
   # Non-Thinking-Profil: temp 0.7, top_p 0.80, Thinking aus
   SAMPLING_FLAGS=(
     --temp 0.7 --top-p 0.80 --top-k 20
-    --presence-penalty 1.5 --repetition-penalty 1.0
+    --presence-penalty 1.5 --repeat-penalty 1.0
   )
   REASONING_FLAGS=(
     --reasoning-budget 0
