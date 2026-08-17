@@ -17105,6 +17105,21 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
                 bool coopmat2 = device->coopmat2;
                 uint32_t HSK = op->src[1]->ne[0];
                 uint32_t HSV = op->src[2]->ne[0];
+                // Intel ANV: Flash Attention scalar path produces incorrect results
+                // at large seq_len (>~3000 tokens) due to f16 precision issues in the
+                // FA shader. Disable FA and fall back to unfused attention (mul_mat +
+                // softmax + mul_mat) which produces correct results.
+                // Override with GGML_VK_ENABLE_FA_INTEL=1 to re-enable.
+                if (device->vendor_id == VK_VENDOR_ID_INTEL && !coopmat2) {
+                    static int enable_fa_intel = -1;
+                    if (enable_fa_intel == -1) {
+                        const char * env = getenv("GGML_VK_ENABLE_FA_INTEL");
+                        enable_fa_intel = env && atoi(env) == 1 ? 1 : 0;
+                    }
+                    if (enable_fa_intel == 0) {
+                        return false;
+                    }
+                }
                 if ((HSK % 8) != 0 || (HSV % 8) != 0) {
                     return false;
                 }
