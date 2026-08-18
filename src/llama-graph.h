@@ -689,8 +689,10 @@ struct llm_graph_params {
         }
 
         return
-            cparams.embeddings  == other.cparams.embeddings  &&
-            cparams.causal_attn == other.cparams.causal_attn &&
+            cparams.embeddings       == other.cparams.embeddings       &&
+            cparams.causal_attn      == other.cparams.causal_attn      &&
+            cparams.flash_attn       == other.cparams.flash_attn       &&
+            cparams.flash_attn_max_n == other.cparams.flash_attn_max_n &&
             arch  == other.arch  &&
             gtype == other.gtype &&
             cvec  == other.cvec  &&

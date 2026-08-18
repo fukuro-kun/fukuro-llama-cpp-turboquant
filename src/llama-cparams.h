@@ -55,6 +55,8 @@ struct llama_cparams {
     bool causal_attn;
     bool offload_kqv;
     bool flash_attn;
+    // 0 = unlimited. If > 0, Flash Attention is only used when ubatch.n_seq_tokens <= this.
+    uint32_t flash_attn_max_n = 0;
     bool auto_fa;
     bool fused_gdn_ar;       // use fused gated delta net (autoregressive)
     bool fused_gdn_ch;       // use fused gated delta net (chunked)

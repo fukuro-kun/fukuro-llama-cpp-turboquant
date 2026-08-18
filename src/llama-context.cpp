@@ -553,6 +553,51 @@ void llama_context::sched_reserve() {
         cparams.auto_fa = false;
     }
 
+    if (cparams.flash_attn && cparams.flash_attn_max_n == 0 &&
+        model.split_mode() != LLAMA_SPLIT_MODE_TENSOR) {
+        bool v_requires_fa = false;
+        const llama_kv_cache * kv = nullptr;
+        if (auto * mem_hybrid = dynamic_cast<llama_memory_hybrid *>(memory.get())) {
+            kv = mem_hybrid->get_mem_attn();
+        } else if (auto * mem_hybrid_iswa = dynamic_cast<llama_memory_hybrid_iswa *>(memory.get())) {
+            if (auto * attn = mem_hybrid_iswa->get_mem_attn()) {
+                kv = attn->get_base();
+            }
+        } else if (auto * kv_iswa = dynamic_cast<llama_kv_cache_iswa *>(memory.get())) {
+            kv = kv_iswa->get_base();
+        } else if (auto * kv_dsa = dynamic_cast<llama_kv_cache_dsa *>(memory.get())) {
+            kv = kv_dsa->get_mla();
+        } else {
+            kv = dynamic_cast<const llama_kv_cache *>(memory.get());
+        }
+        if (kv) {
+            v_requires_fa = ggml_is_quantized(kv->type_v());
+        }
+        if (!v_requires_fa) {
+            for (auto & backend : backends) {
+                ggml_backend_dev_t dev = ggml_backend_get_device(backend.get());
+                if (!dev) {
+                    continue;
+                }
+                ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+                if (!reg) {
+                    continue;
+                }
+                const char * reg_name = ggml_backend_reg_name(reg);
+                const char * desc     = ggml_backend_dev_description(dev);
+                if (reg_name && strcmp(reg_name, "Vulkan") == 0 && desc && strstr(desc, "Intel") != nullptr) {
+                    // Override: GGML_VK_ENABLE_FA_INTEL=1 keeps unrestricted FA for debugging.
+                    const char * env = getenv("GGML_VK_ENABLE_FA_INTEL");
+                    if (!(env && atoi(env) == 1)) {
+                        cparams.flash_attn_max_n = 1;
+                        LLAMA_LOG_INFO("%s: Intel Vulkan detected - Flash Attention restricted to decode (n_seq_tokens <= 1)\n", __func__);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     if (cparams.auto_fgdn) {
         LLAMA_LOG_INFO("%s: resolving fused Gated Delta Net support:\n", __func__);
 
@@ -2505,10 +2550,14 @@ llm_graph_params llama_context::graph_params(
                       const llama_ubatch & ubatch,
             const llama_memory_context_i * mctx,
                           llm_graph_type   gtype) const {
+    llama_cparams cparams_g = cparams;
+    if (cparams_g.flash_attn_max_n > 0 && ubatch.n_seq_tokens > cparams_g.flash_attn_max_n) {
+        cparams_g.flash_attn = false;
+    }
     return {
         /*.arch        =*/ model.arch,
         /*.hparams     =*/ model.hparams,
-        /*.cparams     =*/ cparams,
+        /*.cparams     =*/ cparams_g,
         /*.ubatch      =*/ ubatch,
         /*.gtype       =*/ gtype,
         /*.sched       =*/ sched.get(),
