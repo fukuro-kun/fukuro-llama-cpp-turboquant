@@ -348,3 +348,27 @@ Diese Items wurden verschoben und sollten re-evaluiert werden wenn sich die Bloc
 - **#66 BucketServe: Dynamic Batching** — verschoben, Forschung
 - **#88 MTP + Tensor Parallelism Test** — blockiert durch vorleser-Training auf Uranus
 18. **#25 2026 Rewrite** — 4-6 Wochen, system-wide 1.4-2.1x
+
+### Upstream Bug: /slots /metrics resetten Sleep-Idle-Timer (2026-08-18)
+
+**Problem:** `--sleep-idle-seconds` funktioniert nicht wenn externe Clients
+periodisch `/slots` oder `/metrics` abfragen. Diese Endpoints posted einen
+`SERVER_TASK_TYPE_METRICS` Task in die Queue, was `time_last_task` resettet
+(`server-queue.cpp:98` via `post()`). Der Idle-Timer kommt nie ab.
+
+**Betroffen:** Alle llama-server mit `--sleep-idle-seconds` + externem
+Monitoring (Prometheus, Router Health-Check, Dashboard). In InferenzQuelle:
+Uranus VLM-Server wurde nie entladen weil der Router alle 15s `/slots` pollte.
+
+**Upstream Issue:** [#20227](https://github.com/ggml-org/llama.cpp/issues/20227)
+
+**Fix-Ansatz (upstream):**
+- `/slots` und `/metrics` als `bypass_sleep=true` markieren (wie `/health`,
+  `/props`, `/models`)
+- Oder: `time_last_task` nur bei echten Inferenz-Tasks resetten, nicht bei
+  METRICS-Tasks
+- Aufwand: ~1-2h (Code-Änderung + Test mit `test_sleep.py`)
+
+**Workaround (InferenzQuelle, 2026-08-18):** Router pollt `/slots` nicht mehr
+für VLM-Endpoints im Background-Health-Check. VLM-Slot-Info wird nur bei
+echter Slot-Admission live geholt. Commit `11d27fd` in InferenzQuelle.
