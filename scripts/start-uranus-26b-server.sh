@@ -9,7 +9,7 @@
 #
 # Cache-Konfiguration (wie Styx, angepasst an 128 GB RAM + 16 GB VRAM):
 #   --cache-ram 32768        32 GB CPU-RAM für serialisierte KV-States (128 GB available)
-#   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
+#   --cache-reuse 1        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key automatisch)
 #
 # MoE-Offload (--n-cpu-moe 5): 5 Experten auf CPU, Rest auf GPU.
@@ -130,7 +130,7 @@ setsid "$SERVER" \
   --parallel "$SLOTS" -np "$SLOTS" --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram "$CACHE_RAM" \
-  --cache-reuse 256 \
+  --cache-reuse 1 \
   --slot-cache-key-similarity 0.5 \
   --slot-cache-key-min-prefix 64 \
   --metrics --slots \

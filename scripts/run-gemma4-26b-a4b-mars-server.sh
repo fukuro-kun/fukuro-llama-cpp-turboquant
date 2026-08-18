@@ -101,6 +101,7 @@ if [[ "$MTP" == "1" ]]; then
         --temp "$TEMP" \
         --top-p "$TOP_P" \
         --top-k "$TOP_K" \
+        --cache-reuse 1 \
         --metrics \
         --slots \
         --log-timestamps \
@@ -122,6 +123,7 @@ else
         --temp "$TEMP" \
         --top-p "$TOP_P" \
         --top-k "$TOP_K" \
+        --cache-reuse 1 \
         --metrics \
         --slots \
         --log-timestamps \

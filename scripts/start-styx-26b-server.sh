@@ -12,7 +12,7 @@
 # Cache-Konfiguration (wie Uranus, angepasst an 32 GB RAM):
 #   --cache-ram 16384        16 GB CPU-RAM für serialisierte KV-States
 #                            (27 GB available — llama 9.5 GB + Whisper 2.2 GB = 11.7 GB)
-#   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
+#   --cache-reuse 1        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key automatisch)
 #
 # Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-styx-26b-server.sh
@@ -54,7 +54,7 @@ exec "$SERVER" \
   --parallel 1 -np 1 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 16384 \
-  --cache-reuse 256 \
+  --cache-reuse 1 \
   --slot-cache-key-similarity 0.5 \
   --slot-cache-key-min-prefix 64 \
   --metrics --slots \

@@ -36,7 +36,7 @@
 #
 # Cache-Konfiguration (wie 26B, angepasst an 128 GB RAM + 16 GB VRAM):
 #   --cache-ram 32768        32 GB CPU-RAM für serialisierte KV-States
-#   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
+#   --cache-reuse 1        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key automatisch)
 
 set -euo pipefail
@@ -203,7 +203,7 @@ setsid "$SERVER" \
   --no-context-shift \
   --no-mmap --mlock \
   --cache-ram "$CACHE_RAM" \
-  --cache-reuse 256 \
+  --cache-reuse 1 \
   --slot-cache-key-similarity 0.5 \
   --slot-cache-key-min-prefix 64 \
   --metrics --slots \

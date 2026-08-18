@@ -8,7 +8,7 @@
 #   - MoE-Offloading mit --n-cpu-moe 20 (20 Expert-Layer auf CPU)
 #   - MTP: AUS (Q4_0 Draft bremst -14% auf Styx, siehe Benchmark 2026-07-10)
 #   - Pinning/Prefetch: AN (GGML_CUDA_REGISTER_HOST=1)
-#   - Prompt-Cache: --cache-ram 16384 (16 GB), --cache-reuse 256,
+#   - Prompt-Cache: --cache-ram 16384 (16 GB), --cache-reuse 1,
 #     --slot-cache-key-similarity 0.5, --slot-cache-key-min-prefix 64
 #     (wie Uranus, angepasst an 32 GB RAM mit Whisper-Service)
 #
@@ -51,7 +51,7 @@ PARALLEL="${PARALLEL:-1}"
 # Prompt-Cache (wie Uranus, angepasst für 32 GB RAM + Whisper-Service)
 # 16 GB cache-ram: sicher bei 27 GB available (llama 9.5 GB + Whisper 2.2 GB = 11.7 GB)
 CACHE_RAM="${CACHE_RAM:-16384}"
-CACHE_REUSE="${CACHE_REUSE:-256}"
+CACHE_REUSE="${CACHE_REUSE:-1}"
 CACHE_KEY_SIMILARITY="${CACHE_KEY_SIMILARITY:-0.5}"
 CACHE_KEY_MIN_PREFIX="${CACHE_KEY_MIN_PREFIX:-64}"
 

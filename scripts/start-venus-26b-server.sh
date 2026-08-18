@@ -15,7 +15,7 @@
 #   --cache-ram 16384        16 GB CPU-RAM für serialisierte KV-States
 #                            (62 GB RAM — Modell 13.3 GB + f16 KV-Cache 256k×2
 #                             = ~22 GB benutzt, 40 GB available)
-#   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
+#   --cache-reuse 1        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key)
 #                            Bei 2 Slots besonders wertvoll für Cache-Reuse
 #
@@ -68,7 +68,7 @@ exec "$SERVER" \
   --parallel 2 -np 2 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 16384 \
-  --cache-reuse 256 \
+  --cache-reuse 1 \
   --slot-cache-key-similarity 0.5 \
   --slot-cache-key-min-prefix 64 \
   --no-warmup \

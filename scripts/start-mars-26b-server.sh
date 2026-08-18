@@ -36,7 +36,7 @@
 # Cache-Konfiguration:
 #   --cache-ram 12288        12 GB CPU-RAM für serialisierte KV-States
 #                            (freies RAM aus fehlendem mmproj genutzt)
-#   --cache-reuse 256        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
+#   --cache-reuse 1        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key)
 #
 # Vision: DEAKTIVIERT. Vision-Requests werden an venus geroutet.
@@ -112,7 +112,7 @@ exec "$SERVER" \
   --parallel 2 -np 2 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 12288 \
-  --cache-reuse 256 \
+  --cache-reuse 1 \
   --slot-cache-key-similarity 0.5 \
   --slot-cache-key-min-prefix 64 \
   --no-warmup \
