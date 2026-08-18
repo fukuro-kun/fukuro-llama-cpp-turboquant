@@ -6,6 +6,64 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-08-17
+
+### feat: Intel Hybrid-Attention — Prefill unfused, Decode FA (`918eb40d8`)
+
+**Problem:** Intel ANV (Mesa) skalare Flash-Attention-Path produziert bei >~2K
+Prompt-Tokens Gibberish (Arabic/Thai-Loops, `<|channel|>`-Loops, EOS-only).
+DOT2-Disable (`GGML_VK_DISABLE_DOT2=1`) verschob die Grenze auf ~2.9K, löste
+das Problem nicht. Isolierte Shader-Patches (Of f32-Akkumulator, D_split=1)
+verschoben die Grenze auf ~3.2K, nicht zuverlässig. `GGML_VK_DISABLE_F16=1` +
+FA an lief kohärenten Prefill — Mesa/ANV-F16 ist beteiligt, aber zu langsam
+für Production.
+
+**Fix:** Hybrid-Gate in `llama-context.cpp` / `graph_params()`. Intel Vulkan
+ohne Tensor-Split und ohne quantisiertes V: FA nur wenn
+`ubatch.n_seq_tokens <= 1` (Decode). Prefill (>1 Token/Sequence) bleibt
+unfused. Der alte `supports_op`-Blanko-Disable für Intel FA (`1241af89a`)
+wurde entfernt — sonst landet Decode-FA auf der CPU.
+
+**Neue Felder:**
+- `llama_cparams::flash_attn_max_n` (0 = unlimited, >0 = FA nur wenn
+  `ubatch.n_seq_tokens <= flash_attn_max_n`)
+- `graph_params()` erzeugt lokale `cparams`-Kopie, setzt `flash_attn = false`
+  wenn Limit überschritten
+- `allow_reuse()` vergleicht `flash_attn` + `flash_attn_max_n`
+
+**Safety:**
+- Gate wird übersprungen bei `LLAMA_SPLIT_MODE_TENSOR` (erfordert FA)
+- Quantisiertes V wird erkannt via wrapper-aware `dynamic_cast`-Kette
+  (`llama_memory_hybrid`, `llama_memory_hybrid_iswa`, `llama_kv_cache_iswa`,
+  `llama_kv_cache_dsa`, plain `llama_kv_cache`) — FA bleibt aktiv wenn V
+  quantisiert ist
+- Override: `GGML_VK_ENABLE_FA_INTEL=1` für unrestricted FA (Debugging)
+- NVIDIA/AMD unverändert
+
+**Betroffene Dateien:**
+- `ggml/src/ggml-vulkan/ggml-vulkan.cpp` — Intel `supports_op`-Disable entfernt
+- `src/llama-context.cpp` — Hybrid-Gate in `sched_reserve()`
+- `src/llama-cparams.h` — `flash_attn_max_n` Feld
+- `src/llama-graph.h` — `allow_reuse()` vergleicht FA-Parameter
+
+**Gemessen auf Intel UHD G4 (32K ctx, f16/f16 KV, DOT2-Disable, 1 Slot):**
+
+| Prompt Tokens | PP t/s | Decode t/s | Qualität |
+|---|---|---|---|
+| 687 | 58.8 | 5.75 | kohärent |
+| 3222 | 57.4 | 4.28 | kohärent |
+| 5352 | 52.3 | 3.65 | kohärent |
+| 8547 | 49.9 | 3.03 | kohärent |
+| 16002 | 44.2 | 2.08 | kohärent |
+| 29847 | 35.1 | 1.43 | kohärent |
+
+**Grenze:** >5 t/s Decode nur bei kurzem KV. Bei 16K–30K KV fällt Decode auf
+1.4–2.1 t/s (Intel iGPU-Hardwarelimit). Qualität bis ~30K bestätigt.
+
+**Vorgänger:** `1241af89a` (historischer globaler FA-off Workaround, ersetzt).
+
+---
+
 ## 2026-08-15
 
 ### fix: K/V-Cache-Zuweisung systematisch korrigiert — K=turbo4, V=turbo3

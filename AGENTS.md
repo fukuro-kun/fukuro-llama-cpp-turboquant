@@ -127,6 +127,10 @@ Falls Treffer → Bereinigen!
     - ⚠️ **fit_params + mmproj auf APU (2026-08-12):** `--mmproj` reserviert GPU-Speicher in der `fit_params`-Margin. Auf unified-memory APUs (AMD 760M) reduziert `fit_params` `n_gpu_layers` auf 0 → CPU-Fallback. **Fix:** `-fit off` in Start-Skripten. Siehe `scripts/start-mars-26b-server.sh`.
     - ⚠️ **turbo4 V + mmproj + 262144 = NICHT PRODUKTIONS-TAUGLICH (2026-08-13):** RADV (Mesa 25.0.7, PHOENIX) kompiliert turbo4 V FlashAttention-Shader extrem langsam (~14 Min pro Pipeline-Variante). Jede unterschiedliche Batch-Size erzeugt eine neue Variante. Der ggml Vulkan-Pipeline-Cache (`GGML_VK_CACHE_DIR`) speichert VkPipelineCache-Objekte, aber RADV's interne Shader-Kompilierung wird nicht effektiv gecacht — der Mesa-Shader-Cache wird via mmap geladen aber nicht zurückgeschrieben. turbo4/3 ohne mmproj (25.8 t/s solo, 16.5 t/s parallel) funktioniert mit 262144 Kontext. Nur die Kombination turbo4 V + mmproj + 262144 ist betroffen. **Fix: turbo4/3 ohne mmproj für Vulkan+large-context (seit 2026-08-15 Production).** Siehe `scripts/start-mars-26b-server.sh`.
     - ✅ **Echte KV-Buffer-Größen (GQA-korrigiert, 2026-08-12):** Die KV-Buffer sind durch Grouped Query Attention deutlich kleiner als naive Berechnung suggeriert. Gemessen auf Phobos (2×128k, Vulkan): turbo3/3 = 1.0 GB, turbo3/4 = 1.3 GB, turbo4/4 = 1.4 GB. Alle passen problemlos in GTT (27.6 GB). GTT ist nicht der limitierende Faktor — der turbo4 V Shader-Bug ist es.
+  - **Intel iGPU (ANV/Mesa):** `-DGGML_VULKAN=ON`, keine coopmat2-Unterstützung
+    - ✅ **Hybrid-Attention (seit 2026-08-17, Commit `918eb40d8`):** Intel ANV skalare FA-Path produziert bei >~2K Prompt-Tokens Gibberish (Mesa/ANV-F16-Bug). Hybrid-Gate in `llama-context.cpp`: Prefill (>1 Token/Sequence) verwendet unfused Attention, Decode (1 Token) verwendet FA. Gate wird übersprungen bei Tensor-Split oder quantisiertem V. Override: `GGML_VK_ENABLE_FA_INTEL=1`. NVIDIA/AMD unverändert. Siehe CHANGELOG 2026-08-17 und `docs/fork/` für Details.
+    - ⚠️ **DOT2-Disable erforderlich:** `GGML_VK_DISABLE_DOT2=1` in Production — verschiebt Gibberish-Grenze, ist aber kein vollständiger Fix. Hybrid-Attention ist die Production-Lösung.
+    - ⚠️ **Decode-Performance iGPU-Limit:** >5 t/s nur bei kurzem KV. Bei 16K–30K KV fällt Decode auf 1.4–2.1 t/s (Hardwarelimit, nicht behebbar).
 
 ### Build-Verifikation (UNVERHANDELBAR — seit 2026-08-12)
 
@@ -165,6 +169,7 @@ build/bin/llama-server --list-devices 2>&1 | head -5
 |--------|---------------------|-------------------|---------------|-------------|
 | Mars (AMD APU, LXC phobos) | ~~180k~~ (obsolet) | **256k (lädt)** | **262144 (256k), 2×128k Slots, turbo4/3 KV, kein mmproj** | turbo4 V + mmproj + 262k: RADV kompiliert turbo4 V FA-Shader extrem langsam (~14 Min/Variante), Cache ineffective. turbo4/3 ohne mmproj funktioniert (seit 2026-08-15 Production). KV-Buffer nur ~1 GB (GQA). Siehe `scripts/start-mars-26b-server.sh` |
 | Styx (GTX 1070) | 160k | 224k (lädt) | **196608 (196k, seit 2026-07-19)** | VRAM (8GB) + RAM (31GB) — 224k volles Ctx → RSS 31.4GB > 31GB RAM → Swap → MoE-Bottleneck → 503. 196k: RSS ~28.4GB, 2.6GB Reserve. Siehe `scripts/start-styx-26b-server.sh` |
+| Hyperion (Intel UHD G4, LXC) | — | 32k | **32768 (32k, seit 2026-08-17)** | iGPU shared memory, 32GB LXC RAM, f16/f16 KV, Hybrid-Attention (Prefill unfused / Decode FA), DOT2-Disable. Decode 1.4–5.75 t/s je nach KV-Länge. Siehe `docs/fork/` und CHANGELOG 2026-08-17. |
 
 Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (256K) als Maximum in der GGUF.
 
