@@ -372,3 +372,26 @@ Uranus VLM-Server wurde nie entladen weil der Router alle 15s `/slots` pollte.
 **Workaround (InferenzQuelle, 2026-08-18):** Router pollt `/slots` nicht mehr
 für VLM-Endpoints im Background-Health-Check. VLM-Slot-Info wird nur bei
 echter Slot-Admission live geholt. Commit `11d27fd` in InferenzQuelle.
+
+### Fork-Strategie: Eigenständige Entwicklung, kein Upstream-Rebase (2026-08-19)
+
+**Erkenntnis:** Der Fork ist keine temporäre Divergenz die "irgendwann zurück zu upstream muss" — er ist eine **eigenständige Inference-Engine** die zufällig auf llama.cpp-Code basiert.
+
+**Fakten:**
+- Wir haben **keine gemeinsame Git-Historie** mit `ggml-org/llama.cpp` (unrelated histories)
+- Unser merge-base mit TheTom ist Januar 2024 — 7506 eigene Commits seitdem
+- AtomicBot (unser direkter Vorgänger) hat ebenfalls keinen merge-base mit uns
+- Ein `git merge upstream/master` oder `git rebase` ist technisch nicht möglich ohne `--allow-unrelated-histories` mit tausenden Konflikten
+
+**Was AtomicBot seit unserem letzten Sync (2026-06-22) gebracht hat:**
+- BailingMoeV3 (Ling 3.0), GLM-4.7-Flash MTP, DeepSeek V4, Kimi-K3 — alles Modelle die wir nicht nutzen
+- CI/Build-Optimierungen, Windows Signing, ARM64 — alles Plattformen die wir nicht haben
+- 292 Commits, davon **~0 für uns relevant**
+
+**Strategie:**
+1. **Kein full rebase/merge.** Kosten (7h+, Risiko unsere Patches zu brechen) stehen in keinem Verhältnis zum Nutzen.
+2. **Gezielte Cherry-Picks bei Bedarf.** Wenn ein spezifischer Bugfix aus upstream/AtomicBot relevant wird (wie #20227), den einzelnen Commit cherry-picken.
+3. **Monatlicher Check.** Im Hausmeister-Gang AtomicBot's Changelog scannen für relevante Fixes.
+4. **Unsere Eigenentwicklungen sind der Wert.** Hybrid-Attention, Vulkan Shader-Cache, DOT2-Disable, cache-reuse, turbo4/3 KV-Optimierung — das sind Patches die niemand anders hat.
+
+**Schlussfolgerung:** Der Fork ist saturiert und stabil. Alle Hardware-Probleme (Intel Gibberish, AMD turbo4 V Shader, Pascal MoE-Offload, CUDA OOM) sind gelöst. Keine neuen Features nötig. Fokus auf Instandhaltung, nicht auf Expansion.
