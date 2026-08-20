@@ -130,6 +130,7 @@ Falls Treffer → Bereinigen!
   - **Intel iGPU (ANV/Mesa):** `-DGGML_VULKAN=ON`, keine coopmat2-Unterstützung
     - ✅ **Hybrid-Attention (seit 2026-08-17, Commit `918eb40d8`):** Intel ANV skalare FA-Path produziert bei >~2K Prompt-Tokens Gibberish (Mesa/ANV-F16-Bug). Hybrid-Gate in `llama-context.cpp`: Prefill (>1 Token/Sequence) verwendet unfused Attention, Decode (1 Token) verwendet FA. Gate wird übersprungen bei Tensor-Split oder quantisiertem V. Override: `GGML_VK_ENABLE_FA_INTEL=1`. NVIDIA/AMD unverändert. Siehe CHANGELOG 2026-08-17 und `docs/fork/` für Details.
     - ⚠️ **DOT2-Disable erforderlich:** `GGML_VK_DISABLE_DOT2=1` in Production — verschiebt Gibberish-Grenze, ist aber kein vollständiger Fix. Hybrid-Attention ist die Production-Lösung.
+    - ⚠️ **`<unused49>` Garbage-Tokens (transient, 2026-08-20):** Hybrid-Attention produziert gelegentlich 50× `<unused49>` Placeholder-Tokens als content (finish_reason: "stop"). Ursache: KV-Cache-Inkompatibilität zwischen unfused Prefill und FA Decode. Nur sehr kurze Responses (max_tokens=50), nicht reproduzierbar, 5/16 hyperion-Requests betroffen. Siehe `docs/fork/2026-08-20_INTEL_HYBRID_ATTENTION_UNUSED49_BUG.md`.
     - ⚠️ **Decode-Performance iGPU-Limit:** >5 t/s nur bei kurzem KV. Bei 16K–30K KV fällt Decode auf 1.4–2.1 t/s (Hardwarelimit, nicht behebbar).
 
 ### Build-Verifikation (UNVERHANDELBAR — seit 2026-08-12)
