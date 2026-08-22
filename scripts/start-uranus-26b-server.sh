@@ -133,6 +133,17 @@ fi
 export CUDA_VISIBLE_DEVICES=0
 
 # --- thecodacus MoE-Optimierungen ---
+# GGML_CUDA_REGISTER_HOST=1: cudaHostRegister für mmap-pages → verhindert OS-Paging
+#   der Expert-Gewichte im System-RAM. +19-23% pp bei MoE-Offloading.
+# GGML_SCHED_PREFETCH_EXPERTS=1: Aktiviert asynchronen Expert-Prefetch — ein zweiter
+#   GPU-Backend-Thread lädt MoE-Expert-Gewichte (CPU→GPU) hoch während die GPU
+#   noch den vorherigen Layer berechnet. Überlappt PCIe-Upload mit Compute.
+#   +43-67% pp zusätzlich zum Pinning. Nur wirksam bei --n-cpu-moe > 0!
+#   Mit moe0 (alle Experten auf GPU) gibt es keine H2D-Copies → kein Effekt,
+#   aber auch unschädlich. Wird relevant wenn auf moe5/10 (Variante B) gewechselt.
+# GGML_SCHED_PREFETCH_SLOTS=2: Anzahl Staging-Buffer (VRAM-Slots) für Prefetch.
+#   2 = Sweet-Spot aus Benchmark (+28,9% pp512 auf Styx). Mehr Slots = weiter
+#   vorausschauende Uploads, aber jeder Slot kostet VRAM für einen Expert-Tensor.
 export GGML_CUDA_REGISTER_HOST="${GGML_CUDA_REGISTER_HOST:-1}"
 export GGML_SCHED_PREFETCH_EXPERTS="${GGML_SCHED_PREFETCH_EXPERTS:-1}"
 export GGML_SCHED_PREFETCH_SLOTS="${GGML_SCHED_PREFETCH_SLOTS:-2}"

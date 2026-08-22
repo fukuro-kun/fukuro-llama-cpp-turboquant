@@ -82,10 +82,18 @@ fi
 # Physische GPU 1 isolieren → kein CUDA-Context auf GPU 0.
 export CUDA_VISIBLE_DEVICES=1
 
-# --- CPU-Konkurrenz-Mitigation ---
-# MoE-Prefetch und Slot-Prefetch DEAKTIVIERT für 2. Instanz.
-# Reduziert idle-CPU-Last wenn diese Instanz nicht aktiv generiert.
-# Die erste Instanz (GPU 0) behält GGML_SCHED_PREFETCH_EXPERTS=1.
+# --- thecodacus MoE-Optimierungen + CPU-Konkurrenz-Mitigation ---
+# GGML_CUDA_REGISTER_HOST=1: cudaHostRegister für mmap-pages → verhindert OS-Paging
+#   der Expert-Gewichte im System-RAM. +19-23% pp bei MoE-Offloading.
+# GGML_SCHED_PREFETCH_EXPERTS=0: Asynchroner Expert-Prefetch DEAKTIVIERT auf GPU 1.
+#   Expert-Prefetch (=1 auf GPU 0) lädt MoE-Expert-Gewichte (CPU→GPU) in einem
+#   zweiten GPU-Backend-Thread hoch und überlappt PCIe-Upload mit Compute
+#   (+43-67% pp). Aber: der Prefetch-Thread verbraucht CPU auch wenn die
+#   Instanz idle ist → CPU-Konkurrenz mit GPU-0-Instanz (8 Kerne shared).
+#   Daher deaktiviert auf GPU 1. Nur wirksam bei --n-cpu-moe > 0!
+#   Mit moe0 (alle Experten auf GPU) gibt es keine H2D-Copies → die Vars
+#   sind bedeutungslos aber unschädlich. Werden relevant bei moe5/10 (Variante B).
+# GGML_SCHED_PREFETCH_SLOTS=0: Keine Staging-Buffer für Prefetch (da deaktiviert).
 export GGML_SCHED_PREFETCH_EXPERTS="${GGML_SCHED_PREFETCH_EXPERTS:-0}"
 export GGML_SCHED_PREFETCH_SLOTS="${GGML_SCHED_PREFETCH_SLOTS:-0}"
 export GGML_CUDA_REGISTER_HOST="${GGML_CUDA_REGISTER_HOST:-1}"
