@@ -48,7 +48,8 @@
 | `start-venus-26b-server.sh` | Gemma 4 26B-A4B QAT Vulkan-Server mit `--mmproj` (Vision/SigLIP). f16 KV, 256k Ctx, 2 Slots. Siehe `docs/fork/2026-08-14_GEMMA4_VISION_MMPROX.md`. |
 | `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT Vulkan-Server (RDNA3). turbo4/3 KV, 262144 Ctx (2×128k), kein mmproj. |
 | `start-styx-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Pascal). turbo4/3 KV, 196k Ctx. |
-| `start-uranus-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Ada). MoE-Offload, MTP. |
+| `start-uranus-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Ada, GPU 0, Port 18080). MoE-Offload, MTP. |
+| `start-uranus-26b-gpu1-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Ada, GPU 1, Port 18082). 2. Instanz, Prefetch deaktiviert. |
 
 - Anpassen vor Verwendung: Kontextlaenge, GPU-Layer, Modellpfad, Port.
 - **Vision (mmproj):** Siehe `docs/fork/2026-08-14_GEMMA4_VISION_MMPROX.md` für

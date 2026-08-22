@@ -6,6 +6,16 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-08-22
+
+### feat: 2. llama-server Instanz auf uranus GPU 1 (`43a2bfeda`)
+
+Start/Stop-Skripte für eine zweite 26B-A4B Instanz auf GPU 1 (Port 18082).
+CPU-Konkurrenz-Mitigation: `GGML_SCHED_PREFETCH_EXPERTS=0` und
+`GGML_SCHED_PREFETCH_SLOTS=0` reduzieren idle-CPU-Last der 2. Instanz.
+Cache-RAM auf 16 GB reduziert (vs 32 GB auf GPU 0). `CUDA_VISIBLE_DEVICES=1`
+isoliert auf GPU 1. xtts-remote-worker gestoppt um VRAM freizumachen.
+
 ## 2026-08-17
 
 ### feat: Intel Hybrid-Attention — Prefill unfused, Decode FA (`918eb40d8`)
