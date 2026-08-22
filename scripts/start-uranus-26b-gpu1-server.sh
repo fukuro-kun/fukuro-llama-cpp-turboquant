@@ -1,16 +1,42 @@
 #!/usr/bin/env bash
 # Uranus llama-server GPU 1 für InferenzQuelle Router.
-# Gemma-4 26B-A4B QAT, MoE-Offload, turbo4/3 KV-Cache.
-# 2. Instanz auf GPU 1, 2 Slots × 128k. Port 18082.
+# Gemma-4 26B-A4B QAT, turbo4/3 KV-Cache.
+# 2. Instanz auf GPU 1, Port 18082.
 #
 # Rasch auf-/abbaubar:
 #   Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-uranus-26b-gpu1-server.sh
 #   Stop:  bash ~/git/fukuro-llama-cpp-turboquant/scripts/stop-uranus-26b-gpu1-server.sh
 #
-# ⚠️  CPU-KONKURRENZ BEI 2 INSTANZEN (erfahren 2026-07-18):
-#   2 unabhängige llama-server Prozesse auf EINER CPU überlasten sich gegenseitig,
-#   selbst wenn nur 1 Instanz aktiv generiert! Die idle Instanz verbraucht CPU für
-#   MoE-Prefetch, Cache-Updates, Slot-Management.
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │ KONFIGURATIONS-VARIANTEN (Benchmark 2026-08-15, Trilium ppMetN3aSi09) │
+# └─────────────────────────────────────────────────────────────────────┘
+#
+# Zwei Varianten für 2× RTX 4060 Ti (je 16 GB VRAM), 8-Kern CPU:
+#
+#   A) moe0 / 96k (Default, produktiv seit 2026-08-15)
+#      --n-cpu-moe 0  -c 196608  →  2 Slots × 96k
+#      Alle MoE-Experten auf GPU → maximale Generierungsgeschwindigkeit.
+#      82,5 t/s solo, 63,7 t/s parallel, 46,4 t/s bei 37k Prompt.
+#      2,6-7,7× schneller als Variante B. 167 MiB VRAM-Reserve — knapp.
+#      cache-reuse 1 (konservativ, KV-shift für nicht-prefix Chunks).
+#
+#   B) moe5 / 128k (Legacy, vor 2026-08-15)
+#      --n-cpu-moe 5  -c 262144  →  2 Slots × 128k
+#      5 MoE-Layer auf CPU → mehr VRAM für KV-Cache → größerer Kontext.
+#      ~12-30 t/s (deutlich langsamer durch CPU-MoE-Roundtrips).
+#      cache-reuse 1 (konservativ, RAG/Tool-Defs ohne Prefix-Overlap).
+#      Override: MOE=5 CTX=262144 CACHE_RAM=16384
+#
+#   Default = A (moe0/96k), identisch mit GPU 0 (start-uranus-26b-server.sh).
+#   Override via Env-Vars: MOE=5 CTX=262144 bash start-uranus-26b-gpu1-server.sh
+#
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │ CPU-KONKURRENZ BEI 2 INSTANZEN (erfahren 2026-07-18)                 │
+# └─────────────────────────────────────────────────────────────────────┘
+#
+#   2 unabhängige llama-server Prozesse auf EINER CPU überlasten sich
+#   gegenseitig, selbst wenn nur 1 Instanz aktiv generiert! Die idle
+#   Instanz verbraucht CPU für MoE-Prefetch, Cache-Updates, Slot-Management.
 #   - 2 Instanzen, 1 Request aktiv: 3.5 t/s (CPU 100%, load 15.5)
 #   - 1 Instanz, 1 Request aktiv:   45 t/s (CPU 11%, load 1.0)
 #
@@ -23,7 +49,7 @@
 #
 # Architecture: 2. llama-server Instanz auf GPU 1 (physisch).
 #   CUDA_VISIBLE_DEVICES=1 isoliert den Prozess auf GPU 1.
-#   Port 18082, 2 Slots × 128k Kontext.
+#   Port 18082, 2 Slots × 96k Kontext (Default), --n-cpu-moe 0.
 #   Siehe start-uranus-26b-server.sh für GPU 0 (Port 18080).
 
 set -euo pipefail
@@ -33,10 +59,11 @@ SERVER="${SERVER:-${ROOT}/build/bin/llama-server}"
 MAIN="${MAIN_GGUF:-/media/fukuro/raid5/modelle/gemma-4-26B-A4B-it/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-18082}"
-CTX="${CTX:-262144}"             # 256k total, aufgeteilt auf SLOTS = je Slot
+CTX="${CTX:-196608}"             # 192k total → 2×96k (Variante A, Default)
 SLOTS="${SLOTS:-2}"
-CACHE_RAM="${CACHE_RAM:-16384}"  # 16 GB CPU prompt-cache (reduziert bei 2. Instanz)
-MOE="${MOE:-5}"                  # 5 MoE-Layer auf CPU (gleiche wie GPU 0)
+CACHE_RAM="${CACHE_RAM:-32768}"  # 32 GB CPU prompt-cache (gleich wie GPU 0)
+MOE="${MOE:-0}"                  # 0 = alle Experten auf GPU (Variante A, Default)
+CACHE_REUSE="${CACHE_REUSE:-1}"   # 1 = konservativ (KV-shift für nicht-prefix Chunks)
 
 # --- Modell-Check ---
 if [[ ! -f "$SERVER" ]]; then
@@ -65,8 +92,8 @@ export GGML_CUDA_REGISTER_HOST="${GGML_CUDA_REGISTER_HOST:-1}"
 
 cd "$ROOT"
 
-# --- Instanz: GPU 1, Port 18082, 2 Slots × 128k ---
-echo "Starte llama-server (GPU 1, Port $PORT, $SLOTS Slots × $((CTX/SLOTS/1024))k, --n-cpu-moe $MOE)..."
+# --- Instanz: GPU 1, Port 18082 ---
+echo "Starte llama-server (GPU 1, Port $PORT, $SLOTS Slots × $((CTX/SLOTS/1024))k, --n-cpu-moe $MOE, cache-reuse $CACHE_REUSE)..."
 setsid "$SERVER" \
   -m "$MAIN" \
   --host "$HOST" --port "$PORT" \
@@ -76,7 +103,7 @@ setsid "$SERVER" \
   --parallel "$SLOTS" -np "$SLOTS" --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram "$CACHE_RAM" \
-  --cache-reuse 1 \
+  --cache-reuse "$CACHE_REUSE" \
   --slot-cache-key-similarity 0.5 \
   --slot-cache-key-min-prefix 64 \
   --metrics --slots \

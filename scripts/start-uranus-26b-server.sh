@@ -1,40 +1,59 @@
 #!/usr/bin/env bash
 # Uranus llama-server für InferenzQuelle Router.
-# Gemma-4 26B-A4B QAT, MoE-Offload, turbo4/3 KV-Cache.
-# 1 Instanz auf GPU 0, 2 Slots × 128k. GPU 1 frei für VLM/FLUX.
+# Gemma-4 26B-A4B QAT, turbo4/3 KV-Cache.
+# Instanz auf GPU 0, Port 18080.
 #
 # Rasch auf-/abbaubar:
 #   Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-uranus-26b-server.sh
 #   Stop:  bash ~/git/fukuro-llama-cpp-turboquant/scripts/stop-uranus-26b-server.sh
 #
-# Cache-Konfiguration (wie Styx, angepasst an 128 GB RAM + 16 GB VRAM):
-#   --cache-ram 32768        32 GB CPU-RAM für serialisierte KV-States (128 GB available)
-#   --cache-reuse 1        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
-#   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key automatisch)
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │ KONFIGURATIONS-VARIANTEN (Benchmark 2026-08-15, Trilium ppMetN3aSi09) │
+# └─────────────────────────────────────────────────────────────────────┘
 #
-# MoE-Offload (--n-cpu-moe 5): 5 Experten auf CPU, Rest auf GPU.
-#   Ohne MoE-Offload: 14.2 GB Modell → nur 1.8 GB für KV-Cache → zu wenig für 128k/Slot.
-#   Mit 5 MoE-Offload: ~10.5 GB auf GPU → ~5.5 GB für KV-Cache → 2x128k möglich.
-#   Benchmark 2026-07-21 (GPU-isoliert, Lasttest 122k Tokens): MoE 5 = 55.7 t/s (+31% vs MoE 10),
-#   732 MiB Reserve bei 122k echten Tokens unter Volllast — stabil, kein OOM.
-#   Override: MOE=4 (aggressiv, +40% tg, OOM-Risiko bei 128k) oder MOE=10 (konservativ).
-#   Adaptive Logik greift nur bei VRAM-Knappheit (< 8 GB frei): reduziert Slots/MoE-Offload.
+# Zwei Varianten für 2× RTX 4060 Ti (je 16 GB VRAM), 8-Kern CPU:
 #
-#   WICHTIG — CPU-Konkurrenz bei 2 Instanzen (erfahren 2026-07-18):
-#   2 unabhängige llama-server Prozesse auf EINER CPU überlasten sich gegenseitig,
-#   selbst wenn nur 1 Instanz aktiv generiert! Die idle Instanz verbraucht CPU für
-#   MoE-Prefetch (GGML_SCHED_PREFETCH_EXPERTS=1), Cache-Updates, Slot-Management.
+#   A) moe0 / 96k (Default, produktiv seit 2026-08-15)
+#      --n-cpu-moe 0  -c 196608  →  2 Slots × 96k
+#      Alle MoE-Experten auf GPU → maximale Generierungsgeschwindigkeit.
+#      82,5 t/s solo, 63,7 t/s parallel, 46,4 t/s bei 37k Prompt.
+#      2,6-7,7× schneller als Variante B. 167 MiB VRAM-Reserve — knapp.
+#      cache-reuse 1 (konservativ, KV-shift für nicht-prefix Chunks).
+#
+#   B) moe5 / 128k (Legacy, vor 2026-08-15)
+#      --n-cpu-moe 5  -c 262144  →  2 Slots × 128k
+#      5 MoE-Layer auf CPU → mehr VRAM für KV-Cache → größerer Kontext.
+#      ~12-30 t/s (deutlich langsamer durch CPU-MoE-Roundtrips).
+#      cache-reuse 1 (konservativ, RAG/Tool-Defs ohne Prefix-Overlap).
+#      Override: MOE=5 CTX=262144
+#
+#   Default = A (moe0/96k).
+#   Override via Env-Vars: MOE=5 CTX=262144 bash start-uranus-26b-server.sh
+#
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │ CPU-KONKURRENZ BEI 2 INSTANZEN (erfahren 2026-07-18)                 │
+# └─────────────────────────────────────────────────────────────────────┘
+#
+#   2 unabhängige llama-server Prozesse auf EINER CPU überlasten sich
+#   gegenseitig, selbst wenn nur 1 Instanz aktiv generiert! Die idle
+#   Instanz verbraucht CPU für MoE-Prefetch, Cache-Updates, Slot-Management.
 #   - 2 Instanzen, 1 Request aktiv: 3.5 t/s (CPU 100%, load 15.5)
 #   - 1 Instanz, 1 Request aktiv:   45 t/s (CPU 11%, load 1.0)
 #   - 1 Instanz, 2 Requests parallel: 30 t/s pro Slot (CPU 53%, load 4.3)
-#   Das ist ein 13x Speedup! Nie wieder 2 Instanzen auf einer CPU mit MoE-Offload.
-#   GPU 1 bleibt frei für VLM (GLM-4.6V-Flash) und FLUX-Server.
 #
-# Architecture: 1 llama-server Instanz auf GPU 0 (physisch).
+#   Seit 2026-08-22 läuft eine 2. Instanz auf GPU 1 (start-uranus-26b-gpu1-server.sh)
+#   mit GGML_SCHED_PREFETCH_EXPERTS=0 zur Mitigation. Siehe dort für Details.
+#
+# Cache-Konfiguration:
+#   --cache-ram 32768        32 GB CPU-RAM für serialisierte KV-States (128 GB available)
+#   --cache-reuse 1          KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
+#   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key automatisch)
+#
+# Architecture: llama-server Instanz auf GPU 0 (physisch).
 #   CUDA_VISIBLE_DEVICES=0 isoliert den Prozess auf GPU 0 → kein CUDA-Context
 #   auf GPU 1 (spart ~2GB VRAM für VLM/FLUX). -dev CUDA0 nach Remapping.
-#   Port 18080, 2 Slots × 128k Kontext.
-#   GPU 1: VLM (Port 18081) + FLUX (Port 18083), ungenutzt für 26B.
+#   Port 18080, 2 Slots × 96k Kontext (Default).
+#   GPU 1: 2. 26B-Instanz (Port 18082) + VLM (Port 18081).
 
 set -euo pipefail
 
@@ -43,10 +62,10 @@ SERVER="${SERVER:-${ROOT}/build/bin/llama-server}"
 MAIN="${MAIN_GGUF:-/media/fukuro/raid5/modelle/gemma-4-26B-A4B-it/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-18080}"
-CTX="${CTX:-262144}"             # 256k total, aufgeteilt auf SLOTS = je Slot
+CTX="${CTX:-196608}"             # 192k total → 2×96k (Variante A, Default seit 2026-08-15)
 SLOTS="${SLOTS:-2}"
 CACHE_RAM="${CACHE_RAM:-32768}"  # 32 GB CPU prompt-cache (128 GB RAM available)
-MOE="${MOE:-5}"                  # 5 MoE-Layer auf CPU (Default seit 2026-07-21, Lasttest 122k Tokens stabil, 732 MiB Reserve)
+MOE="${MOE:-0}"                  # 0 = alle Experten auf GPU (Variante A, Default seit 2026-08-15)
 
 # --- Modell-Check ---
 if [[ ! -f "$SERVER" ]]; then
@@ -73,10 +92,11 @@ fi
 # Um von freigewordenem VRAM zu profitieren: Server neu starten.
 #
 # Tabelle (freier VRAM auf GPU0, ab dem Schwellwert gilt die jeweilige Config):
-#   ab 12 GB → 2 Slots × 128k, MoE 5   (Default, volle Kapazität, +31% Speed)
-#   ab  8 GB → 2 Slots × 128k, MoE 10  (2 Slots bleiben, mehr MoE-Offload für VRAM-Reserve)
-#   ab  6 GB → 1 Slot  × 128k, MoE 15  (VRAM-Knappheit: 1 Slot, mehr MoE auf CPU)
-#   ab  4 GB → 1 Slot  × 128k, MoE 20  (VRAM-Knappheit: max MoE-Offload)
+#   ab 14 GB → 2 Slots × 96k, MoE 0   (Default, maximale Geschwindigkeit, 167 MiB Reserve)
+#   ab 12 GB → 2 Slots × 96k, MoE 0   (Default, volle Kapazität)
+#   ab  8 GB → 2 Slots × 96k, MoE 5   (mehr MoE-Offload für VRAM-Reserve bei paralleler GPU-Nutzung)
+#   ab  6 GB → 1 Slot  × 96k, MoE 10  (VRAM-Knappheit: 1 Slot, mehr MoE auf CPU)
+#   ab  4 GB → 1 Slot  × 96k, MoE 15  (VRAM-Knappheit: max MoE-Offload)
 #   <   4 GB → Fehler, nicht starten   (zu wenig für Modell + KV-Cache)
 #
 # Override: SLOTS/MOE/CTX als env vars setzen überspringt die Adaption.
@@ -89,18 +109,18 @@ if [[ "$ADAPTIVE" == "1" ]]; then
     VRAM_FREE_GIB=$((VRAM_FREE_MIB / 1024))
     echo "VRAM-Check: GPU0 hat ${VRAM_FREE_GIB} GB frei"
     if   (( VRAM_FREE_GIB >= 12 )); then
-      SLOTS=2; MOE=5; CTX=262144    # 2×128k, Default (Lasttest 2026-07-21: 122k Tokens stabil, 732 MiB Reserve)
+      SLOTS=2; MOE=0; CTX=196608    # 2×96k, moe0 Default (Benchmark 2026-08-15: 82,5 t/s solo, 167 MiB Reserve)
     elif (( VRAM_FREE_GIB >= 8  )); then
-      SLOTS=2; MOE=10; CTX=262144   # 2×128k, mehr MoE-Offload für VRAM-Reserve bei paralleler GPU-Nutzung
+      SLOTS=2; MOE=5; CTX=196608   # 2×96k, mehr MoE-Offload für VRAM-Reserve bei paralleler GPU-Nutzung
     elif (( VRAM_FREE_GIB >= 6  )); then
-      SLOTS=1; MOE=15; CTX=131072   # 1×128k, VRAM-Knappheit: mehr MoE auf CPU
+      SLOTS=1; MOE=10; CTX=131072   # 1×128k, VRAM-Knappheit: mehr MoE auf CPU
     elif (( VRAM_FREE_GIB >= 4  )); then
-      SLOTS=1; MOE=20; CTX=131072   # 1×128k, VRAM-Knappheit: max MoE-Offload
+      SLOTS=1; MOE=15; CTX=131072   # 1×128k, VRAM-Knappheit: max MoE-Offload
     else
       echo "error: nur ${VRAM_FREE_GIB} GB VRAM frei auf GPU0 (mindestens 4 GB nötig)" >&2
       echo "  Belegung:" >&2
       nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader >&2 || true
-      echo "  Lösung: Training/VLM/FLUX stoppen oder mehr MoE-Offload (MOE=20) manuell setzen" >&2
+      echo "  Lösung: Training/VLM/FLUX stoppen oder mehr MoE-Offload (MOE=15) manuell setzen" >&2
       exit 2
     fi
     echo "  → Adaptiv: SLOTS=$SLOTS, MOE=$MOE, CTX=$CTX ($((CTX/1024))k)"
@@ -119,7 +139,7 @@ export GGML_SCHED_PREFETCH_SLOTS="${GGML_SCHED_PREFETCH_SLOTS:-2}"
 
 cd "$ROOT"
 
-# --- Instanz: GPU 0, Port 18080, 2 Slots × 128k ---
+# --- Instanz: GPU 0, Port 18080, 2 Slots × 96k ---
 echo "Starte llama-server (GPU 0, Port $PORT, $SLOTS Slots × $((CTX/SLOTS/1024))k, --n-cpu-moe $MOE)..."
 setsid "$SERVER" \
   -m "$MAIN" \
