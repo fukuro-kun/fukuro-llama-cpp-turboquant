@@ -67,9 +67,9 @@ void llama_model_qwen4exp::load_arch_hparams(llama_model_loader & ml) {
         GGML_ASSERT(hparams.ple_ngram_size >= 2 && hparams.ple_ngram_size <= LLAMA_MAX_PLE_NGRAM);
         GGML_ASSERT(hparams.ple_n_heads > 0 && hparams.ple_n_heads <= LLAMA_MAX_PLE_HEADS);
 
-        ml.get_key_or_arr(LLM_KV_PLE_LAYER_MULTIPLIERS, hparams.ple_layer_multipliers, hparams.ple_ngram_size - 1, false);
-        ml.get_key_or_arr(LLM_KV_PLE_HEAD_OFFSETS,      hparams.ple_head_offsets,      hparams.ple_n_heads,        false);
-        ml.get_key_or_arr(LLM_KV_PLE_HEAD_VOCAB_SIZES,  hparams.ple_head_vocab_sizes,  hparams.ple_n_heads,        false);
+        ml.get_arr(LLM_KV_PLE_LAYER_MULTIPLIERS, hparams.ple_layer_multipliers, false);
+        ml.get_arr(LLM_KV_PLE_HEAD_OFFSETS,      hparams.ple_head_offsets,      false);
+        ml.get_arr(LLM_KV_PLE_HEAD_VOCAB_SIZES,  hparams.ple_head_vocab_sizes,  false);
     }
 
     // recurrent layers: which layers are linear (delta-net) vs full attention
