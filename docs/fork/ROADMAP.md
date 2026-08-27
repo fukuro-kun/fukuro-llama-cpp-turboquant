@@ -1,7 +1,7 @@
 # ROADMAP — Fork-Beschleunigung
 
 **Erstellt:** 2026-07-11
-**Aktualisiert:** 2026-08-15 (RADV GTT-Spill-Heuristik gelöst — siehe [RADV GTT-Spill Research](2026-08-15_RADV_GTT_SPILL_RESEARCH.md))
+**Aktualisiert:** 2026-08-27 (Qwen4Exp- und Modellfamilien-Port als #99 geplant)
 **Quelle:** [Optimierungs-Recherche 2026-07-11](2026-07-11_OPTIMIZATION_RESEARCH.md) + [Recherche 2026-07-12](2026-07-12_OPTIMIZATION_RESEARCH.md) (Web + arXiv, 4 parallele Subagents pro Sweep)
 **Hardware:** Mars (RDNA3/Vulkan/30GB), Styx (Pascal/CUDA/8GB), Hydra (Ampere/CUDA/8GB), Uranus (2x Ada/CUDA/32GB), Venus (GCN/Vulkan)
 **Ausschluss:** Treiber-Neuimplementierung, Kernel-Rekompilierung, Hopper-spezifische Features
@@ -110,6 +110,7 @@ Schätzungen sind **Solo-Agent-Aufwand** (inkl. Remote-Builds 5-15 min/Zyklus, B
 | 96 | ☐ | Speculative Checkpointing für Hybrid Models | Uranus, Hydra | 2-3 Wochen | PR #19493 | — | Spec-Decoding für Qwen3.5/3.6 SSM — **Recherche 2026-07-26 (Research-Sweep #5): Checkpoint/Restore für spec-decoding mit rekurrenten Modulen (DeltaNet/Mamba). PR #19493, #20075, #20925. Unverifiziert.** |
 | 97 | ☐ | Backend-agnostic Tensor Parallelism (Meta Device) | Uranus | 2-3 Wochen | PR #19378 | — | Besser als layer-mode TP — **Recherche 2026-07-26 (Research-Sweep #5): Meta device Abstraktion für automatische Graph-Splits. Synchronisiert nur an notwendigen Punkten. PR #19378 unverifiziert.** |
 | 98 | ❌ | turbo4 V + mmproj + 262144 Production | Mars | 1 Tag (Precompile) | Commit `d795404be` | — | Höhere V-Cache-Präzision (4.25 vs 3.125 bit) — **Investigation 2026-08-15: ❌ BLOCKED für turbo4 V + mmproj + 262144. Wartungsfenster-Test gezeigt dass VK Pipeline Cache FA-Pipelines NICHT cached. Precompile läuft (Cache wächst 209K→848K) aber Restart ist nicht schneller (411s vs 440s, erster Request 5min vs 5min 34s). Jeder Restart erfordert 5+min pro Pipeline-Variante. ABER: turbo4/3 (K=turbo4, V=turbo3) ohne mmproj funktioniert zuverlässig → turbo4/3 ohne mmproj ist seit 15.08.2026 Production-Standard (TG 25.8 t/s solo, 16.5 t/s parallel, Commit `6c54299ac`). Nächste Schritte: Mesa Bug Report, VK_EXT_pipeline_creation_cache_control. Siehe `docs/fork/2026-08-15_TURBO4_V_INVESTIGATION.md`.** |
+| 99 | ☐ | Qwen4Exp + LAN-relevante Modellfamilien | CUDA, Vulkan, CPU | 2-6 Wochen, phasenweise | Unsloth-Snapshot `035e22731` | [Plan](plans/SESSION_PLAN_20260827_qwen4exp-model-family-port.md) | **Selektiver Symbol-Port auf gemeinsamer Basis `4fc4ec554`: Qwen4Exp samt QSA-Memory sowie Muse Glimmer, Laguna, Nanbeige, Hy-v3, Qwen3-TTS und PocketTTS. Keine Enterprise-only DSV4/MSA/DSA-Infrastruktur; MoE-Cache-Vergleich erst nach korrekter Baseline.** |
 
 ## Tier 3: Komplex (6-12 Wochen Solo-Agent)
 
