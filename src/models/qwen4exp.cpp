@@ -111,13 +111,13 @@ void llama_model_qwen4exp::load_arch_tensors(llama_model_loader & ml) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    // PLE per-layer token embedding table
+    // PLE per-layer token embedding table: n_rows is padded, so read it back from the GGUF
     if (hparams.ple_n_heads > 0) {
         const int64_t ple_head_dim = hparams.ple_head_dim;
-        int64_t ple_rows = 0;
-        for (int64_t i = 0; i < hparams.ple_n_heads; ++i) {
-            ple_rows += (int64_t) hparams.ple_head_vocab_sizes[i];
-        }
+        const std::string ple_name = tn(LLM_TENSOR_PER_LAYER_TOKEN_EMBD, "weight").str();
+        const auto * ple_w = ml.get_weight(ple_name.c_str());
+        GGML_ASSERT(ple_w != nullptr && "qwen4exp is missing the PLE n-gram table");
+        const int64_t ple_rows = ple_w->tensor->ne[1];
         per_layer_tok_embd = create_tensor(tn(LLM_TENSOR_PER_LAYER_TOKEN_EMBD, "weight"),
                 {ple_head_dim, ple_rows}, 0);
     }
