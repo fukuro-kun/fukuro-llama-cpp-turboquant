@@ -1,7 +1,7 @@
 # SESSION_PLAN: #99 Qwen4Exp und LAN-relevante Modellfamilien
 
 **Erstellt:** 2026-08-27  
-**Status:** ☐ Geplant — Review-Loop abgeschlossen, Korrekturen eingearbeitet, noch keine Code-Aenderungen
+**Status:** [>] In Bearbeitung — Phase 0-3, 5-7 abgeschlossen; Phase 4 blockiert (MTMD-Infrastruktur); Phase 8-9 ausstehend
 **ROADMAP-Item:** #99  
 **Quellstand:** Unsloth-qwen4exp-Snapshot `035e22731` auf gemeinsamer llama.cpp-Basis `4fc4ec554`  
 **Ziel:** Selektiver Port von Qwen4Exp sowie Muse Glimmer, Laguna, Nanbeige, Hy-v3, Qwen3-TTS und PocketTTS in den TurboQuant-Fork
