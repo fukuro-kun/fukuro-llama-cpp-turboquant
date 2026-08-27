@@ -157,6 +157,9 @@ public:
     uint32_t get_size()     const;
     uint32_t get_n_stream() const;
 
+    // qwen4exp QSA: indexer cache needs per-sequence cell access
+    const llama_kv_cells & get_cells(llama_seq_id seq_id) const;
+
     bool get_has_shift() const;
 
     ggml_type type_k() const;

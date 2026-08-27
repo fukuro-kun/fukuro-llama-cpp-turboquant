@@ -1563,6 +1563,12 @@ uint32_t llama_kv_cache::get_n_stream() const {
     return n_stream;
 }
 
+const llama_kv_cells & llama_kv_cache::get_cells(llama_seq_id seq_id) const {
+    GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < seq_to_stream.size());
+
+    return v_cells[seq_to_stream[seq_id]];
+}
+
 bool llama_kv_cache::get_has_shift() const {
     // TurboQuant uses kernel-level WHT rotation -- position shift is a no-op
     if (!layers.empty() && (layers[0].k->type == GGML_TYPE_TURBO2_0 || layers[0].k->type == GGML_TYPE_TURBO3_0 || layers[0].k->type == GGML_TYPE_TURBO4_0)) { return false; }
