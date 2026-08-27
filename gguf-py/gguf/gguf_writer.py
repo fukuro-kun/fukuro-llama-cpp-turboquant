@@ -790,6 +790,16 @@ class GGUFWriter:
     def add_indexer_top_k(self, top_k: int) -> None:
         self.add_uint32(Keys.Attention.Indexer.TOP_K.format(arch=self.arch), top_k)
 
+    def add_indexer_block_size(self, block_size: int) -> None:
+        self.add_uint32(Keys.Attention.Indexer.BLOCK_SIZE.format(arch=self.arch), block_size)
+
+    def add_indexer_local_blocks(self, local_blocks: int) -> None:
+        self.add_uint32(Keys.Attention.Indexer.LOCAL_BLOCKS.format(arch=self.arch), local_blocks)
+
+    def add_indexer_types(self, value: Sequence[bool]) -> None:
+        key = Keys.Attention.Indexer.TYPES.format(arch=self.arch)
+        self.add_array(key, value)
+
     def add_max_alibi_bias(self, bias: float) -> None:
         self.add_float32(Keys.Attention.MAX_ALIBI_BIAS.format(arch=self.arch), bias)
 
@@ -894,6 +904,12 @@ class GGUFWriter:
 
     def add_token_shift_count(self, count: int) -> None:
         self.add_uint32(Keys.LLM.TOKEN_SHIFT_COUNT.format(arch=self.arch), count)
+
+    def add_num_loops(self, count: int) -> None:
+        self.add_uint32(Keys.LLM.NUM_LOOPS.format(arch=self.arch), count)
+
+    def add_skip_loop_final_norm(self, value: bool) -> None:
+        self.add_bool(Keys.LLM.SKIP_LOOP_FINAL_NORM.format(arch=self.arch), value)
 
     def add_interleave_moe_layer_step(self, value: int) -> None:
         self.add_uint32(Keys.LLM.INTERLEAVE_MOE_LAYER_STEP.format(arch=self.arch), value)
@@ -1031,6 +1047,66 @@ class GGUFWriter:
 
     def add_kda_head_dim(self, value: int) -> None:
         self.add_uint32(Keys.KDA.HEAD_DIM.format(arch=self.arch), value)
+
+    def add_hyper_connection_count(self, value: int) -> None:
+        self.add_uint32(Keys.HyperConnection.COUNT.format(arch=self.arch), value)
+
+    def add_hyper_connection_sinkhorn_iterations(self, value: int) -> None:
+        self.add_uint32(Keys.HyperConnection.SINKHORN_ITERATIONS.format(arch=self.arch), value)
+
+    def add_hyper_connection_epsilon(self, value: float) -> None:
+        self.add_float32(Keys.HyperConnection.EPSILON.format(arch=self.arch), value)
+
+    def add_hyper_connection_low_rank(self, value: int) -> None:
+        self.add_uint32(Keys.HyperConnection.LOW_RANK.format(arch=self.arch), value)
+
+    def add_ple_layers(self, values: Sequence[int]) -> None:
+        self.add_array(Keys.PLE.LAYERS.format(arch=self.arch), values)
+
+    def add_ple_ngram_size(self, value: int) -> None:
+        self.add_uint32(Keys.PLE.NGRAM_SIZE.format(arch=self.arch), value)
+
+    def add_ple_heads_per_ngram(self, value: int) -> None:
+        self.add_uint32(Keys.PLE.HEADS_PER_NGRAM.format(arch=self.arch), value)
+
+    def add_ple_conv_kernel(self, value: int) -> None:
+        self.add_uint32(Keys.PLE.CONV_KERNEL.format(arch=self.arch), value)
+
+    def _add_u64_array(self, key: str, values: Sequence[int]) -> None:
+        self.add_key_value(key, list(values), GGUFValueType.ARRAY, GGUFValueType.UINT64)
+
+    def add_ple_layer_multipliers(self, values: Sequence[int]) -> None:
+        self._add_u64_array(Keys.PLE.LAYER_MULTIPLIERS.format(arch=self.arch), values)
+
+    def add_ple_head_offsets(self, values: Sequence[int]) -> None:
+        self._add_u64_array(Keys.PLE.HEAD_OFFSETS.format(arch=self.arch), values)
+
+    def add_ple_head_vocab_sizes(self, values: Sequence[int]) -> None:
+        self._add_u64_array(Keys.PLE.HEAD_VOCAB_SIZES.format(arch=self.arch), values)
+
+    def add_ple_eos_token_id(self, value: int) -> None:
+        self.add_uint32(Keys.PLE.EOS_TOKEN_ID.format(arch=self.arch), value)
+
+    def add_ple_image_token_id(self, value: int) -> None:
+        self.add_uint32(Keys.PLE.IMAGE_TOKEN_ID.format(arch=self.arch), value)
+
+    def add_rope_pattern(self, value: Sequence[bool]) -> None:
+        self.add_array(Keys.Attention.ROPE_PATTERN.format(arch=self.arch), value)
+
+    def add_norm_before_fc(self, value: bool) -> None:
+        self.add_bool(Keys.LLM.NORM_BEFORE_FC.format(arch=self.arch), value)
+
+    def add_attention_output_group_count(self, count: int) -> None:
+        self.add_uint32(Keys.Attention.OUTPUT_GROUP_COUNT.format(arch=self.arch), count)
+
+    def add_attention_output_lora_rank(self, rank: int) -> None:
+        self.add_uint32(Keys.Attention.OUTPUT_LORA_RANK.format(arch=self.arch), rank)
+
+    def add_attention_compress_ratios(self, value: Sequence[int]) -> None:
+        self.add_array(Keys.Attention.COMPRESS_RATIOS.format(arch=self.arch), value)
+
+    def add_attention_compress_rope_freq_base(self, value: float) -> None:
+        self.add_float32(Keys.Attention.COMPRESS_ROPE_FREQ_BASE.format(arch=self.arch), value)
 
     def add_tokenizer_model(self, model: str) -> None:
         self.add_string(Keys.Tokenizer.MODEL, model)
