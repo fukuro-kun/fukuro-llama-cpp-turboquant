@@ -40,20 +40,16 @@ void llama_model_qwen4exp::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key_or_arr(LLM_KV_ATTENTION_COMPRESS_RATIOS, hparams.dsv4_compress_ratios, hparams.n_layer_all, false);
 
     // PLE (Per-Layer Embedding)
-    std::array<uint32_t, LLAMA_MAX_LAYERS> ple_layers{};
     uint32_t n_ple_layers = 0;
-    if (ml.get_key_or_arr(LLM_KV_PLE_LAYERS, ple_layers, 0, false)) {
-        // count non-zero entries to determine if PLE is present
-        for (uint32_t i = 0; i < hparams.n_layer_all; ++i) {
-            if (ple_layers[i] != 0 || (i == 0 && ple_layers[0] == 0 && hparams.n_layer_all > 0)) {
-                // just check if any layer is set
-            }
-            if (ple_layers[i] < hparams.n_layer_all) {
-                n_ple_layers++;
-            }
-        }
-    }
+    ml.get_arr_n(LLM_KV_PLE_LAYERS, n_ple_layers, false);
     if (n_ple_layers > 0) {
+        std::vector<uint32_t> ple_layers;
+        ml.get_arr(LLM_KV_PLE_LAYERS, ple_layers);
+        for (uint32_t il : ple_layers) {
+            GGML_ASSERT(il < hparams.n_layer_all);
+            hparams.is_ple_impl[il] = 1;
+        }
+
         ml.get_key(LLM_KV_PLE_NGRAM_SIZE,      hparams.ple_ngram_size);
         ml.get_key(LLM_KV_PLE_HEADS_PER_NGRAM, hparams.ple_heads_per_ngram);
         ml.get_key(LLM_KV_PLE_CONV_KERNEL,     hparams.ple_conv_kernel);
@@ -70,13 +66,6 @@ void llama_model_qwen4exp::load_arch_hparams(llama_model_loader & ml) {
 
         GGML_ASSERT(hparams.ple_ngram_size >= 2 && hparams.ple_ngram_size <= LLAMA_MAX_PLE_NGRAM);
         GGML_ASSERT(hparams.ple_n_heads > 0 && hparams.ple_n_heads <= LLAMA_MAX_PLE_HEADS);
-
-        for (uint32_t i = 0; i < n_ple_layers; ++i) {
-            uint32_t il = ple_layers[i];
-            if (il < LLAMA_MAX_LAYERS) {
-                hparams.is_ple_impl[il] = 1;
-            }
-        }
 
         ml.get_key_or_arr(LLM_KV_PLE_LAYER_MULTIPLIERS, hparams.ple_layer_multipliers, hparams.ple_ngram_size - 1, false);
         ml.get_key_or_arr(LLM_KV_PLE_HEAD_OFFSETS,      hparams.ple_head_offsets,      hparams.ple_n_heads,        false);
