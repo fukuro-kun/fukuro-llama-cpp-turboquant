@@ -895,17 +895,22 @@ void llm_graph_input_ple::set_input(const llama_ubatch * ubatch) {
                 }
             }
 
-            // hash each head: mixed = ctx[0]*mult[0] ^ ctx[1]*mult[1] ^ ...
-            for (int64_t h = 0; h < n_heads; ++h) {
-                const int64_t head_idx = h / (ngram - 1);
-                const int64_t mult_idx = h % (ngram - 1);
-
-                uint64_t mixed = 0;
-                mixed = (uint64_t) window[head_idx] * (uint64_t) hp.ple_layer_multipliers[mult_idx];
-
-                const uint64_t vocab_size = hp.ple_head_vocab_sizes[h];
-                const uint64_t offset     = hp.ple_head_offsets[h];
-                dst[h * n_tokens + i] = (int32_t) ((mixed % vocab_size) + offset);
+            // hash each n-gram size: for n=2..ngram, compute
+            //   mixed = ctx[0]*mult[0] ^ ctx[1]*mult[1] ^ ... ^ ctx[n-1]*mult[n-1]
+            // then assign per_gram heads per n-gram size
+            const int64_t per_gram = hp.ple_heads_per_ngram;
+            for (int64_t n = 2; n <= ngram; ++n) {
+                uint64_t mixed = (uint64_t) window[0] * (uint64_t) hp.ple_layer_multipliers[0];
+                for (int64_t j = 1; j < n; ++j) {
+                    mixed ^= (uint64_t) window[j] * (uint64_t) hp.ple_layer_multipliers[j];
+                }
+                const int64_t base = (n - 2) * per_gram;
+                for (int64_t g = 0; g < per_gram; ++g) {
+                    const int64_t h_i = base + g;
+                    const uint64_t vocab_size = hp.ple_head_vocab_sizes[h_i];
+                    const uint64_t offset     = hp.ple_head_offsets[h_i];
+                    dst[h_i * n_tokens + i] = (int32_t) ((mixed % vocab_size) + offset);
+                }
             }
 
             // update history: EOS resets predecessors

@@ -259,7 +259,7 @@ bool llama_memory_hybrid_idx_context::apply() {
     bool res = llama_memory_hybrid_context::apply();
 
     if (ctx_idx) {
-        res = res & ctx_idx->apply();
+        res = res && ctx_idx->apply();
     }
 
     return res;
