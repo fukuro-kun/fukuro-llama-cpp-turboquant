@@ -467,6 +467,12 @@ struct mtmd_context {
                     img_end = "<|vision_end|>";
                     image_preproc = std::make_unique<mtmd_image_preprocessor_youtuvl>(ctx_v);
                 } break;
+            case PROJECTOR_TYPE_MUSE_GLIMMER:
+                {
+                    img_beg = "<|image_start|>";
+                    img_end = "<|image_end|>";
+                    image_preproc = std::make_unique<mtmd_image_preprocessor_muse_glimmer>(ctx_v);
+                } break;
             case PROJECTOR_TYPE_YASA2:
                 {
                     img_beg = "<image>";
