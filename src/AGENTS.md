@@ -28,6 +28,14 @@ Diese Dateien enthalten Fork-spezifische Logik und duerfen bei Upstream-Syncs be
 | `models/qwen35.cpp` | Qwen 3.5 Dense-Modell |
 | `models/qwen35moe.cpp` | Qwen 3.5 MoE-Modell |
 | `models/diffusion-gemma.cpp` | DiffusionGemma-Integration |
+| `models/qwen4exp.cpp` | Qwen4Exp: QSA, GDN, PLE, Hyper-Connections, MoE |
+| `models/muse-glimmer.cpp` | Muse Glimmer: SWA, QK-norm, attention gate |
+| `models/laguna.cpp` | Laguna: sigmoid-MoE, shared expert, hybrid SWA |
+| `models/nanbeige.cpp` | Nanbeige: looped transformer, n_loops-Expansion |
+| `models/hy-v3.cpp` | Hy-v3: sigmoid-MoE, NextN/MTP draft head |
+| `models/qwen3tts.cpp` | Qwen3-TTS: erbt von qwen3vl |
+| `models/pockettts.cpp` | PocketTTS: CALM text backbone |
+| `llama-memory-hybrid-idx.cpp` | Qwen4Exp QSA-Indexer-Hybrid-Memory |
 
 ### Wichtige Konfiguration in `gemma4-assistant.cpp`
 
