@@ -158,9 +158,11 @@ build/bin/llama-server --list-devices 2>&1 | head -5
 
 ### Produktiv-Standard (seit 2026-07-10): QAT + 196k Kontext (Styx seit 2026-07-19)
 
-**Modell:** `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf` (14.2G) — QAT (Quantization-Aware Training) von Unsloth. ersetzt `google_gemma-4-26B-A4B-it-IQ4_NL.gguf` (14.7G) als Standard.
+**Modell (Heavy):** `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf` (14.2G) — QAT (Quantization-Aware Training) von Unsloth. ersetzt `google_gemma-4-26B-A4B-it-IQ4_NL.gguf` (14.7G) als Standard. Läuft auf phobos (Vulkan) und uranus (CUDA).
 
-**Vorteile QAT:**
+**Modell (Light, seit 2026-08-31):** `granite-4.0-h-tiny-UD-Q4_K_XL.gguf` — Produktiv-Standard für schmale Systeme (styx, venus, hyperion). Ausreichend für kleinere, weniger komplexe Aufgaben die schnell erledigt werden müssen. Deutlich geringerer Ressourcenbedarf als 26B-A4B.
+
+**Vorteile QAT (26B):**
 - Mars (Vulkan): +10% pp, +16.6% tg vs IQ4_NL
 - Styx (CUDA, MoE-Offload): tg gleichauf (CPU-limitiert)
 - 0.5G kleiner → mehr VRAM/RAM für KV-Cache → **+44k Kontext (Mars), +64k Kontext (Styx)**
@@ -177,10 +179,11 @@ Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (2
 **MTP Q4_0 Draft: AUS** auf beiden Systemen. Q4_0 Draft (48-57% Acceptance) bremst: Mars -2.4%, Styx -14%. Siehe `docs/fork/2026-07-10_QAT_MTP_Q4_0_BENCHMARK.md`.
 
 **Services:**
-- Mars: `scripts/start-mars-26b-server.sh` — läuft **im LXC 240 (phobos)** als `~/.config/systemd/user/llama-server.service` (seit 12.07.2026, bare-metal Service gestoppt)
-- Styx: `scripts/start-styx-26b-server.sh` als `llama-server-styx.service` (system, Port 18080, 196k Ctx seit 2026-07-19)
-- Venus: `scripts/start-venus-26b-server.sh` als `llama-server-venus.service` (system, Port 18080, 256k Ctx, 2 Slots, Vulkan — seit 16.07.2026, Suspend 08-13h)
-- Uranus: `scripts/start-uranus-26b-server.sh` / `scripts/stop-uranus-26b-server.sh` (user service, Port 18080, 1 Instanz, MoE-Offload 10 — seit 15.07.2026)
+- Mars: `scripts/start-mars-26b-server.sh` — läuft **im LXC 240 (phobos)** als `~/.config/systemd/user/llama-server.service` (seit 12.07.2026, bare-metal Service gestoppt). **Gemma-4 26B-A4B QAT**.
+- Styx: `scripts/start-styx-26b-server.sh` als `llama-server-styx.service` (user service, Port 18080). **Granite-4.0-H-Tiny** (Produktiv-Standard für schmale Systeme).
+- Venus: `scripts/start-venus-26b-server.sh` als `llama-server-venus.service` (user service, Port 18080, 256k Ctx, 2 Slots, Vulkan — seit 16.07.2026, Suspend 08-13h). **Granite-4.0-H-Tiny** (Produktiv-Standard für schmale Systeme).
+- Uranus: `scripts/start-uranus-26b-server.sh` / `scripts/stop-uranus-26b-server.sh` (user service, Port 18080, 1 Instanz, MoE-Offload 10 — seit 15.07.2026). **Gemma-4 26B-A4B QAT** (on-demand).
+- Hyperion: `llama-server.service` (systemd, im LXC 247, Port 18080). **Granite-4.0-H-Tiny** (Produktiv-Standard für schmale Systeme). |
 
 ### Build-System
 
