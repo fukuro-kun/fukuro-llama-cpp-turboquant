@@ -1224,7 +1224,13 @@ static common_chat_params common_chat_params_init_gemma4(const common_chat_templ
         // This may happen if the model generates content + tool_call, the
         // template does not add the model's next turn and confuses the model
         // from emitting its proper reasoning token sequence.
+        // Also add thinking suppression marker when enable_thinking is false,
+        // because the template's suppression marker is nested inside the
+        // turn-header block which is skipped for tool_call/tool_response.
         data.generation_prompt = "<|turn>model\n";
+        if (!inputs.enable_thinking) {
+            data.generation_prompt += "<|channel>thought\n<channel|>";
+        }
         data.prompt += data.generation_prompt;
     }
 

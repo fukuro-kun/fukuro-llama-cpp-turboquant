@@ -6,6 +6,38 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-08-31
+
+### fix: Gemma4 Thinking-Suppression bei Tool-Call-Konversationen
+
+**Symptom:** `enable_thinking=false` wurde bei Tool-Call-Konversationen
+ignoriert — Gemma-4 produzierte Thinking-Output mit `<tool_call|>`-Syntax im
+`reasoning_content`-Stream, obwohl der Client Thinking explizit deaktiviert
+hatte.
+
+**Mechanism:**
+1. Das Gemma4-Chat-Template (`google-gemma-4-31B-it.jinja`) hatte den
+   Thinking-Suppression-Marker (`<|channel>thought\n<channel|>`) innerhalb
+   des Turn-Header-Blocks platziert (`{%- if prev_message_type != 'tool_call' ... -%}`).
+2. Bei Tool-Call/Tool-Response-Konversationen wird dieser Block bewusst
+   übersprungen (kein neuer `<|turn>model\n`-Header bei fortlaufendem Turn).
+3. Der Suppression-Marker wurde damit fälschlich mit übersprungen.
+4. Ohne Marker öffnet Gemma-4 den Thought-Channel selbst und emittiert
+   `<tool_call|>`-Syntax als Thinking-Content.
+
+**Fix (2 Ebenen):**
+- **Template** (`models/templates/google-gemma-4-31B-it.jinja`):
+  Suppression-Marker aus dem `prev_message_type`-Block herausgelöst —
+  jetzt unabhängig vom Turn-Header. Struktur identisch mit dem bereits
+  korrekten interleaved-Template.
+- **C++-Workaround** (`common/chat.cpp`, `common_chat_params_init_gemma4`):
+  Workaround für Tool-Call-Prompt-Ende um Thinking-Suppression erweitert.
+  Kompensiert den Bug für GGUFs die das alte Template eingebettet haben.
+
+**Test:** `tests/test-gemma4-thinking-suppression.cpp` — 5 Tests: Tool-Call/
+Tool-Response mit `enable_thinking=false` (Marker vorhanden) und `=true`
+(kein Marker), plus Normal-Fall als Regressionsschutz.
+
 ## 2026-08-22
 
 ### feat: 2. llama-server Instanz auf uranus GPU 1 (`43a2bfeda`)

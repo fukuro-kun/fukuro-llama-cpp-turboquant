@@ -213,8 +213,11 @@ Projekte (RPG, etc.) benötigen Thinking. Thinking-Suppression erfolgt
 
 **Per-Request Suppression (PRIMÄR):** `thinking_budget_tokens: 1` im Request-Body
 (server-common.cpp:1137). Zwingt den Sampler den Thought-Channel sofort
-zu schließen. `chat_template_kwargs.enable_thinking: false` allein wird
-in Praxis ignoriert — `thinking_budget_tokens: 1` funktioniert zuverlässig.
+zu schließen. `chat_template_kwargs.enable_thinking: false` funktioniert
+seit dem Template-Fix (2026-08-31) auch bei Tool-Call-Konversationen
+zuverlässig — zuvor wurde der Suppression-Marker bei Tool-Call-Kontext
+vom Template übersprungen. `thinking_budget_tokens: 1` bleibt der
+zuverlässigste Mechanismus (template-unabhängig, Sampler-Ebene).
 
 **Defensive Decke:** `num_predict=4096` begrenzt Blast-Radius sporadischer
 Ghost-Thoughts. `max_tokens` ist nur eine Decke (Issue #5517), kein Trigger.
@@ -222,8 +225,10 @@ Ghost-Thoughts. `max_tokens` ist nur eine Decke (Issue #5517), kein Trigger.
 **Fork-Code-Positionen:**
 - `common/arg.cpp:3264` — `--reasoning` CLI-Flag (on/off/auto, Default: auto)
 - `common/chat.cpp:1238-1239` — `thinking_start_tag`, `thinking_end_tag` (PR #21697)
+- `common/chat.cpp:1223-1232` — C++-Workaround: Tool-Call-Prompt + Suppression (Fix 2026-08-31)
 - `tools/server/server-common.cpp:1088-1094` — `chat_template_kwargs.enable_thinking`
 - `tools/server/server-common.cpp:1137` — `thinking_budget_tokens` (per-Request)
+- `models/templates/google-gemma-4-31B-it.jinja:340-347` — Template-Suppression (Fix 2026-08-31)
 
 **Quellen:** llama.cpp #21338, #20297, #21697, #5517 · Google Gemma Docs ·
 Trilium `B3dfpx01pApY`
