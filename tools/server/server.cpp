@@ -133,6 +133,12 @@ int llama_server(int argc, char ** argv) {
         }
     }
 
+    // Entscheidungszweige teilen die Prompt-Zellen über den vereinheitlichten KV-Cache.
+    if (params.n_seq_decision > 0 && !params.kv_unified) {
+        SRV_INF("--decision-seqs %d: enabling the unified KV cache\n", params.n_seq_decision);
+        params.kv_unified = true;
+    }
+
     // for consistency between server router mode and single-model mode, we set the same model name as alias
     if (params.model_alias.empty() && !params.model.name.empty()) {
         params.model_alias.insert(params.model.name);
@@ -181,6 +187,7 @@ int llama_server(int argc, char ** argv) {
         routes.post_embeddings             = models_routes->proxy_post;
         routes.post_embeddings_oai         = models_routes->proxy_post;
         routes.post_rerank                 = models_routes->proxy_post;
+        routes.post_decision               = models_routes->proxy_post;
         routes.post_tokenize               = models_routes->proxy_post;
         routes.post_detokenize             = models_routes->proxy_post;
         routes.post_apply_template         = models_routes->proxy_post;
@@ -226,6 +233,8 @@ int llama_server(int argc, char ** argv) {
     ctx_http.post("/reranking",                ex_wrapper(routes.post_rerank));
     ctx_http.post("/v1/rerank",                ex_wrapper(routes.post_rerank));
     ctx_http.post("/v1/reranking",             ex_wrapper(routes.post_rerank));
+    ctx_http.post("/decision",                 ex_wrapper(routes.post_decision));
+    ctx_http.post("/v1/decision",              ex_wrapper(routes.post_decision));
     ctx_http.post("/tokenize",                 ex_wrapper(routes.post_tokenize));
     ctx_http.post("/detokenize",               ex_wrapper(routes.post_detokenize));
     ctx_http.post("/apply-template",           ex_wrapper(routes.post_apply_template));
