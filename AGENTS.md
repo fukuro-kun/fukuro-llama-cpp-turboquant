@@ -277,6 +277,7 @@ Trilium `B3dfpx01pApY`
 | DiffusionGemma | `src/models/diffusion-gemma.cpp`, `src/llama-model.cpp`, `tools/diffusion-cli/` |
 | Vulkan-WHT | `ggml/src/ggml-vulkan/vulkan-shaders/fwht.comp`, `ggml/src/ggml-vulkan/ggml-vulkan.cpp` |
 | Expected Attention (EA Phase 3) | `src/llama-expected-attention.cpp`, `src/llama-expected-attention.h`, `src/llama-context.cpp` |
+| Parallele Schema-Entscheidungen (Jev) | `tools/parallel-decision/`, `tools/server/server-context.cpp`, `common/arg.cpp` |
 | GGUF-Konvertierung | `convert_hf_to_gguf.py` |
 
 ### DiffusionGemma — Status & Bekannte Probleme

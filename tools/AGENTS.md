@@ -14,7 +14,7 @@
 
 - **llama-server** ist die primaere Inferenzschnittstelle fuer das Hauptprojekt.
 - OpenAI-kompatible HTTP-API (`/v1/chat/completions`, `/v1/embeddings`, etc.).
-- Fork-spezifische Endpoints: `POST /cancel` (laufende Requests abbrechen, Slot freigeben), `POST /models/load`, `POST /models/unload` (Router-Modus).
+- Fork-spezifische Endpoints: `POST /cancel` (laufende Requests abbrechen, Slot freigeben), `POST /models/load`, `POST /models/unload` (Router-Modus), `POST /decision` und `/v1/decision` (endliche Schema-Entscheidungen, aktiviert mit `--decision-seqs N`, mindestens 3).
 - `/slots` JSON-Endpoint (pro Slot): `id`, `n_ctx`, `speculative`, `is_processing`, und im `if (ptask)`-Block: `id_task`, `start_time` (wenn >= 0), `n_prompt_tokens`, `n_prompt_tokens_processed`, `n_prompt_tokens_cache`, `n_tokens_total` (Gesamtzahl der Task-Tokens), `progress` (0.0–1.0 Prefill-Fortschritt, geclampt), `params`, `next_token`. `n_tokens_total`/`progress` dienen dem janus-Router-Polling waehrend Prefill (Spec: `docs/SPEC_slot_progress.md`).
 - Unterstuetzt Multimodal (CLIP via `mtmd/`) und spekulative Decodierung (Gemma 4 MTP, Qwen NextN).
 - Schluesseldateien: `server.cpp`, `server-context.cpp`, `httplib.h`, `index.html.hpp`.
@@ -24,6 +24,7 @@
 | Werkzeug | Zweck |
 |----------|-------|
 | `server/` | OpenAI-kompatible HTTP-API, multimodal + spekulativ |
+| `parallel-decision/` | Engine, CLI und Server-Endpunkt für parallele Schema-Entscheidungen |
 | `cli/` | Interaktiver Chat im Terminal |
 | `llama-bench/` | Performance-Benchmark fuer unterschiedliche Parameter |
 | `perplexity/` | Perplexity-Messung auf Datensaetzen |
@@ -47,10 +48,10 @@
 
 ### Build
 
-- C++-Werkzeuge sind eigene CMake-Targets: `llama-server`, `llama-cli`, `llama-bench`, etc.
+- C++-Werkzeuge sind eigene CMake-Targets: `llama-server`, `llama-cli`, `llama-bench`, `llama-parallel-decision` usw.
 - C++-Werkzeuge bauen automatisch mit `cmake --build build -j$(nproc)`.
 - Python-Werkzeuge (z. B. `moe-pruning/`) haben keine CMake-Targets; Abhängigkeiten via `requirements.txt` installieren.
-- Keine zusaetzlichen Abhaengigkeiten fuer die meisten Werkzeuge; `server/` bindet `common/` und `mtmd/` ein.
+- Keine zusaetzlichen Abhaengigkeiten fuer die meisten Werkzeuge; `server/` bindet `common/`, `mtmd/` und `parallel-decision/` ein.
 
 ---
 
@@ -88,4 +89,5 @@
 | Pfad | Zweck | Status |
 |------|-------|--------|
 | `tools/server/` | OpenAI-kompatible HTTP-API, multimodal + spekulativ | [~] Kein eigenes DOX (in Hauptdokument abgedeckt) |
+| `tools/parallel-decision/` | Gemeinsame Engine und CLI für parallele Schema-Entscheidungen | [x] Aktiv; lokales AGENTS.md vorhanden |
 | `tools/ui/` | Web-UI fuer llama-server | [~] Kein eigenes DOX |

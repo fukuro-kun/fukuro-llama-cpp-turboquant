@@ -6,6 +6,31 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-09-25
+
+### feat: Parallele Schema-Entscheidungen für llama-server und CLI
+
+Portiert den `parallel-decision`-Modus als `llama-parallel-decision` und als
+`POST /decision` sowie `POST /v1/decision`. Ein endliches Schema wird über
+verzweigte KV-Sequenzen bewertet; die Antwort wird aus zulässigen, typisierten
+Werten zusammengesetzt statt frei als JSON generiert. `--decision-seqs N`
+reserviert zusätzliche Sequenzen und aktiviert den vereinheitlichten KV-Cache.
+Rekurrente und hybride Zweige werden für gleichlange Batches rechts aufgefüllt.
+
+Die Dokumentation liegt auf Deutsch in `tools/parallel-decision/README.md`.
+Smoke-Test: Gemma-4-12B IQ4_NL mit Turbo4-K/V TurboQuant-Cache, nur auf der CPU,
+`--decision-seqs 8` — `/v1/decision` erfolgreich. GPU- und andere
+Modell-/Backend-Kombinationen benötigen weiterhin eigene Laufzeittests.
+
+### fix: Server-Testharness kann CPU-Offload explizit setzen
+
+**Bereits bestehender Bug:** `n_gpu_layer=0` wurde im Python-Testharness ignoriert.
+Die Bedingung `if self.n_gpu_layer` behandelte 0 als false, ließ das Flag
+`--n-gpu-layers 0` weg und startete den Server mit dem GPU-Default. Der
+Harness prüft den Wert jetzt auf `None`; außerdem reicht er `decision_seqs`
+an den Server weiter. Der neue API-Smoke-Test läuft dadurch reproduzierbar
+ausschließlich auf der CPU.
+
 ## 2026-08-31
 
 ### fix: Gemma4 Thinking-Suppression bei Tool-Call-Konversationen
