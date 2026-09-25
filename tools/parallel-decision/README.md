@@ -27,7 +27,7 @@ Die passende Sequenzzahl hängt von Modellarchitektur, Kontextlänge und Backend
 
 **TurboQuant-Hinweis:** Mit `--decision-seqs` wird der vereinheitlichte KV-Cache erzwungen. Validiert sind CPU (Gemma-4-12B IQ4_NL, turbo4/turbo3) und CUDA auf drei Produktivsystemen: Gemma-4-26B-A4B-QAT (turbo4/turbo3, MoE-Offload via `--fit`) sowie das hybride Mamba-MoE Granite-4.0-H-Tiny (turbo4/turbo4, Rechtsauffüllung aktiv, geteilter 8-GB-VRAM). Weitere Modell-/Backend-Kombinationen benötigen eigene Laufzeittests.
 
-**Vulkan-Bekannteinschränkung (2026-09):** Auf dem Vulkan-Backend (RADV, AMD Radeon 760M iGPU, Gemma-4-26B-A4B-QAT, turbo4/turbo3) bremst der vereinheitlichte KV-Cache den gesamten Inferenzpfad auf ~0,1 Token/s (statt ~38 t/s Prefill) — Decision-Ergebnisse sind korrekt, aber ~190 s statt ~100 ms langsam. Ursache vermutlich ein unoptimierter Vulkan-Pfad im Unified-KV-Layout; untersucht, bis dahin `--decision-seqs` auf Vulkan nicht einsetzen.
+**Vulkan-Bekannteinschränkung (2026-09):** Bei sehr großem Kontext kann die maximale Unified-Attention-Arbeitsfläche RADV in einen pathologischen Allokations-/Shaderpfad drücken. Reproduziert auf einer AMD Radeon 760M mit Gemma-4-26B-A4B-QAT und turbo4/turbo3: `-c 262144 -ub 512` reserviert ungefähr 256 MiB für die maximale F16-KQ-Maske und fällt auf ~0,1 Token/s; `-c 262144 -ub 256` halbiert diese Fläche und erreicht wieder ~44 t/s Prefill. Auf Vulkan daher bei 256k-Kontext `-ub 256` verwenden. `/v1/decision` wurde damit kalt in ~1,39 s und warm in ~0,71 s für zwei Kontexte validiert.
 
 ### Gemessene Latenzen (Fork, `scripts/bench-decision.py`, 2 Kontexte × enum+boolean)
 
@@ -36,6 +36,7 @@ Die passende Sequenzzahl hängt von Modellarchitektur, Kontextlänge und Backend
 | CUDA, MoE-Offload | Gemma-4-26B-A4B QAT | turbo4/3 unified | ~3850 ms | ~540 ms | ~70650 ms, 0/5 im Enum-Raster |
 | CUDA | Gemma-4-26B-A4B QAT | turbo4/3 unified | ~85 ms | ~28 ms | ~5940 ms, 0/5 im Enum-Raster |
 | CUDA (VRAM-geteilt, ngl 20) | Granite-4.0-H-Tiny | turbo4/4 unified | ~764 ms | ~296 ms | ~949 ms, 0/5 im Enum-Raster |
+| Vulkan/RADV (`-c 262144 -ub 256`) | Gemma-4-26B-A4B QAT | turbo4/3 unified | ~711 ms warm | ~187 ms | Chat-Prefill ~44 t/s |
 
 Breiteres Schema (5 Felder inkl. `integer` 0–90, Arena-Preset des Playgrounds): Eris ~435 ms, MoE-Offload-Hydra ~14,2 s pro Entscheidung — die Kostentreiber sind Kandidatenzahl und Prefill, nicht die Feldanzahl.
 

@@ -18,9 +18,11 @@ reserviert zusätzliche Sequenzen und aktiviert den vereinheitlichten KV-Cache.
 Rekurrente und hybride Zweige werden für gleichlange Batches rechts aufgefüllt.
 
 Die Dokumentation liegt auf Deutsch in `tools/parallel-decision/README.md`.
-Smoke-Test: Gemma-4-12B IQ4_NL mit Turbo4-K/V TurboQuant-Cache, nur auf der CPU,
-`--decision-seqs 8` — `/v1/decision` erfolgreich. GPU- und andere
-Modell-/Backend-Kombinationen benötigen weiterhin eigene Laufzeittests.
+Validiert sind CPU (Gemma-4-12B IQ4_NL), CUDA (Gemma-4-26B-A4B QAT und
+Granite-4.0-H-Tiny hybrid Mamba/MoE) sowie Vulkan/RADV (Gemma-4-26B-A4B QAT),
+jeweils mit TurboQuant-KV. Vulkan benötigt bei 256k Kontext `-ub 256`:
+`-ub 512` erzeugt im Unified-KV-Graphen eine maximale F16-KQ-Maske von rund
+256 MiB und löst auf einer Radeon 760M einen pathologischen RADV-Pfad aus.
 
 ### fix: Server-Testharness kann CPU-Offload explizit setzen
 
