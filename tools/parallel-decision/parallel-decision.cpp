@@ -1,13 +1,13 @@
-// Parallel constrained decisions from prepared request files (see decision-engine.h).
+// Parallele, eingeschränkte Entscheidungen aus vorbereiteten Anfragedateien (siehe decision-engine.h).
 //
-// Protocol (compatible with llama-mojo's decide-worker and its tools/prepare_decisions.py):
+// Protokoll (kompatibel zu llama-mojos decide-worker und tools/prepare_decisions.py):
 //   llama-parallel-decision MODEL N_CPU_MOE --worker N_CTX N_BATCH [STREAM_MIN [GEMM_MIN [THREADS]]]
-//   stdin : one request per line, tab separated: @shared|@fresh STATIC CONTEXT FIELD...
-//           each FIELD file: a count N, N allowed-value lines, then the field's suffix
+//   stdin: eine Anfrage pro Zeile, tabulatorgetrennt: @shared|@fresh STATIC CONTEXT FIELD...
+//         jede FIELD-Datei enthält Anzahl N, N zulässige Werte und anschließend das Feld-Suffix
 //   stdout: prefill_ms .. suffix_scoring_ms .. decision_rounds .., RESULT_JSON, <json>, WORKER_DONE
-// STREAM_MIN and GEMM_MIN are llama-mojo tuning knobs; they are accepted and ignored here.
-// Environment: DECIDE_TREE (1 = tree, 0 = greedy, unset = auto), DECIDE_TREE_MAX (default 128),
-// DECIDE_SPLIT_BOUNDARY=1 (legacy tokenisation), DECIDE_NSEQ (sequences, default 24).
+// STREAM_MIN und GEMM_MIN werden zur Kompatibilität angenommen, hier aber ignoriert.
+// Umgebung: DECIDE_TREE (1 = tree, 0 = greedy, sonst auto), DECIDE_TREE_MAX (Standard 128),
+// DECIDE_SPLIT_BOUNDARY=1 (veraltete Tokenisierung), DECIDE_NSEQ (Sequenzzahl, Standard 24).
 
 #include "decision-engine.h"
 
@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <list>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -99,8 +100,8 @@ static void quiet_log(ggml_log_level level, const char * text, void * /*user*/) 
 
 int main(int argc, char ** argv) {
     if (argc < 5) {
-        std::fprintf(stderr, "usage: %s MODEL N_CPU_MOE --worker N_CTX N_BATCH [STREAM_MIN [GEMM_MIN [THREADS]]]\n"
-                             "       %s MODEL N_CPU_MOE @shared|@fresh STATIC CONTEXT FIELD...\n", argv[0], argv[0]);
+        std::fprintf(stderr, "Verwendung: %s MODELL N_CPU_MOE --worker N_CTX N_BATCH [STREAM_MIN [GEMM_MIN [THREADS]]]\n"
+                             "           %s MODELL N_CPU_MOE @shared|@fresh STATIC CONTEXT FIELD...\n", argv[0], argv[0]);
         return 1;
     }
     const bool worker = std::string(argv[3]) == "--worker";
@@ -109,14 +110,22 @@ int main(int argc, char ** argv) {
     params.model.path   = argv[1];
     params.n_gpu_layers = 999;
     params.fit_params   = false;
-    llm_add_n_cpu_ffn_overrides(std::stoi(argv[2]), LLM_FFN_EXPS_REGEX, params.tensor_buft_overrides);
+    const int n_cpu_moe = std::stoi(argv[2]);
+    if (n_cpu_moe < 0) {
+        throw std::invalid_argument("N_CPU_MOE darf nicht negativ sein");
+    }
+    static std::list<std::string> buft_overrides;
+    for (int i = 0; i < n_cpu_moe; ++i) {
+        buft_overrides.push_back(llm_ffn_exps_block_regex(i));
+        params.tensor_buft_overrides.push_back({ buft_overrides.back().c_str(), ggml_backend_cpu_buffer_type() });
+    }
     if (!params.tensor_buft_overrides.empty()) {
         params.tensor_buft_overrides.push_back({ nullptr, nullptr });
     }
     params.n_ctx      = worker ? std::stoi(argv[4]) : 4096;
     params.n_batch    = worker ? std::stoi(argv[5]) : 1024;
     params.n_ubatch   = params.n_batch;
-    params.kv_unified = true; // branches share the trunk's cells instead of copying them
+    params.kv_unified = true; // Kandidatenzweige teilen die KV-Zellen des Stamms statt sie zu kopieren
     params.n_parallel = env_str("DECIDE_NSEQ").empty() ? 24 : std::stoi(env_str("DECIDE_NSEQ"));
     const int threads = (worker && argc >= 9) ? std::stoi(argv[8]) : 6;
     params.cpuparams.n_threads       = threads;
@@ -128,7 +137,7 @@ int main(int argc, char ** argv) {
         std::fprintf(stderr, "failed to load model or create context\n");
         return 1;
     }
-    llama_log_set(quiet_log, nullptr); // keep stdout parseable once loaded
+    llama_log_set(quiet_log, nullptr); // stdout nach dem Laden für das Worker-Protokoll freihalten
 
     try {
         llama_decision::engine eng(init->context(), 0, (int) llama_n_seq_max(init->context()));
@@ -152,7 +161,7 @@ int main(int argc, char ** argv) {
             std::fflush(stdout);
         }
     } catch (const std::exception & e) {
-        // Fatal request errors exit the worker; the supervisor restarts it with clean state.
+        // Schwerwiegende Anfragefehler beenden den Worker; der Supervisor startet ihn mit sauberem Zustand neu.
         std::printf("ERROR %s\n", e.what());
         std::fflush(stdout);
         return 1;

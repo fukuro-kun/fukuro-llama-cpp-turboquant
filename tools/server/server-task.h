@@ -171,7 +171,7 @@ struct server_task {
     // used by SERVER_TASK_TYPE_METRICS
     bool metrics_reset_bucket = false;
 
-    // used by SERVER_TASK_TYPE_DECISION: the request body
+    // Anfragetext für SERVER_TASK_TYPE_DECISION
     json decision_request;
 
     // used by SERVER_TASK_TYPE_SET_LORA

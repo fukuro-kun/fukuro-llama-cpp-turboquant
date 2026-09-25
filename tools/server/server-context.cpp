@@ -790,7 +790,7 @@ public:
 
     // note: chat_params must not be refreshed upon existing sleeping state
     server_chat_params chat_params;
-    std::unique_ptr<llama_decision::engine> decision_engine; // created by the first /decision request
+    std::unique_ptr<llama_decision::engine> decision_engine; // wird beim ersten /decision-Aufruf erstellt
 
     server_context_impl() {
         mtmd_helper_log_set(common_log_default_callback, nullptr);
@@ -862,6 +862,7 @@ private:
     int64_t t_last_load_progress_ms = 0;
 
     void destroy(bool reset_devices = false) {
+        decision_engine.reset();
         spec.reset();
         ctx_dft.reset();
         model_dft.reset();
@@ -967,6 +968,7 @@ private:
 
             if (has_draft || spec_mtp) {
                 common_params params_dft = params_base;
+                params_dft.n_seq_decision = 0;
                 bool measure_model_bytes = true;
 
                 if (has_draft) {
@@ -1058,6 +1060,8 @@ private:
             SRV_INF("loading draft model '%s'\n", params_spec.mparams.path.c_str());
 
             auto params_dft = params_base;
+            params_dft.n_seq_decision = 0;
+            params_dft.n_outputs_max  = params_base.n_parallel;
 
             params_dft.devices      = params_spec.devices;
             params_dft.model        = params_spec.mparams;
@@ -1115,6 +1119,7 @@ private:
                     params_base.model.path.c_str());
 
             auto cparams_mtp = common_context_params_to_llama(params_base);
+            cparams_mtp.n_seq_max    = params_base.n_parallel;
             cparams_mtp.ctx_type      = LLAMA_CONTEXT_TYPE_MTP;
             cparams_mtp.type_k        = params_base.speculative.draft.cache_type_k;
             cparams_mtp.type_v        = params_base.speculative.draft.cache_type_v;
@@ -2289,6 +2294,10 @@ private:
     }
 
     json handle_decision(const json & body) {
+        if (params_base.embedding ||
+                (params_base.pooling_type != LLAMA_POOLING_TYPE_UNSPECIFIED && params_base.pooling_type != LLAMA_POOLING_TYPE_NONE)) {
+            throw std::invalid_argument("decisions require a generative server, not an embedding or reranking server");
+        }
         if (params_base.n_seq_decision < 3) {
             throw std::invalid_argument("decisions are disabled: start the server with --decision-seqs N (N >= 3)");
         }
@@ -2502,7 +2511,7 @@ private:
                         queue_results.send(std::move(res));
                     } catch (const std::invalid_argument & e) {
                         send_error(task, e.what(), ERROR_TYPE_INVALID_REQUEST);
-                    } catch (const common_json_error & e) {
+                    } catch (const json::exception & e) {
                         send_error(task, std::string("invalid decision request: ") + e.what(), ERROR_TYPE_INVALID_REQUEST);
                     } catch (const std::exception & e) {
                         send_error(task, e.what(), ERROR_TYPE_SERVER);
@@ -5064,7 +5073,7 @@ void server_routes::init_routes() {
 
         auto result = res->rd.next([&] { return req.should_stop(); });
         if (!result) {
-            return res; // the client went away
+            return res; // Client hat die Verbindung getrennt
         }
         if (result->is_error()) {
             res->error(result->to_json());

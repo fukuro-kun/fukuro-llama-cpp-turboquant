@@ -22,10 +22,10 @@ struct decision_field {
     tokens_t              suffix;
     std::vector<tokens_t> paths;
 
-    std::vector<int> active;  // greedy walk
+    std::vector<int> active;  // Kandidaten im greedy-Durchlauf
     tokens_t         chosen;
 
-    std::vector<tokens_t> node_prefix;   // tree: trie nodes with more than one allowed next token
+    std::vector<tokens_t> node_prefix;   // tree: Trie-Knoten mit mehreren zulässigen Folgetoken
     std::vector<tokens_t> node_options;
     std::vector<float>    probs;
 
@@ -40,7 +40,7 @@ struct decision_field {
         }
     }
 
-    // Greedy: follow single-path edges for free; return the options at the next divergence.
+    // Greedy: eindeutige Pfadabschnitte ohne Auswertung durchlaufen und an der nächsten Verzweigung stoppen.
     tokens_t options() {
         while (active.size() > 1) {
             const size_t depth = chosen.size();
@@ -122,8 +122,8 @@ struct decision_field {
         return n;
     }
 
-    // Exact constrained distribution: log-softmax at each node over its allowed tokens,
-    // summed along every candidate path, normalised over candidates.
+    // Exakte eingeschränkte Verteilung: Log-Softmax an jedem Knoten über zulässige Token,
+    // entlang jedes Kandidatenpfads aufsummiert und über die Kandidaten normalisiert.
     void finish_tree(const std::vector<std::vector<float>> & node_scores) {
         std::vector<std::vector<float>> node_logp;
         for (const auto & s : node_scores) {
@@ -169,13 +169,14 @@ struct decision_field {
     }
 };
 
-} // namespace
+} // Namensraum
 
-// ---------------------------------------------------------------- engine
+// ---------------------------------------------------------------- Engine
 
 engine::engine(llama_context * ctx, llama_seq_id seq_base, int n_seqs)
     : ctx(ctx), vocab(llama_model_get_vocab(llama_get_model(ctx))), mem(llama_get_memory(ctx)),
-      seq_snap(seq_base), seq_pool(seq_base + 1), n_pool(n_seqs - 1) {
+      seq_snap(seq_base), seq_pool(seq_base + 1), n_pool(n_seqs - 1),
+      pad_branches(llama_model_is_recurrent(llama_get_model(ctx)) || llama_model_is_hybrid(llama_get_model(ctx))) {
     if (n_seqs < 3) {
         throw std::invalid_argument("a decision engine needs at least 3 sequences");
     }
@@ -183,7 +184,7 @@ engine::engine(llama_context * ctx, llama_seq_id seq_base, int n_seqs)
 
 tokens_t engine::tokenize(const std::string & text, bool add_special) const {
     tokens_t toks = common_tokenize(vocab, text, add_special, /*parse_special=*/ true);
-    // a chat template may already start with the BOS text; keep a single BOS
+    // Ein Chat-Template kann bereits mit BOS-Text beginnen; ein einzelnes BOS beibehalten
     const llama_token bos = llama_vocab_bos(vocab);
     if (toks.size() >= 2 && toks[0] == bos && toks[1] == bos) {
         toks.erase(toks.begin());
@@ -191,7 +192,7 @@ tokens_t engine::tokenize(const std::string & text, bool add_special) const {
     return toks;
 }
 
-// Decode several prompts, each on its own sequence, packed into as few batches as n_batch allows.
+// Mehrere Prompts jeweils auf eigener Sequenz dekodieren und in möglichst wenige Batches packen.
 void engine::decode_parts(const std::vector<prompt_part> & parts) {
     const int n_batch = (int) llama_n_batch(ctx);
     llama_batch batch = llama_batch_init(n_batch, 0, 1);
@@ -216,8 +217,8 @@ void engine::decode_parts(const std::vector<prompt_part> & parts) {
     llama_batch_free(batch);
 }
 
-// Restore (or build) the cached static prefix on seq_snap. Only this engine's own sequences are
-// touched, so it can share a context with other users (e.g. server slots).
+// Das gecachte statische Präfix auf seq_snap wiederherstellen oder neu aufbauen. Berührt werden
+// nur die Sequenzen dieser Engine, damit sie den Kontext mit anderen Nutzern (z. B. Server-Slots) teilen kann.
 bool engine::prepare_prefix(const tokens_t & shared, bool allow_cache) {
     if (allow_cache && !shared.empty() && shared == cached &&
         llama_memory_seq_pos_max(mem, seq_snap) == (llama_pos) cached.size() - 1) {
@@ -234,17 +235,39 @@ bool engine::prepare_prefix(const tokens_t & shared, bool allow_cache) {
     return false;
 }
 
-// Score each branch as its own sequence forked from its trunk; return each branch's last-token
-// logits restricted to its candidate tokens. Groups are bounded by free sequences and batch rows.
+// Jeden Kandidatenzweig als eigene, vom Stamm kopierte Sequenz auswerten und die Logits am
+// letzten Token auf die zulässigen Kandidaten beschränken. Gruppen werden durch freie Sequenzen
+// und Batch-Zeilen begrenzt.
+//
+// Rekurrente Layer verarbeiten einen UBatch nur, wenn alle Sequenzen gleich viele Token enthalten
+// (split_equal). Ohne Anpassung würden unterschiedlich lange Zweige mehrere Decode-Durchläufe
+// erzwingen. Bei rekurrenten/hybriden Modellen wird deshalb jede Gruppe rechts bis zur Länge des
+// längsten Zweigs aufgefüllt und nach Länge sortiert. Wegen der kausalen Modellverarbeitung beeinflusst
+// das nachfolgende Padding die Logits am letzten echten Token nicht; die aufgefüllten KV-Zellen werden
+// anschließend mit dem Zweig entfernt.
 std::vector<std::vector<float>> engine::score_branches(const std::vector<branch> & branches, llama_seq_id first, int n_free) {
     std::vector<std::vector<float>> result(branches.size());
+    std::vector<size_t> order(branches.size());
+    for (size_t b = 0; b < order.size(); ++b) {
+        order[b] = b;
+    }
+    if (pad_branches) {
+        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+            return branches[a].toks.size() > branches[b].toks.size();
+        });
+    }
     const int max_rows = (int) llama_n_batch(ctx);
     size_t start = 0;
-    while (start < branches.size()) {
+    while (start < order.size()) {
+        const int width = (int) branches[order[start]].toks.size(); // Padding-Länge dieser Gruppe
         size_t end  = start;
         int    rows = 0;
-        while (end < branches.size() && (int) (end - start) < n_free && rows + (int) branches[end].toks.size() <= max_rows) {
-            rows += (int) branches[end].toks.size();
+        while (end < order.size() && (int) (end - start) < n_free) {
+            const int need = pad_branches ? width : (int) branches[order[end]].toks.size();
+            if (rows + need > max_rows) {
+                break;
+            }
+            rows += need;
             ++end;
         }
         if (end == start) {
@@ -252,17 +275,18 @@ std::vector<std::vector<float>> engine::score_branches(const std::vector<branch>
         }
         llama_batch batch = llama_batch_init(rows, 0, 1);
         std::vector<int> out_idx;
-        for (size_t b = start; b < end; ++b) {
-            const llama_seq_id seq = first + (llama_seq_id) (b - start);
+        for (size_t k = start; k < end; ++k) {
+            const auto &       br  = branches[order[k]];
+            const llama_seq_id seq = first + (llama_seq_id) (k - start);
             llama_memory_seq_rm(mem, seq, -1, -1);
-            llama_memory_seq_cp(mem, branches[b].trunk, seq, -1, -1);
-            const auto & toks = branches[b].toks;
-            for (size_t i = 0; i < toks.size(); ++i) {
-                const bool last = i + 1 == toks.size();
+            llama_memory_seq_cp(mem, br.trunk, seq, -1, -1);
+            const int n = pad_branches ? width : (int) br.toks.size();
+            for (int i = 0; i < n; ++i) {
+                const bool last = i + 1 == (int) br.toks.size();
                 if (last) {
                     out_idx.push_back(batch.n_tokens);
                 }
-                common_batch_add(batch, toks[i], branches[b].pos0 + (llama_pos) i, { seq }, last);
+                common_batch_add(batch, br.toks[std::min(i, (int) br.toks.size() - 1)], br.pos0 + (llama_pos) i, { seq }, last);
             }
         }
         const int rc = llama_decode(ctx, batch);
@@ -271,12 +295,12 @@ std::vector<std::vector<float>> engine::score_branches(const std::vector<branch>
             throw std::runtime_error(rc == 1 ? "no free KV cache space for the decision branches"
                                              : "llama_decode failed on the decision branches (" + std::to_string(rc) + ")");
         }
-        for (size_t b = start; b < end; ++b) {
-            const float * logits = llama_get_logits_ith(ctx, out_idx[b - start]);
-            for (llama_token t : branches[b].cands) {
-                result[b].push_back(logits[t]);
+        for (size_t k = start; k < end; ++k) {
+            const float * logits = llama_get_logits_ith(ctx, out_idx[k - start]);
+            for (llama_token t : branches[order[k]].cands) {
+                result[order[k]].push_back(logits[t]);
             }
-            llama_memory_seq_rm(mem, first + (llama_seq_id) (b - start), -1, -1);
+            llama_memory_seq_rm(mem, first + (llama_seq_id) (k - start), -1, -1);
         }
         start = end;
     }
@@ -314,7 +338,7 @@ batch_result engine::decide_batch(const std::string & shared_text, const std::ve
 
     std::vector<decision_field> fields;
     int total    = 0;
-    int branches = 0; // round-1 branches of one context
+    int branches = 0; // Zweige eines Kontexts in der ersten Runde
     for (const auto & in : inputs) {
         const size_t n = in.candidates.size();
         if (n < 1 || n > 255) {
@@ -328,9 +352,9 @@ batch_result engine::decide_batch(const std::string & shared_text, const std::ve
             }
             suffix = tokenize(in.suffix, false);
         } else {
-            // Tokenise each complete "suffix + value + terminator" and split at the longest token
-            // prefix shared by every candidate: the value's first token is exactly what the model
-            // would write itself (e.g. `":` then ` true`, not `": ` then `true`).
+            // Jedes vollständige „Suffix + Wert + Abschluss“ tokenisieren und am längsten
+            // gemeinsamen Token-Präfix aufteilen. So beginnt der Kandidat genau mit dem Token,
+            // das das Modell selbst ausgeben würde (z. B. `":` gefolgt von ` true`, nicht `": ` und `true`).
             std::vector<tokens_t> seqs;
             for (const auto & c : in.candidates) {
                 seqs.push_back(tokenize(in.suffix + c + "\n", false));
@@ -378,7 +402,7 @@ batch_result engine::decide_batch(const std::string & shared_text, const std::ve
     out.cache_hit = prepare_prefix(shared, opt.allow_cache);
     out.prefill_ms += ms_since(t0);
 
-    // each context in a group holds one trunk sequence; the rest of the pool scores branches
+    // Pro Kontext der Gruppe eine Stammsequenz verwenden; der übrige Pool wertet Kandidatenzweige aus.
     const size_t per_group = std::clamp<size_t>(n_pool / (1 + branches), 1, contexts.size());
     for (size_t g0 = 0; g0 < contexts.size(); g0 += per_group) {
         const size_t n_group = std::min(per_group, contexts.size() - g0);
@@ -394,17 +418,17 @@ batch_result engine::decide_batch(const std::string & shared_text, const std::ve
             parts.push_back({ &prefixes[g0 + i], (llama_pos) shared.size(), trunk });
         }
         decode_parts(parts);
-        llama_synchronize(ctx); // llama_decode is asynchronous: wait for the prefill so its time isn't billed to scoring
+        llama_synchronize(ctx); // llama_decode läuft asynchron; Prefill abschließen, bevor dessen Zeit dem Scoring zugerechnet wird
         out.prefill_ms += ms_since(tp);
 
-        // round 1 carries every tree node and each greedy field's first step; later rounds only
-        // continue greedy fields that are still open
+        // Runde 1 wertet alle tree-Knoten und den ersten Schritt jedes greedy-Felds aus;
+        // spätere Runden führen nur noch offene greedy-Felder fort.
         const auto ts = std::chrono::steady_clock::now();
         std::vector<std::vector<decision_field>> state(n_group, fields);
         bool first = true;
         while (true) {
             std::vector<branch> todo;
-            std::vector<std::pair<size_t, size_t>> owner; // (context in group, field)
+            std::vector<std::pair<size_t, size_t>> owner; // (Kontext in Gruppe, Feld)
             for (size_t i = 0; i < n_group; ++i) {
                 const llama_seq_id trunk = seq_pool + (llama_seq_id) i;
                 const llama_pos    pos0  = (llama_pos) (shared.size() + prefixes[g0 + i].size());
@@ -479,7 +503,7 @@ batch_result engine::decide_batch(const std::string & shared_text, const std::ve
     return out;
 }
 
-// ---------------------------------------------------------------- schema compiler
+// ---------------------------------------------------------------- Schema-Compiler
 
 namespace {
 
@@ -494,18 +518,18 @@ int decimal_places(double x) {
 }
 
 std::string json_text(const std::string & s) {
-    return common_json::make(s).dump();
+    return decision_json(s).dump();
 }
 
 field_spec make_field(const std::string & name, const std::string & type, const std::string & description,
-                      const common_json & spec, bool json_schema) {
+                      const decision_json & spec, bool json_schema) {
     field_spec f;
     f.name        = name;
     f.description = description;
     const std::string kind = type;
     if (kind == "boolean") {
         f.type    = "boolean";
-        f.values  = { common_json(true), common_json(false) };
+        f.values  = { decision_json(true), decision_json(false) };
         f.encoded = { "true", "false" };
     } else if (kind == "enum" || kind == "choice" || kind == "selection") {
         const char * key = spec.contains("enum") ? "enum" : "choices";
@@ -518,7 +542,7 @@ field_spec make_field(const std::string & name, const std::string & type, const 
                 throw std::invalid_argument("field \"" + name + "\": enum choices must be strings");
             }
             const std::string v = c.get<std::string>();
-            f.values.push_back(common_json(v));
+            f.values.push_back(decision_json(v));
             f.encoded.push_back(json_text(v));
         }
     } else if (kind == "integer") {
@@ -532,7 +556,7 @@ field_spec make_field(const std::string & name, const std::string & type, const 
         }
         f.type = "integer";
         for (long long v = lo; v <= hi; ++v) {
-            f.values.push_back(common_json(v));
+            f.values.push_back(decision_json(v));
             f.encoded.push_back(std::to_string(v));
             f.numbers.push_back((double) v);
         }
@@ -557,8 +581,8 @@ field_spec make_field(const std::string & name, const std::string & type, const 
             char buf[64];
             std::snprintf(buf, sizeof(buf), "%.*f", places, lo + (double) i * step);
             const double v = std::strtod(buf, nullptr);
-            f.values.push_back(common_json(v));
-            f.encoded.push_back(buf); // fixed width: every value has the same shape
+            f.values.push_back(decision_json(v));
+            f.encoded.push_back(buf); // Feste Breite: alle Werte haben dieselbe Form
             f.numbers.push_back(v);
         }
     } else {
@@ -583,20 +607,20 @@ field_spec make_field(const std::string & name, const std::string & type, const 
     return f;
 }
 
-} // namespace
+} // Namensraum
 
-compiled_schema compile_schema(const common_json & schema, const std::string & instructions) {
+compiled_schema compile_schema(const decision_json & schema, const std::string & instructions) {
     if (!schema.is_object()) {
         throw std::invalid_argument("\"schema\" must be an object");
     }
     compiled_schema cs;
     const bool json_schema = schema.contains("properties");
-    const common_json & props = json_schema ? schema.at("properties") : schema;
+    const decision_json & props = json_schema ? schema.at("properties") : schema;
     if (!props.is_object() || props.size() < 1 || props.size() > 32) {
         throw std::invalid_argument("the schema must define 1-32 fields");
     }
     for (const auto & e : props.items()) {
-        const common_json & spec = e.value();
+        const decision_json & spec = e.value();
         if (!spec.is_object()) {
             throw std::invalid_argument("field \"" + e.key() + "\" must be an object");
         }
@@ -613,7 +637,7 @@ compiled_schema compile_schema(const common_json & schema, const std::string & i
 
     std::string catalog;
     for (const auto & f : cs.specs) {
-        // the value's common leading characters are fixed in the suffix; only the rest is scored
+        // Gemeinsame Anfangszeichen der Werte stehen fest im Suffix; nur der verbleibende Teil wird bewertet.
         std::string common = f.encoded[0];
         for (const auto & v : f.encoded) {
             size_t c = 0;
@@ -666,14 +690,14 @@ std::pair<std::string, std::string> render_prompt(const common_chat_templates * 
     return { prompt.substr(0, at), context + prompt.substr(at + sentinel.size()) + "{\n" };
 }
 
-common_json assemble(const compiled_schema & cs, const result & r) {
-    common_json decision = common_json::object();
-    common_json fields   = common_json::object();
+decision_json assemble(const compiled_schema & cs, const result & r) {
+    decision_json decision = decision_json::object();
+    decision_json fields   = decision_json::object();
     for (size_t i = 0; i < cs.specs.size(); ++i) {
         const auto & sp = cs.specs[i];
         const auto & fr = r.fields[i];
         int idx = fr.winner;
-        common_json f = common_json::object();
+        decision_json f = decision_json::object();
         const bool numeric = !sp.numbers.empty();
         if (numeric && fr.probs.size() == sp.values.size()) {
             std::vector<int> order(sp.values.size());
@@ -705,7 +729,7 @@ common_json assemble(const compiled_schema & cs, const result & r) {
                     }
                 }
             }
-            common_json interval = common_json::array();
+            decision_json interval = decision_json::array();
             interval.push_back(sp.values[quantile(0.1)]);
             interval.push_back(sp.values[quantile(0.9)]);
             f["interval_p10_p90"] = interval;
@@ -720,10 +744,10 @@ common_json assemble(const compiled_schema & cs, const result & r) {
         f["tree"]         = fr.tree;
         fields[sp.name]   = f;
     }
-    common_json out = common_json::object();
+    decision_json out = decision_json::object();
     out["decision"] = decision;
     out["fields"]   = fields;
     return out;
 }
 
-} // namespace llama_decision
+} // Namensraum llama_decision
