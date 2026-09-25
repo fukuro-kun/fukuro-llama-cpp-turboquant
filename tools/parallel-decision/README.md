@@ -25,7 +25,19 @@ cmake --build build --target llama-server llama-parallel-decision -j$(nproc)
 
 Die passende Sequenzzahl hängt von Modellarchitektur, Kontextlänge und Backend ab. Sliding-Window- und rekurrente/hybride Modelle können pro Sequenz zusätzlichen Zustand benötigen; beginne daher konservativ und messe Speicherbedarf sowie Durchsatz auf dem Zielsystem. Auf rekurrenten und hybriden Modellen werden kürzere Zweige rechts auf die Länge des längsten Zweigs in ihrer Gruppe aufgefüllt. Die Scores werden am letzten echten Token gelesen; das kausale Padding danach beeinflusst diese Scores nicht, verursacht aber zusätzliche Rechenarbeit.
 
-**TurboQuant-Hinweis:** Mit `--decision-seqs` wird der vereinheitlichte KV-Cache erzwungen. Ein CPU-Smoke-Test mit Gemma-4-12B IQ4_NL und Turbo4-K/Turbo3-V-KV-Cache hat `/v1/decision` erfolgreich geprüft. GPU-Ausführung sowie andere Modell-/Backend-Kombinationen benötigen weiterhin eigene Laufzeittests; aus einem erfolgreichen Build folgt keine Qualitäts- oder Leistungsgarantie.
+**TurboQuant-Hinweis:** Mit `--decision-seqs` wird der vereinheitlichte KV-Cache erzwungen. Validiert sind CPU (Gemma-4-12B IQ4_NL, turbo4/turbo3) und CUDA auf drei Produktivsystemen: Gemma-4-26B-A4B-QAT (turbo4/turbo3, MoE-Offload via `--fit`) sowie das hybride Mamba-MoE Granite-4.0-H-Tiny (turbo4/turbo4, Rechtsauffüllung aktiv, geteilter 8-GB-VRAM). Vulkan und weitere Modell-/Backend-Kombinationen benötigen eigene Laufzeittests.
+
+### Gemessene Latenzen (Fork, `scripts/bench-decision.py`, 2 Kontexte × enum+boolean)
+
+| System | Modell | KV | Decision gesamt (med) | davon Scoring | Chat-Completion (med) |
+|---|---|---|---:|---:|---:|
+| CUDA, MoE-Offload | Gemma-4-26B-A4B QAT | turbo4/3 unified | ~3850 ms | ~540 ms | ~70650 ms, 0/5 im Enum-Raster |
+| CUDA | Gemma-4-26B-A4B QAT | turbo4/3 unified | ~85 ms | ~28 ms | ~5940 ms, 0/5 im Enum-Raster |
+| CUDA (VRAM-geteilt, ngl 20) | Granite-4.0-H-Tiny | turbo4/4 unified | ~764 ms | ~296 ms | ~949 ms, 0/5 im Enum-Raster |
+
+Breiteres Schema (5 Felder inkl. `integer` 0–90, Arena-Preset des Playgrounds): Eris ~435 ms, MoE-Offload-Hydra ~14,2 s pro Entscheidung — die Kostentreiber sind Kandidatenzahl und Prefill, nicht die Feldanzahl.
+
+Der Chat-Vergleich verwendet dieselbe Aufgabe ohne Schema-Zwangsliste: Die Modelle antworten zwar häufig mit JSON, erfinden aber eigene Kategorie-Bezeichnungen oder verpacken die Antwort in Markdown-Fences — im freien Chat ist die endliche Wertemenge nicht zuverlässig einzuhalten. Die Scoring-Zeit wächst annähernd unabhängig von der Modell-Generationsgeschwindigkeit; der Aufwand pro Entscheidung liegt im Wesentlichen im Kontext-Prefill, der durch den Prefix-Cache (`cached_tokens`) minimiert wird.
 
 ## `POST /v1/decision`
 
