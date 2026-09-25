@@ -75,6 +75,7 @@ class ServerProcess:
     id_slot: int | None = None
     cache_prompt: bool | None = None
     n_slots: int | None = None
+    decision_seqs: int | None = None
     ctk: str | None = None
     ctv: str | None = None
     fa: str | None = None
@@ -172,7 +173,7 @@ class ServerProcess:
             server_args.extend(["--ubatch-size", self.n_ubatch])
         if self.n_threads:
             server_args.extend(["--threads", self.n_threads])
-        if self.n_gpu_layer:
+        if self.n_gpu_layer is not None:
             server_args.extend(["--n-gpu-layers", self.n_gpu_layer])
         if self.server_continuous_batching:
             server_args.append("--cont-batching")
@@ -198,6 +199,8 @@ class ServerProcess:
             server_args.extend(["--ctx-size", self.n_ctx])
         if self.n_slots:
             server_args.extend(["--parallel", self.n_slots])
+        if self.decision_seqs is not None:
+            server_args.extend(["--decision-seqs", self.decision_seqs])
         if self.ctk:
             server_args.extend(["-ctk", self.ctk])
         if self.ctv:
