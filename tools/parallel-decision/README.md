@@ -25,7 +25,9 @@ cmake --build build --target llama-server llama-parallel-decision -j$(nproc)
 
 Die passende Sequenzzahl hängt von Modellarchitektur, Kontextlänge und Backend ab. Sliding-Window- und rekurrente/hybride Modelle können pro Sequenz zusätzlichen Zustand benötigen; beginne daher konservativ und messe Speicherbedarf sowie Durchsatz auf dem Zielsystem. Auf rekurrenten und hybriden Modellen werden kürzere Zweige rechts auf die Länge des längsten Zweigs in ihrer Gruppe aufgefüllt. Die Scores werden am letzten echten Token gelesen; das kausale Padding danach beeinflusst diese Scores nicht, verursacht aber zusätzliche Rechenarbeit.
 
-**TurboQuant-Hinweis:** Mit `--decision-seqs` wird der vereinheitlichte KV-Cache erzwungen. Validiert sind CPU (Gemma-4-12B IQ4_NL, turbo4/turbo3) und CUDA auf drei Produktivsystemen: Gemma-4-26B-A4B-QAT (turbo4/turbo3, MoE-Offload via `--fit`) sowie das hybride Mamba-MoE Granite-4.0-H-Tiny (turbo4/turbo4, Rechtsauffüllung aktiv, geteilter 8-GB-VRAM). Vulkan und weitere Modell-/Backend-Kombinationen benötigen eigene Laufzeittests.
+**TurboQuant-Hinweis:** Mit `--decision-seqs` wird der vereinheitlichte KV-Cache erzwungen. Validiert sind CPU (Gemma-4-12B IQ4_NL, turbo4/turbo3) und CUDA auf drei Produktivsystemen: Gemma-4-26B-A4B-QAT (turbo4/turbo3, MoE-Offload via `--fit`) sowie das hybride Mamba-MoE Granite-4.0-H-Tiny (turbo4/turbo4, Rechtsauffüllung aktiv, geteilter 8-GB-VRAM). Weitere Modell-/Backend-Kombinationen benötigen eigene Laufzeittests.
+
+**Vulkan-Bekannteinschränkung (2026-09):** Auf dem Vulkan-Backend (RADV, AMD Radeon 760M iGPU, Gemma-4-26B-A4B-QAT, turbo4/turbo3) bremst der vereinheitlichte KV-Cache den gesamten Inferenzpfad auf ~0,1 Token/s (statt ~38 t/s Prefill) — Decision-Ergebnisse sind korrekt, aber ~190 s statt ~100 ms langsam. Ursache vermutlich ein unoptimierter Vulkan-Pfad im Unified-KV-Layout; untersucht, bis dahin `--decision-seqs` auf Vulkan nicht einsetzen.
 
 ### Gemessene Latenzen (Fork, `scripts/bench-decision.py`, 2 Kontexte × enum+boolean)
 
