@@ -85,7 +85,7 @@ def bench_decision(url: str, model: str | None, n: int, contexts: list[str]) -> 
 def bench_chat(url: str, model: str | None, n: int, contexts: list[str]) -> dict:
     prompt_tpl = (
         INSTRUCTIONS
-        + " Antworte ausschliesslich als JSON-Objekt {\"category\": ..., \"urgent\": ...}.\n\n"
+        + " Antworte ausschliesslich als JSON-Objekt {{\"category\": ..., \"urgent\": ...}}.\n\n"
         + "Anfrage: {ctx}"
     )
     rows = []
