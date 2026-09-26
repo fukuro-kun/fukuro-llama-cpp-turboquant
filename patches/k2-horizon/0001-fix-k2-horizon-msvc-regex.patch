@@ -1,0 +1,13 @@
+diff --git a/src/llama-vocab.cpp b/src/llama-vocab.cpp
+index 4d054db..00c7c68 100644
+--- a/src/llama-vocab.cpp
++++ b/src/llama-vocab.cpp
+@@ -537,7 +537,7 @@ struct llm_tokenizer_bpe : llm_tokenizer {
+                 break;
+             case LLAMA_VOCAB_PRE_TYPE_K2_HORIZON:
+                 regex_exprs = {
+-                    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?(?:\\p{L}|\\p{M}|\\u200C|\\u200D)+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
++                    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?(?:\\p{L}|\\p{M})+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
+                 };
+                 break;
+             case LLAMA_VOCAB_PRE_TYPE_WHITESPACE:

@@ -1,0 +1,98 @@
+diff --git a/src/models/k2-horizon.cpp b/src/models/k2-horizon.cpp
+index ac901da..f8ee389 100644
+--- a/src/models/k2-horizon.cpp
++++ b/src/models/k2-horizon.cpp
+@@ -393,22 +393,37 @@ llama_model_k2_horizon::graph::graph(
+     auto * inp_attn = build_attn_inp_kv();
+     ggml_tensor * inp_out_ids = build_inp_out_ids();
+     
++    // ============ PARALLEL NORM (GPT-NeoX/PaLM style) - vLLM reference
++    // residual tracks accumulated sum across layers
++    ggml_tensor * residual = nullptr;
+ 
+     for (int il = 0; il < n_layer; ++il) {
+         res->t_layer_inp[il] = inpL;
+-        ggml_tensor * inpSA = inpL; // for residuals
+ 
+         const bool is_moe_layer = n_expert > 0 && static_cast<uint32_t>(il) >= hparams.n_layer_dense_lead;
+         const bool is_mova_layer = is_moe_layer && hparams.n_value_expert > 0;
+ 
+-        // ============ grouped rms norm
+-        cur = k2_horizon_group_rms_norm(
+-            ctx0,
+-            inpL,
+-            model.layers[il].attn_norm,
+-            hparams.n_norm_groups,
+-            hparams.f_norm_rms_eps
+-        );
++        // ============ parallel norm before attention
++        if (il == 0) {
++            residual = inpL;
++            cur = k2_horizon_group_rms_norm(
++                ctx0,
++                inpL,
++                model.layers[il].attn_norm,
++                hparams.n_norm_groups,
++                hparams.f_norm_rms_eps
++            );
++        } else {
++            cur = ggml_add(ctx0, inpL, residual);
++            residual = cur;
++            cur = k2_horizon_group_rms_norm(
++                ctx0,
++                cur,
++                model.layers[il].attn_norm,
++                hparams.n_norm_groups,
++                hparams.f_norm_rms_eps
++            );
++        }
+         cb(cur, "attn_norm", il);
+ 
+         // ============ setup attention tensors
+@@ -547,17 +562,15 @@ llama_model_k2_horizon::graph::graph(
+         // ============ output layer, and take (usually) last token for generation
+         if (il == n_layer - 1 && inp_out_ids != nullptr) {
+             cur = ggml_get_rows(ctx0, cur, inp_out_ids);
+-            inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids); // pull the same positions for inpSA
++            residual = ggml_get_rows(ctx0, residual, inp_out_ids);
+         }
+ 
+-        // ============ add residuals
+-        ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
+-        cb(ffn_inp, "ffn_inp", il);
+-
+-        // ============ group RMSNorm before FFN
++        // ============ parallel norm before FFN
++        cur = ggml_add(ctx0, cur, residual);
++        residual = cur;
+         cur = k2_horizon_group_rms_norm(
+             ctx0,
+-            ffn_inp,
++            cur,
+             model.layers[il].ffn_norm,
+             hparams.n_norm_groups,
+             hparams.f_norm_rms_eps
+@@ -626,8 +639,7 @@ llama_model_k2_horizon::graph::graph(
+         }
+         cb(cur, "ffn_out", il);
+         
+-        // ============ FFN residual
+-        cur = ggml_add(ctx0, cur, ffn_inp);
++        // ============ cvec adapter (residual add happens next layer / final norm)
+         cur = build_cvec(cur, il);
+         cb(cur, "l_out", il);
+         
+@@ -635,10 +647,11 @@ llama_model_k2_horizon::graph::graph(
+         inpL = cur;
+     }
+ 
+-    // final group rms norm. also becomes last layer embedding
++    // final: add last mlp_out to accumulated residual, then group rms norm
++    cur = ggml_add(ctx0, inpL, residual);
+     cur = k2_horizon_group_rms_norm(
+         ctx0,
+-        inpL,
++        cur,
+         model.output_norm,
+         hparams.n_norm_groups,
+         hparams.f_norm_rms_eps
