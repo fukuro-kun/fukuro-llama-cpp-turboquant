@@ -296,6 +296,8 @@ static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params
             return new llama_model_laguna(params);
         case LLM_ARCH_NANBEIGE:
             return new llama_model_nanbeige(params);
+        case LLM_ARCH_K2_HORIZON:
+            return new llama_model_k2_horizon(params);
         case LLM_ARCH_HY_V3:
             return new llama_model_hy_v3(params);
         case LLM_ARCH_QWEN3TTS:
@@ -2551,6 +2553,8 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_MIMO2:
         case LLM_ARCH_STEP35:
         case LLM_ARCH_TALKIE:
+        case LLM_ARCH_K2_HORIZON:
+        case LLM_ARCH_MINIMAX_01:
         case LLM_ARCH_MELLUM:
             return LLAMA_ROPE_TYPE_NEOX;
 
