@@ -6,6 +6,20 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-09-26
+
+### docs: System-1-Gate-Muster in der Decision-README dokumentiert
+
+Empfohlenes Kaskaden-Muster für Verbraucher: `/v1/decision` als Gate mit
+bewusst minimalem Kontext (nur eingehende Nachricht), Eskalation zu
+`/v1/chat/completions` nur bei Bedarf. Dokumentiert, dass zwischen
+Decision-Sequenzen und Chat-Slots keine KV-Wiederverwendung besteht —
+und dass diese auch nicht nötig ist, da Gate- und Chat-Prompt strukturell
+nicht prefix-kompatibel sind.
+
+Zusätzlich wurden `feature/parallel-decision` und
+`feature/qwen4exp-model-family-port` nach `master` gemergt (`ecf850af7`).
+
 ## 2026-09-25
 
 ### feat: Parallele Schema-Entscheidungen für llama-server und CLI

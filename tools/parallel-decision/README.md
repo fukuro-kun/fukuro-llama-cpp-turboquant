@@ -131,6 +131,14 @@ Umgebungsvariablen: `DECIDE_TREE` (`1` = tree, `0` = greedy, sonst auto), `DECID
 
 Der Modus eignet sich für unabhängige Klassifikations-, Routing- und Ja/Nein-Entscheidungen mit begrenztem Wertebereich. Er löst keine Abhängigkeiten zwischen Feldern und führt selbst keine Eskalation aus. Ein aufrufendes System kann niedrige oder mehrdeutige Scores als Anlass nehmen, dieselbe Anfrage an eine normale Chat-Completion mit einem größeren Modell weiterzugeben.
 
+### System-1-Gate vor Chat-Anfragen (empfohlenes Muster)
+
+Ein System-1-Gate klassifiziert eingehende Nachrichten zuerst per `/v1/decision` — etwa `["standardantwort", "nein", "zu_wenig_info", "braucht_details"]` — und leitet nur bei `braucht_details` an `/v1/chat/completions` weiter. Dabei gilt:
+
+- **Kontext bewusst klein halten.** Das Gate bewertet nur die eingehende Nachricht (plus eventuell letzte Assistenten-Antwort) — nicht den gesamten Chat-Prompt. Gerade Bot-/Frontend-Workloads haben mehrere tausend Tokens System-Prompt + Verlauf; diese Prefix-Rechnung soll das Gate ja gerade sparen.
+- **Keine KV-Wiederverwendung zwischen Decision und Chat nötig.** Decision-Sequenzen sind keine Slots: ihre KV-Zellen landen weder im Prompt-Cache noch im Slot-Ähnlichkeits-Matching. Da Gate- und Chat-Prompt ohnehin strukturell verschieden sind (Prefix-Reuse setzt identische Token ab Position 0 voraus), geht dabei praktisch nichts verloren — die Eskalation zahlt nur ihren ohnehin fälligen Chat-Prefill, den Turn-zu-Turn-Reuse der Slots bereits abfedert.
+- **Kein gemeinsamer Trunk für Gate und Chat.** Eine Gate-Bewertung auf der Chat-Sequenz würde den vollen Prompt-Prefill *vor* der Entscheidung erzwingen — das würde den Kostenvorteil bei trivialen Anfragen aufheben.
+
 ## API-Smoke-Test
 
 Der End-to-End-Test startet einen Server ohne GPU-Offload und prüft einen erfolgreichen `tree`-Entscheid sowie eine ungültige Anfrage. Er verwendet standardmäßig das kleine TinyLlama-Testmodell; falls es noch nicht lokal verfügbar ist, lädt die Testumgebung es herunter.
