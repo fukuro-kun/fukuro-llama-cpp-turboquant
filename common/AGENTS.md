@@ -48,6 +48,7 @@ Dies ist der zentrale Draft-Treiber des Forks. Bei Arbeit hier:
 
 - Neue Flags in `arg.cpp` muessen in allen konsumierenden Binaerdateien (`tools/cli/`, `tools/server/`, etc.) validiert werden.
 - Flag-Namen und Defaults konsistent mit upstream llama.cpp halten, ausser Fork-spezifische Erweiterungen.
+- `--decision-seqs` ist server-spezifisch: `n_seq_decision` erweitert `n_seq_max`; Änderungen daran müssen mit der Sequenz- und Output-Reservierung in `tools/server/` abgestimmt werden.
 
 ### Aenderungen an `sampling.cpp`
 

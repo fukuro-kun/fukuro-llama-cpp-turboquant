@@ -6,6 +6,65 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-09-25
+
+### feat: Parallele Schema-Entscheidungen für llama-server und CLI
+
+Portiert den `parallel-decision`-Modus als `llama-parallel-decision` und als
+`POST /decision` sowie `POST /v1/decision`. Ein endliches Schema wird über
+verzweigte KV-Sequenzen bewertet; die Antwort wird aus zulässigen, typisierten
+Werten zusammengesetzt statt frei als JSON generiert. `--decision-seqs N`
+reserviert zusätzliche Sequenzen und aktiviert den vereinheitlichten KV-Cache.
+Rekurrente und hybride Zweige werden für gleichlange Batches rechts aufgefüllt.
+
+Die Dokumentation liegt auf Deutsch in `tools/parallel-decision/README.md`.
+Validiert sind CPU (Gemma-4-12B IQ4_NL), CUDA (Gemma-4-26B-A4B QAT und
+Granite-4.0-H-Tiny hybrid Mamba/MoE) sowie Vulkan/RADV (Gemma-4-26B-A4B QAT),
+jeweils mit TurboQuant-KV. Vulkan benötigt bei 256k Kontext `-ub 256`:
+`-ub 512` erzeugt im Unified-KV-Graphen eine maximale F16-KQ-Maske von rund
+256 MiB und löst auf einer Radeon 760M einen pathologischen RADV-Pfad aus.
+
+### fix: Server-Testharness kann CPU-Offload explizit setzen
+
+**Bereits bestehender Bug:** `n_gpu_layer=0` wurde im Python-Testharness ignoriert.
+Die Bedingung `if self.n_gpu_layer` behandelte 0 als false, ließ das Flag
+`--n-gpu-layers 0` weg und startete den Server mit dem GPU-Default. Der
+Harness prüft den Wert jetzt auf `None`; außerdem reicht er `decision_seqs`
+an den Server weiter. Der neue API-Smoke-Test läuft dadurch reproduzierbar
+ausschließlich auf der CPU.
+
+## 2026-08-31
+
+### fix: Gemma4 Thinking-Suppression bei Tool-Call-Konversationen
+
+**Symptom:** `enable_thinking=false` wurde bei Tool-Call-Konversationen
+ignoriert — Gemma-4 produzierte Thinking-Output mit `<tool_call|>`-Syntax im
+`reasoning_content`-Stream, obwohl der Client Thinking explizit deaktiviert
+hatte.
+
+**Mechanism:**
+1. Das Gemma4-Chat-Template (`google-gemma-4-31B-it.jinja`) hatte den
+   Thinking-Suppression-Marker (`<|channel>thought\n<channel|>`) innerhalb
+   des Turn-Header-Blocks platziert (`{%- if prev_message_type != 'tool_call' ... -%}`).
+2. Bei Tool-Call/Tool-Response-Konversationen wird dieser Block bewusst
+   übersprungen (kein neuer `<|turn>model\n`-Header bei fortlaufendem Turn).
+3. Der Suppression-Marker wurde damit fälschlich mit übersprungen.
+4. Ohne Marker öffnet Gemma-4 den Thought-Channel selbst und emittiert
+   `<tool_call|>`-Syntax als Thinking-Content.
+
+**Fix (2 Ebenen):**
+- **Template** (`models/templates/google-gemma-4-31B-it.jinja`):
+  Suppression-Marker aus dem `prev_message_type`-Block herausgelöst —
+  jetzt unabhängig vom Turn-Header. Struktur identisch mit dem bereits
+  korrekten interleaved-Template.
+- **C++-Workaround** (`common/chat.cpp`, `common_chat_params_init_gemma4`):
+  Workaround für Tool-Call-Prompt-Ende um Thinking-Suppression erweitert.
+  Kompensiert den Bug für GGUFs die das alte Template eingebettet haben.
+
+**Test:** `tests/test-gemma4-thinking-suppression.cpp` — 5 Tests: Tool-Call/
+Tool-Response mit `enable_thinking=false` (Marker vorhanden) und `=true`
+(kein Marker), plus Normal-Fall als Regressionsschutz.
+
 ## 2026-08-22
 
 ### feat: 2. llama-server Instanz auf uranus GPU 1 (`43a2bfeda`)

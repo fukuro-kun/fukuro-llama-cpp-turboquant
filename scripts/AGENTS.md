@@ -67,6 +67,7 @@
 | `bench-qwen-udt-matrix-local.sh` | Lokale Matrix-Benchmarks fuer Qwen UDT. |
 | `bench-qwen-udt-quality.sh` | Qualitaetsbewertung fuer Qwen UDT. |
 | `bench-ea-phase3.sh` | EA Phase 3 Benchmark: EA disabled vs enabled bei 4k/16k/64k/128k Kontextlängen. Nutzt `LLAMA_ARG_EA_RATIO` env var. Siehe [docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md](../docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md). |
+| `bench-decision.py` | Entscheidungsmodus-Benchmark: `/v1/decision` vs. `/v1/chat/completions` fuer dieselbe Klassifikationsaufgabe (Latenz, Tokens, Schema-Konformitaet). Rein HTTP, kein Prozess-Spawn. |
 
 ### Endpoint-Tests
 

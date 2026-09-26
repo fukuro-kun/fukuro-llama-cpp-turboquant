@@ -123,6 +123,7 @@ Falls Treffer → Bereinigen!
   - **AMD iGPU/APU:** `-DGGML_VULKAN=ON`, ROCm experimentell
     - ✅ **turbo4/3 KV-Cache auf Vulkan FUNKTIONIERT (seit 2026-08-15):** TurboQuant Vulkan-Shader (Commit `cb3b1d571`) sind aktiv. turbo4/3 (K=turbo4, V=turbo3) ohne mmproj ist der aktuelle Production-Standard auf Phobos (TG 25.8 t/s solo, 16.5 t/s parallel). turbo3/3 + mmproj war der vorherige Standard. **K/V-Zuweisung:** K (Keys) bekommt turbo4 (4.25 bit, höhere Präzision) weil Q·K die Attention-Gewichtung determiniert — Fehler in K verfälschen welche Tokens überhaupt beachtet werden. V (Values) bekommt turbo3 (3.125 bit, stärkere Kompression) weil V nur den gewichteten Output liefert und fehlertoleranter ist. Historische Benchmarks (`docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md`) sind wieder gültig.
     - ⚠️ **FlashAttention nur fuer turbo4 aktiv:** turbo3 FA ist DEAKTIVIERT (glslc hängt in infinite optimizer loop bei SPIR-V Generation, `vulkan-shaders-gen.cpp` Zeilen 692-704 auskommentiert). turbo3 fällt auf scalar Attention-Pfad zurück. turbo4 FA aktiv via `flash_attn_cm1.comp`.
+    - ⚠️ **Unified KV bei 256k Kontext:** Auf RADV/AMD 760M erzeugt `-c 262144 -ub 512` eine maximale F16-KQ-Maske von ungefähr 256 MiB und kippt in einen pathologischen Allokations-/Shaderpfad (~0,1 t/s). Mit `-ub 256` bleibt das volle Kontextfenster erhalten und Prefill erreicht wieder ~44 t/s. Für `--decision-seqs` auf diesem Backend daher zwingend `-ub 256` setzen.
     - ✅ **188k-"Klippe" geklärt (12.07.2026):** Die scharfe Performance-Klippe bei ~188k Kontext war **kein Vulkan-Backend-Bug**, sondern ein **OOM-Artefakt bei konkurrierenden GPU-Prozessen**. Zwei llama-server gleichzeitig → GTT-Overflow (2×16 GB > 26 GB GTT) → OOM-Kill → GPU-Buffer-Eviction → 0.10 t/s. Solo-Betrieb mit bis zu 256k Kontext funktioniert einwandfrei (28-32 t/s). **Regel:** Niemals zwei llama-server gleichzeitig auf derselben GPU. Die 180k-Grenze ist obsolet. Siehe `docs/fork/2026-06-20_VULKAN_LARGE_CONTEXT_PERF_CLIFF.md` (RCA Update) und Trilium `SWumEN7WOXBI` Abschnitt 5.8.
     - ⚠️ **fit_params + mmproj auf APU (2026-08-12):** `--mmproj` reserviert GPU-Speicher in der `fit_params`-Margin. Auf unified-memory APUs (AMD 760M) reduziert `fit_params` `n_gpu_layers` auf 0 → CPU-Fallback. **Fix:** `-fit off` in Start-Skripten. Siehe `scripts/start-mars-26b-server.sh`.
     - ⚠️ **turbo4 V + mmproj + 262144 = NICHT PRODUKTIONS-TAUGLICH (2026-08-13):** RADV (Mesa 25.0.7, PHOENIX) kompiliert turbo4 V FlashAttention-Shader extrem langsam (~14 Min pro Pipeline-Variante). Jede unterschiedliche Batch-Size erzeugt eine neue Variante. Der ggml Vulkan-Pipeline-Cache (`GGML_VK_CACHE_DIR`) speichert VkPipelineCache-Objekte, aber RADV's interne Shader-Kompilierung wird nicht effektiv gecacht — der Mesa-Shader-Cache wird via mmap geladen aber nicht zurückgeschrieben. turbo4/3 ohne mmproj (25.8 t/s solo, 16.5 t/s parallel) funktioniert mit 262144 Kontext. Nur die Kombination turbo4 V + mmproj + 262144 ist betroffen. **Fix: turbo4/3 ohne mmproj für Vulkan+large-context (seit 2026-08-15 Production).** Siehe `scripts/start-mars-26b-server.sh`.
@@ -158,9 +159,11 @@ build/bin/llama-server --list-devices 2>&1 | head -5
 
 ### Produktiv-Standard (seit 2026-07-10): QAT + 196k Kontext (Styx seit 2026-07-19)
 
-**Modell:** `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf` (14.2G) — QAT (Quantization-Aware Training) von Unsloth. ersetzt `google_gemma-4-26B-A4B-it-IQ4_NL.gguf` (14.7G) als Standard.
+**Modell (Heavy):** `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf` (14.2G) — QAT (Quantization-Aware Training) von Unsloth. ersetzt `google_gemma-4-26B-A4B-it-IQ4_NL.gguf` (14.7G) als Standard. Läuft auf phobos (Vulkan) und uranus (CUDA).
 
-**Vorteile QAT:**
+**Modell (Light, seit 2026-08-31):** `granite-4.0-h-tiny-UD-Q4_K_XL.gguf` — Produktiv-Standard für schmale Systeme (styx, venus, hyperion). Ausreichend für kleinere, weniger komplexe Aufgaben die schnell erledigt werden müssen. Deutlich geringerer Ressourcenbedarf als 26B-A4B.
+
+**Vorteile QAT (26B):**
 - Mars (Vulkan): +10% pp, +16.6% tg vs IQ4_NL
 - Styx (CUDA, MoE-Offload): tg gleichauf (CPU-limitiert)
 - 0.5G kleiner → mehr VRAM/RAM für KV-Cache → **+44k Kontext (Mars), +64k Kontext (Styx)**
@@ -177,10 +180,11 @@ Kontexte über 256k sind sinnlos — das Modell hat `context_length = 262144` (2
 **MTP Q4_0 Draft: AUS** auf beiden Systemen. Q4_0 Draft (48-57% Acceptance) bremst: Mars -2.4%, Styx -14%. Siehe `docs/fork/2026-07-10_QAT_MTP_Q4_0_BENCHMARK.md`.
 
 **Services:**
-- Mars: `scripts/start-mars-26b-server.sh` — läuft **im LXC 240 (phobos)** als `~/.config/systemd/user/llama-server.service` (seit 12.07.2026, bare-metal Service gestoppt)
-- Styx: `scripts/start-styx-26b-server.sh` als `llama-server-styx.service` (system, Port 18080, 196k Ctx seit 2026-07-19)
-- Venus: `scripts/start-venus-26b-server.sh` als `llama-server-venus.service` (system, Port 18080, 256k Ctx, 2 Slots, Vulkan — seit 16.07.2026, Suspend 08-13h)
-- Uranus: `scripts/start-uranus-26b-server.sh` / `scripts/stop-uranus-26b-server.sh` (user service, Port 18080, 1 Instanz, MoE-Offload 10 — seit 15.07.2026)
+- Mars: `scripts/start-mars-26b-server.sh` — läuft **im LXC 240 (phobos)** als `~/.config/systemd/user/llama-server.service` (seit 12.07.2026, bare-metal Service gestoppt). **Gemma-4 26B-A4B QAT**.
+- Styx: `scripts/start-styx-26b-server.sh` als `llama-server-styx.service` (user service, Port 18080). **Granite-4.0-H-Tiny** (Produktiv-Standard für schmale Systeme).
+- Venus: `scripts/start-venus-26b-server.sh` als `llama-server-venus.service` (user service, Port 18080, 256k Ctx, 2 Slots, Vulkan — seit 16.07.2026, Suspend 08-13h). **Granite-4.0-H-Tiny** (Produktiv-Standard für schmale Systeme).
+- Uranus: `scripts/start-uranus-26b-server.sh` / `scripts/stop-uranus-26b-server.sh` (user service, Port 18080, 1 Instanz, MoE-Offload 10 — seit 15.07.2026). **Gemma-4 26B-A4B QAT** (on-demand).
+- Hyperion: `llama-server.service` (systemd, im LXC 247, Port 18080). **Granite-4.0-H-Tiny** (Produktiv-Standard für schmale Systeme). |
 
 ### Build-System
 
@@ -213,8 +217,11 @@ Projekte (RPG, etc.) benötigen Thinking. Thinking-Suppression erfolgt
 
 **Per-Request Suppression (PRIMÄR):** `thinking_budget_tokens: 1` im Request-Body
 (server-common.cpp:1137). Zwingt den Sampler den Thought-Channel sofort
-zu schließen. `chat_template_kwargs.enable_thinking: false` allein wird
-in Praxis ignoriert — `thinking_budget_tokens: 1` funktioniert zuverlässig.
+zu schließen. `chat_template_kwargs.enable_thinking: false` funktioniert
+seit dem Template-Fix (2026-08-31) auch bei Tool-Call-Konversationen
+zuverlässig — zuvor wurde der Suppression-Marker bei Tool-Call-Kontext
+vom Template übersprungen. `thinking_budget_tokens: 1` bleibt der
+zuverlässigste Mechanismus (template-unabhängig, Sampler-Ebene).
 
 **Defensive Decke:** `num_predict=4096` begrenzt Blast-Radius sporadischer
 Ghost-Thoughts. `max_tokens` ist nur eine Decke (Issue #5517), kein Trigger.
@@ -222,8 +229,10 @@ Ghost-Thoughts. `max_tokens` ist nur eine Decke (Issue #5517), kein Trigger.
 **Fork-Code-Positionen:**
 - `common/arg.cpp:3264` — `--reasoning` CLI-Flag (on/off/auto, Default: auto)
 - `common/chat.cpp:1238-1239` — `thinking_start_tag`, `thinking_end_tag` (PR #21697)
+- `common/chat.cpp:1223-1232` — C++-Workaround: Tool-Call-Prompt + Suppression (Fix 2026-08-31)
 - `tools/server/server-common.cpp:1088-1094` — `chat_template_kwargs.enable_thinking`
 - `tools/server/server-common.cpp:1137` — `thinking_budget_tokens` (per-Request)
+- `models/templates/google-gemma-4-31B-it.jinja:340-347` — Template-Suppression (Fix 2026-08-31)
 
 **Quellen:** llama.cpp #21338, #20297, #21697, #5517 · Google Gemma Docs ·
 Trilium `B3dfpx01pApY`
@@ -269,6 +278,7 @@ Trilium `B3dfpx01pApY`
 | DiffusionGemma | `src/models/diffusion-gemma.cpp`, `src/llama-model.cpp`, `tools/diffusion-cli/` |
 | Vulkan-WHT | `ggml/src/ggml-vulkan/vulkan-shaders/fwht.comp`, `ggml/src/ggml-vulkan/ggml-vulkan.cpp` |
 | Expected Attention (EA Phase 3) | `src/llama-expected-attention.cpp`, `src/llama-expected-attention.h`, `src/llama-context.cpp` |
+| Parallele Schema-Entscheidungen (Jev) | `tools/parallel-decision/`, `tools/server/server-context.cpp`, `common/arg.cpp` |
 | GGUF-Konvertierung | `convert_hf_to_gguf.py` |
 
 ### DiffusionGemma — Status & Bekannte Probleme
