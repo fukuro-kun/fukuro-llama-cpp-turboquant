@@ -3,35 +3,42 @@
 Quelle: `vincespeed/K2-Horizon-MoVA-36B-A4B-APEX-GGUF` auf HuggingFace
 (validiert gegen MBZUAI-IFM/llama.cpp Commit `35999d101`).
 Patches in diesem Verzeichnis. Status im fukuro-Fork (`feature/k2-horizon`,
-verifiziert 2026-09-27): **Bug 1 übernommen, Bug 2 verworfen** (siehe unten).
+verifiziert 2026-09-27): **Bug 1 defensiv übernommen (unverifiziert),
+Bug 2 verworfen** (siehe unten).
 
-## Bug 1 — Tokenizer-Regex crasht auf MSVC (Windows-only) — ÜBERNOMMEN
+## Bug 1 — Tokenizer-Regex crasht auf MSVC (Windows-only) — ÜBERNOMMEN, UNVERIFIZIERT
 
 `src/llama-vocab.cpp`, `LLAMA_VOCAB_PRE_TYPE_K2_HORIZON`: die Pre-Regex
 enthält `\u200C|\u200D`-Alternation (Zero-Width (Non-)Joiner), die MSVCs
-`std::regex` ablehnt → `Failed to process regex ... regex_error(error_escape)`
-beim Modell-Load. Auf Linux irrelevant, aber trivial fixbar.
+`std::regex` ablehnen soll → behaupteter Crash beim Modell-Load.
 
-**Patch:** `0001-fix-k2-horizon-msvc-regex.patch` — entfernt die Alternation.
-Vincespeed-Variante nutzt `(?i:'s|...)`-Stil; unser Fork hat bereits
-`(?i:...)` (Zeile ~534) — nur `|\\u200C|\\u200D` entfernen.
+**Korrektur zur ursprünglichen Einschätzung:** Der Crash ist im
+fukuro-Fork **nicht nachgewiesen**. Die ursprüngliche Regex wurde bereits
+vor dem Patch von `unicode_regex_split_custom` in `src/unicode.cpp`
+wörtlich erkannt und an den K2-Custom-Splitter geleitet — `std::regex`
+sah sie bei normalem Text gar nicht. Da wir ohnehin nur unter
+Linux/BSD operieren, ist der Patch defensiv übernommen, aber kein
+belegter Bugfix.
 
-**Wichtig — Patch allein reicht nicht:** Der Regex-String ist zugleich der
+**Übernahme (Commit `b0a6e21f5`):** Der Regex-String ist zugleich der
 Dispatch-Schlüssel in `src/unicode.cpp` (`unicode_regex_split_custom`
 vergleicht wörtlich). Wird die Regex nur in `llama-vocab.cpp` gekürzt,
 matcht sie keinen Dispatch-Eintrag mehr → Fallback auf `std::regex` →
-stürzt auf MSVC weiterhin ab (und tokenisiert überall falsch, weil der
-generische Pfad `(?i:...)` nicht kann). Korrekte Übernahme = **beides**:
+`( ?i:...)` schlägt dort fehl. Die Übernahme musste daher beides ändern:
 
-1. `|\\u200C|\\u200D` in `src/llama-vocab.cpp` entfernen.
-2. In `src/unicode.cpp` die gekürzten Varianten als weitere Alternativen
-   im K2-Dispatch aufnehmen, damit weiterhin
-   `unicode_regex_split_custom_k2_horizon` greift:
+1. `|\\u200C|\\u200D` in `src/llama-vocab.cpp` entfernt.
+2. In `src/unicode.cpp` die gekürzten Varianten als weitere
+   Dispatch-Alternativen im K2-Zweig aufgenommen:
    - `(?i:'s|'t|...)`-Kurzform
    - `(?:'[sS]|'[tT]|...)`-Kurzform (explizit expandierte Groß/Klein-Schreibung)
 
 Die Custom-Splitter-Logik (inkl. ZWNJ/ZWJ-Semantik) bleibt unverändert —
 der Regex dient nur als Selektor.
+
+**Restrisiko Windows:** Liefert der Custom-Splitter ein leeres Ergebnis
+(z. B. leerer Input), läuft der generische `std::regex`-Fallback — der
+`( ?i:...)` nicht parsen kann, unabhängig von `\u200C`. Ein echter
+Windows-Test steht aus; für unseren Betrieb irrelevant.
 
 ## Bug 2 — Residual/Norm-Verdrahtung — VERWORFEN (Fehldiagnose)
 
