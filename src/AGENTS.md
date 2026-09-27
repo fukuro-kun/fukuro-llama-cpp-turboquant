@@ -35,7 +35,7 @@ Diese Dateien enthalten Fork-spezifische Logik und duerfen bei Upstream-Syncs be
 | `models/hy-v3.cpp` | Hy-v3: sigmoid-MoE, NextN/MTP draft head |
 | `models/qwen3tts.cpp` | Qwen3-TTS: erbt von qwen3vl |
 | `models/pockettts.cpp` | PocketTTS: CALM text backbone |
-| `models/k2-horizon.cpp` | K2-Horizon: MoVA-Attention, grouped RMS-Norm, eigener Tokenizer-Dispatch (`unicode_regex_split_custom_k2_horizon` in `unicode.cpp`; Regex-String in `llama-vocab.cpp` ist Dispatch-Schluessel — beide muessen synchron bleiben) |
+| `models/k2-horizon.cpp` | K2-Horizon: MoVA-Attention, grouped RMS-Norm, eigener Tokenizer-Dispatch (`unicode_regex_split_custom_k2_horizon` in `unicode.cpp`; Regex-String in `llama-vocab.cpp` ist Dispatch-Schluessel — beide muessen synchron bleiben). Enthaelt zudem den K2-MTP-Pfad: Sidecar-Tensor-Loading (`blk.48.nextn.*`, kein Tokenizer/Embeddings im Sidecar — `token_embd`/`output` kommen vom Basismodell), eigener MTP-Forward-Graph (Embedding-First/Hidden-Second-Concat, GRMS, softplus_{ln2}-Gate, RoPE-NEOX, Position i+1, `shared_head_norm`-Chain-State) |
 | `llama-memory-hybrid-idx.cpp` | Qwen4Exp QSA-Indexer-Hybrid-Memory |
 
 ### Wichtige Konfiguration in `gemma4-assistant.cpp`

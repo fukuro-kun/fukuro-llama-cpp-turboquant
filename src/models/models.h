@@ -2226,6 +2226,8 @@ struct llama_model_k2_horizon : public llama_model_base {
 
     void load_arch_hparams(llama_model_loader & ml) override;
 
+    void load_vocab(llama_model_loader & ml) override;
+
     void load_arch_tensors(llama_model_loader & ml) override;
 
     struct graph: public llm_graph_context {
@@ -2239,6 +2241,10 @@ struct llama_model_k2_horizon : public llama_model_base {
             ggml_tensor * cur,
             int il // layer index
         ) const;
+    };
+
+    struct graph_mtp : public llm_graph_context {
+        graph_mtp(const llama_model & model, const llm_graph_params & params);
     };
 
     std::unique_ptr<llm_graph_context> build_arch_graph(

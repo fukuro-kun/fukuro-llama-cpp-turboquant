@@ -17,7 +17,7 @@
 | CLI-Argumente | `arg.cpp`, `arg.h` | Paramater-Definition und Parsing fuer alle Binaerdateien |
 | Hilfsfunktionen | `common.cpp`, `common.h` | String-Utils, File-IO, Konsolen-Interaktion, Batching |
 | Sampling | `sampling.cpp`, `sampling.h` | Top-K/Top-P/Min-P, Temperature, Repeat-Penalty, Mirostat |
-| Spekulative Decodierung | `speculative.cpp`, `speculative.h` | **Draft-Treiber** fuer MTP (Gemma 4) und NextN (Qwen) |
+| Spekulative Decodierung | `speculative.cpp`, `speculative.h` | **Draft-Treiber** fuer MTP (Gemma 4, K2-Horizon) und NextN (Qwen) |
 | Chat-Formatierung | `chat.cpp`, `chat.h` | Template-Verarbeitung, Jinja-Engine-Anbindung, Gemma4-PEG-Parser |
 | PEG-Parser | `peg-parser.cpp`, `peg-parser.h` | Generische PEG-Parser-Infrastruktur fuer Chat-Format-Extraktion |
 | Chat-PEG-Parser | `chat-peg-parser.cpp`, `chat-peg-parser.h` | PEG-basierter Parser fuer Chat-Tool-Calls und Reasoning-Extraktion |
@@ -32,6 +32,11 @@
 - Aenderungen an Sampling-Parametern (`sampling.cpp`) koennen `tools/server/server-context.cpp` und `tools/llama-cli/` betreffen.
 - `chat.cpp` bindet Jinja-Templates aus `common/jinja/` ein.
 
+### K2-Horizon Sequenzentfernung
+
+- `common_context_can_seq_rm()` nutzt für `k2-horizon` einen direkten Test des Standard-KV-`seq_rm`-Pfads, statt beim Serverstart einen synthetischen Zwei-Token-Decode auszuführen. Den Probe-Decode nicht für K2 wiederherstellen: Er kann den RADV-Command-Buffer-Hänger bei großen Kontexten auslösen.
+- Andere Architekturen behalten den bestehenden Decode-Probe-Pfad.
+
 ---
 
 ## Arbeitsanleitung
@@ -41,7 +46,8 @@
 Dies ist der zentrale Draft-Treiber des Forks. Bei Arbeit hier:
 
 1. **MTP (Gemma 4):** Pruefe Interaktion mit `src/models/gemma4-assistant.cpp` und `src/llama-context.cpp`.
-2. **NextN (Qwen):** Pruefe Interaktion mit `src/models/qwen3next.cpp`.
+2. **MTP (K2-Horizon):** Pruefe Interaktion mit `src/models/k2-horizon.cpp` (Sidecar-Graph `blk.48.nextn.*`) und dem NextN-Embedding-Pfad in `src/llama-context.cpp` (`llama_set_embeddings_nextn`/`llama_get_embeddings_nextn_ith`). K2 benoetigt einen separaten MTP-KV-Pfad mit Catch-up: verifizierte Eintraege `(E[t_p], h_{p-1})` ab Position p=1, kein Eintrag bei p=0; provisorische Draft-Eintraege werden vor dem Verify-Batch entfernt.
+3. **NextN (Qwen):** Pruefe Interaktion mit `src/models/qwen3next.cpp`.
 3. **Verifizierung:** Spekulativen Benchmark laufen lassen (`llama-bench` mit `--draft` bzw. Server-Endpoint testen).
 
 ### Aenderungen an `arg.cpp` / `arg.h`

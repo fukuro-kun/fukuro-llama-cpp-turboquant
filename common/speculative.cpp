@@ -827,6 +827,7 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
     int32_t n_embd = 0;
 
     bool is_mem_shared = false;
+    bool is_k2_mtp = false;
 
     // Per-sequence cross-batch carryover: pair (h_p, x_{p+1}) at MTP pos p+1.
     // The last h-row of one process() call needs the first token of the NEXT
@@ -894,7 +895,7 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
             sparams.no_perf  = false;
             sparams.top_k    = 10;
             sparams.samplers = { COMMON_SAMPLER_TYPE_TOP_K };
-            s.reset(common_sampler_init(llama_get_model(ctx_dft), sparams));
+            s.reset(common_sampler_init(llama_get_model(ctx_tgt), sparams));
         }
 
         // offload draft sampling to the backend
@@ -916,7 +917,19 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
         llama_set_embeddings_nextn(ctx_tgt, true, /*masked*/ false);
         llama_set_embeddings_nextn(ctx_dft, true, /*masked*/ true);
 
-        is_mem_shared = llama_get_ctx_other(ctx_dft) == ctx_tgt;
+        char arch[64] = {};
+        const bool has_arch = llama_model_meta_val_str(llama_get_model(ctx_dft),
+                "general.architecture", arch, sizeof(arch)) > 0;
+        is_k2_mtp = has_arch && std::strcmp(arch, "k2-horizon") == 0 &&
+                llama_model_n_layer_nextn(llama_get_model(ctx_dft)) > 0;
+        const bool gemma4_assistant = has_arch &&
+                (std::strcmp(arch, "gemma4_assistant") == 0 ||
+                 std::strcmp(arch, "gemma4-assistant") == 0 ||
+                 std::strcmp(arch, "gemma4_mtp") == 0);
+        is_mem_shared = llama_get_ctx_other(ctx_dft) == ctx_tgt && gemma4_assistant;
+        if (is_k2_mtp && llama_vocab_n_tokens(llama_model_get_vocab(llama_get_model(ctx_tgt))) != llama_vocab_n_tokens(llama_model_get_vocab(llama_get_model(ctx_dft)))) {
+            throw std::runtime_error("K2 MTP head vocab size must match the target model");
+        }
 
         pending_h.assign(n_seq, std::vector<float>(n_embd, 0.0f));
 
@@ -965,8 +978,9 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
 
         auto * ctx_dft = this->params.ctx_dft;
         const llama_pos pos_max = llama_memory_seq_pos_max(llama_get_memory(ctx_dft), seq_id);
+        const llama_pos expected_pos_max = is_k2_mtp && N == 1 ? -1 : N - 1;
 
-        if (pos_max < N - 1 && !is_mem_shared) {
+        if (pos_max < expected_pos_max && !is_mem_shared) {
             LOG_WRN("%s: ctx_dft pos_max=%d < N-1=%d - "
                     "process() hook may not have run on every prefill ubatch "
                     "(need_embd / logits=1 on every prompt position?). "
@@ -1019,37 +1033,77 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
         if (!is_mem_shared) {
             common_batch_clear(batch);
 
-            for (int k = 0; k < n_tokens; ++k) {
-                common_batch_add(batch, batch_in.token[k], batch_in.pos[k], { batch_in.seq_id[k][0] }, 0);
-            }
-
-            // shift the tgt embeddings to the right by one position
-            // assumes that the tokens in the batch are sequential for each sequence
-            // i.e. we cannot have seq_id like this: [0, 0, 0, 1, 1, 0, 1, 1]
-            //                                                       ^--- this is a problem
-            // TODO:this is generally true, but would be nice to assert it
-            {
+            if (is_k2_mtp) {
                 const float * h_tgt = llama_get_embeddings_nextn(ctx_tgt);
-                std::memcpy(batch.embd + (size_t) 1 * n_embd, h_tgt, row_bytes * (n_tokens-1));
-            }
-
-            // fill the pending embeddings from a previous run
-            auto set_h = [&](int idx, const float * h_row) {
-                std::memcpy(batch.embd + (size_t) idx * n_embd, h_row, row_bytes);
-            };
-
-            for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
-                if (i_batch_beg[seq_id] < 0) {
-                    continue;
+                if (h_tgt == nullptr) {
+                    LOG_ERR("%s: target nextn embeddings are unavailable for K2 catch-up\n", __func__);
+                    return false;
                 }
 
-                set_h(i_batch_beg[seq_id], pending_h[seq_id].data());
+                std::vector<const float *> h_prev(n_seq);
+                std::vector<llama_pos> pos_prev(n_seq, -1);
+                for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
+                    h_prev[seq_id] = pending_h[seq_id].data();
+                }
+
+                for (int k = 0; k < n_tokens; ++k) {
+                    const llama_seq_id seq_id = batch_in.seq_id[k][0];
+                    const llama_pos pos = batch_in.pos[k];
+                    const float * h_cur = h_tgt + (size_t) k * n_embd;
+
+                    if (pos == 0) {
+                        h_prev[seq_id] = h_cur;
+                        pos_prev[seq_id] = pos;
+                        continue;
+                    }
+                    if (pos_prev[seq_id] >= 0 && pos_prev[seq_id] != pos - 1) {
+                        LOG_ERR("%s: non-sequential K2 prompt positions for seq_id %d\n", __func__, (int) seq_id);
+                        return false;
+                    }
+
+                    const float * h_input = pos_prev[seq_id] == pos - 1 ? h_prev[seq_id] : pending_h[seq_id].data();
+                    common_batch_add(batch, batch_in.token[k], pos, { seq_id }, 0);
+                    std::memcpy(batch.embd + (size_t) (batch.n_tokens - 1) * n_embd, h_input, row_bytes);
+                    h_prev[seq_id] = h_cur;
+                    pos_prev[seq_id] = pos;
+                }
+            } else {
+                for (int k = 0; k < n_tokens; ++k) {
+                    common_batch_add(batch, batch_in.token[k], batch_in.pos[k], { batch_in.seq_id[k][0] }, 0);
+                }
             }
 
-            const int32_t rc = llama_decode(ctx_dft, batch);
-            if (rc != 0) {
-                LOG_ERR("%s: llama_decode(ctx_dft) failed rc=%d (pos=%d)\n", __func__, (int) rc, (int) batch_in.pos[0]);
-                return false;
+            if (!is_k2_mtp) {
+                // shift the tgt embeddings to the right by one position
+                // assumes that the tokens in the batch are sequential for each sequence
+                // i.e. we cannot have seq_id like this: [0, 0, 0, 1, 1, 0, 1, 1]
+                //                                                       ^--- this is a problem
+                // TODO:this is generally true, but would be nice to assert it
+                {
+                    const float * h_tgt = llama_get_embeddings_nextn(ctx_tgt);
+                    std::memcpy(batch.embd + (size_t) 1 * n_embd, h_tgt, row_bytes * (n_tokens-1));
+                }
+
+                // fill the pending embeddings from a previous run
+                auto set_h = [&](int idx, const float * h_row) {
+                    std::memcpy(batch.embd + (size_t) idx * n_embd, h_row, row_bytes);
+                };
+
+                for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
+                    if (i_batch_beg[seq_id] < 0) {
+                        continue;
+                    }
+
+                    set_h(i_batch_beg[seq_id], pending_h[seq_id].data());
+                }
+            }
+
+            if (batch.n_tokens > 0) {
+                const int32_t rc = llama_decode(ctx_dft, batch);
+                if (rc != 0) {
+                    LOG_ERR("%s: llama_decode(ctx_dft) failed rc=%d (pos=%d)\n", __func__, (int) rc, (int) batch_in.pos[0]);
+                    return false;
+                }
             }
         }
 

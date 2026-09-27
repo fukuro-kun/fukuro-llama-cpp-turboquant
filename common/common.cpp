@@ -1456,6 +1456,15 @@ common_context_seq_rm_type common_context_can_seq_rm(llama_context * ctx) {
         return COMMON_CONTEXT_SEQ_RM_TYPE_NO;
     }
 
+    char arch[64] = {};
+    if (llama_model_meta_val_str(llama_get_model(ctx), "general.architecture", arch, sizeof(arch)) > 0 &&
+        std::strcmp(arch, "k2-horizon") == 0) {
+        llama_memory_clear(mem, true);
+        const bool can_remove_partial = llama_memory_seq_rm(mem, 0, 0, -1);
+        llama_synchronize(ctx);
+        return can_remove_partial ? COMMON_CONTEXT_SEQ_RM_TYPE_PART : COMMON_CONTEXT_SEQ_RM_TYPE_FULL;
+    }
+
     common_context_seq_rm_type res = COMMON_CONTEXT_SEQ_RM_TYPE_PART;
 
     llama_memory_clear(mem, true);

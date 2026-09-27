@@ -1,14 +1,25 @@
 #include "models.h"
 
+#include "gguf.h"
+
+static constexpr uint32_t K2_HORIZON_VOCAB_SIZE = 250624;
+
 void llama_model_k2_horizon::load_arch_hparams(llama_model_loader & ml) {
-    // generic
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
     ml.get_key(LLM_KV_ATTENTION_GROUPNORM_GROUPS, hparams.n_norm_groups, false);
+    ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.n_layer_nextn, false);
 
     hparams.f_norm_group_eps = hparams.f_norm_rms_eps;
     if (hparams.n_norm_groups == 0) hparams.n_norm_groups = 1;
-    
-    // moe
+
+    if (hparams.n_layer_nextn > 0) {
+        GGML_ASSERT(hparams.n_layer_nextn == 1);
+        uint32_t n_ff_nextn = 0;
+        if (ml.get_key("k2-horizon.nextn.feed_forward_length", n_ff_nextn, false) && n_ff_nextn > 0) {
+            hparams.n_ff_arr[hparams.n_layer()] = n_ff_nextn;
+        }
+    }
+
     if (hparams.n_expert > 0) {
         ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp);
         ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT, hparams.n_layer_dense_lead, false);
@@ -23,33 +34,66 @@ void llama_model_k2_horizon::load_arch_hparams(llama_model_loader & ml) {
         }
     }
 
-    // mova
     ml.get_key(LLM_KV_ATTENTION_VALUE_EXPERT_COUNT, hparams.n_value_expert, false);
     ml.get_key(LLM_KV_ATTENTION_VALUE_EXPERT_USED_COUNT, hparams.n_value_expert_used, false);
     if (hparams.n_value_expert > 0) {
         GGML_ASSERT(hparams.n_value_expert <= LLAMA_MAX_EXPERTS);
         GGML_ASSERT(hparams.n_value_expert_used > 0);
         GGML_ASSERT(hparams.n_value_expert_used <= hparams.n_value_expert);
-    }
-    else {
+    } else {
         GGML_ASSERT(hparams.n_value_expert_used == 0);
     }
 
-    // model size info
     if (hparams.n_layer() == 28 && hparams.n_embd == 1536) {
         type = LLM_TYPE_1B;
-    }
-    else if (hparams.n_layer() == 48 && hparams.n_embd == 2560) {
+    } else if (hparams.n_layer() == 48 && hparams.n_embd == 2560) {
         type = LLM_TYPE_36B;
-    }
-    else {
+    } else {
         type = LLM_TYPE_UNKNOWN;
     }
 }
 
+void llama_model_k2_horizon::load_vocab(llama_model_loader & ml) {
+    const int tokenizer_model = gguf_find_key(ml.metadata, "tokenizer.ggml.model");
+    const int shared_target = gguf_find_key(ml.metadata, "k2-horizon.nextn_shared_target_tensors");
+    if (hparams.n_layer_nextn > 0 && tokenizer_model < 0 && shared_target >= 0 &&
+        gguf_get_val_bool(ml.metadata, shared_target)) {
+        gguf_set_val_str(ml.metadata, "tokenizer.ggml.model", "no_vocab");
+        const char * vocab_size_key = "k2-horizon.vocab_size";
+        if (gguf_find_key(ml.metadata, vocab_size_key) < 0) {
+            gguf_set_val_u32(ml.metadata, vocab_size_key, K2_HORIZON_VOCAB_SIZE);
+        }
+    }
+    llama_model_base::load_vocab(ml);
+}
+
 void llama_model_k2_horizon::load_arch_tensors(llama_model_loader & ml) {
-    GGML_UNUSED(ml);
-    LLAMA_LOAD_LOCALS; // initializing variables basically
+    LLAMA_LOAD_LOCALS;
+
+    if (hparams.n_layer_nextn > 0 && ml.get_weight("blk.0.attn_norm.weight") == nullptr) {
+        const int il = n_layer;
+        auto & layer = layers[il];
+        const int64_t n_head_mtp = hparams.n_head(il);
+        const int64_t n_ff_mtp = hparams.n_ff(il);
+
+        layer.nextn.eh_proj = create_tensor(tn(LLM_TENSOR_NEXTN_EH_PROJ, "weight", il), { 2 * n_embd, n_embd }, 0);
+        layer.nextn.enorm = create_tensor(tn(LLM_TENSOR_NEXTN_ENORM, "weight", il), { n_embd }, 0);
+        layer.nextn.hnorm = create_tensor(tn(LLM_TENSOR_NEXTN_HNORM, "weight", il), { n_embd }, 0);
+        layer.nextn.shared_head_norm = create_tensor(tn(LLM_TENSOR_NEXTN_SHARED_HEAD_NORM, "weight", il), { n_embd }, 0);
+
+        layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", il), { n_embd }, 0);
+        layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q, "weight", il), { n_embd, n_embd_head_k * n_head_mtp }, 0);
+        layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K, "weight", il), { n_embd, n_embd_k_gqa }, 0);
+        layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V, "weight", il), { n_embd, n_embd_v_gqa }, 0);
+        layer.wqkv_gate = create_tensor(tn(LLM_TENSOR_ATTN_GATE, "weight", il), { n_embd, n_embd_head_v * n_head_mtp }, 0);
+        layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", il), { n_embd_head_v * n_head_mtp, n_embd }, 0);
+
+        layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", il), { n_embd }, 0);
+        layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", il), { n_embd, n_ff_mtp }, 0);
+        layer.ffn_up = create_tensor(tn(LLM_TENSOR_FFN_UP, "weight", il), { n_embd, n_ff_mtp }, 0);
+        layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", il), { n_ff_mtp, n_embd }, 0);
+        return;
+    }
 
     // embeddings
     tok_embd = create_tensor(
@@ -545,7 +589,7 @@ llama_model_k2_horizon::graph::graph(
         }
 
         // ============ output layer, and take (usually) last token for generation
-        if (il == n_layer - 1 && inp_out_ids != nullptr) {
+        if (il == n_layer - 1 && inp_out_ids != nullptr && (!cparams.embeddings_nextn || cparams.embeddings_nextn_masked)) {
             cur = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids); // pull the same positions for inpSA
         }
@@ -644,6 +688,12 @@ llama_model_k2_horizon::graph::graph(
         hparams.f_norm_rms_eps
     );
     cb(cur, "result_norm", -1);
+    if (cparams.embeddings_nextn) {
+        res->t_h_nextn = cur;
+    }
+    if (cparams.embeddings_nextn && !cparams.embeddings_nextn_masked && inp_out_ids != nullptr) {
+        cur = ggml_get_rows(ctx0, cur, inp_out_ids);
+    }
     res->t_embd = cur;
 
     // ============ vocab projection. also becomes logits
@@ -656,8 +706,115 @@ llama_model_k2_horizon::graph::graph(
 }
 
 
+llama_model_k2_horizon::graph_mtp::graph_mtp(const llama_model & model, const llm_graph_params & params)
+    : llm_graph_context(params) {
+    GGML_ASSERT(hparams.n_layer_nextn == 1);
+    GGML_ASSERT(cparams.ctx_other != nullptr);
+
+    const llama_model * model_other = llama_get_model(cparams.ctx_other);
+    GGML_ASSERT(model_other != nullptr);
+    GGML_ASSERT(model_other->tok_embd != nullptr && model_other->output != nullptr);
+
+    const int il = hparams.n_layer();
+    const auto & layer = model.layers[il];
+    GGML_ASSERT(layer.nextn.eh_proj != nullptr);
+    GGML_ASSERT(layer.nextn.enorm != nullptr);
+    GGML_ASSERT(layer.nextn.hnorm != nullptr);
+    GGML_ASSERT(layer.nextn.shared_head_norm != nullptr);
+    GGML_ASSERT(layer.wq != nullptr && layer.wk != nullptr && layer.wv != nullptr);
+    GGML_ASSERT(layer.wqkv_gate != nullptr && layer.wo != nullptr);
+    GGML_ASSERT(layer.ffn_norm != nullptr && layer.ffn_gate != nullptr);
+    GGML_ASSERT(layer.ffn_up != nullptr && layer.ffn_down != nullptr);
+
+    const int64_t n_head = hparams.n_head(il);
+    const int64_t n_head_kv = hparams.n_head_kv(il);
+    const int64_t n_embd_head = hparams.n_embd_head_k();
+    const float freq_base = model.get_rope_freq_base(cparams, il);
+    const float freq_scale = model.get_rope_freq_scale(cparams, il);
+
+    auto inp = std::make_unique<llm_graph_input_embd>(hparams.n_embd);
+    inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tokens);
+    ggml_set_input(inp->tokens);
+    res->t_inp_tokens = inp->tokens;
+
+    inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, hparams.n_embd, n_tokens);
+    ggml_set_input(inp->embd);
+    res->t_inp_embd = inp->embd;
+    res->add_input(std::move(inp));
+
+    ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
+    auto * inp_attn = build_attn_inp_kv();
+
+    ggml_tensor * token_embd = ggml_get_rows(ctx0, model_other->tok_embd, res->t_inp_tokens);
+    ggml_tensor * e_norm = k2_horizon_group_rms_norm(ctx0, token_embd, layer.nextn.enorm,
+            hparams.n_norm_groups, hparams.f_norm_rms_eps);
+    ggml_tensor * h_norm = k2_horizon_group_rms_norm(ctx0, res->t_inp_embd, layer.nextn.hnorm,
+            hparams.n_norm_groups, hparams.f_norm_rms_eps);
+    ggml_tensor * concat = ggml_concat(ctx0, e_norm, h_norm, 0);
+    ggml_tensor * cur = build_lora_mm(layer.nextn.eh_proj, concat, layer.nextn.eh_proj_s);
+    ggml_tensor * residual = cur;
+
+    cur = k2_horizon_group_rms_norm(ctx0, cur, layer.attn_norm,
+            hparams.n_norm_groups, hparams.f_norm_rms_eps);
+    ggml_tensor * Qcur = build_lora_mm(layer.wq, cur, layer.wq_s);
+    ggml_tensor * Kcur = build_lora_mm(layer.wk, cur, layer.wk_s);
+    ggml_tensor * Vcur = build_lora_mm(layer.wv, cur, layer.wv_s);
+    ggml_tensor * gate = build_lora_mm(layer.wqkv_gate, cur, layer.wqkv_gate_s);
+
+    Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens);
+    Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
+    Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
+
+    Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, hparams.n_rot(il), rope_type, n_ctx_orig,
+            freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
+    Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, hparams.n_rot(il), rope_type, n_ctx_orig,
+            freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
+
+    ggml_tensor * attn = build_attn(inp_attn, nullptr, nullptr, nullptr,
+            Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f / sqrtf((float) n_embd_head), il);
+    constexpr float ln2 = 0.6931471805599453f;
+    constexpr float inv_ln2 = 1.4426950408889634f;
+    gate = ggml_scale(ctx0, gate, ln2);
+    gate = ggml_softplus(ctx0, gate);
+    gate = ggml_scale(ctx0, gate, inv_ln2);
+    attn = ggml_mul(ctx0, attn, gate);
+    cur = build_lora_mm(layer.wo, attn, layer.wo_s);
+    cur = ggml_add(ctx0, cur, residual);
+
+    ggml_tensor * ffn_inp = cur;
+    cur = k2_horizon_group_rms_norm(ctx0, cur, layer.ffn_norm,
+            hparams.n_norm_groups, hparams.f_norm_rms_eps);
+    cur = build_ffn(cur,
+            layer.ffn_up, nullptr, nullptr,
+            layer.ffn_gate, nullptr, nullptr,
+            layer.ffn_down, nullptr, nullptr, nullptr,
+            LLM_FFN_SILU, LLM_FFN_PAR, il);
+    cur = ggml_add(ctx0, cur, ffn_inp);
+    cur = k2_horizon_group_rms_norm(ctx0, cur, layer.nextn.shared_head_norm,
+            hparams.n_norm_groups, hparams.f_norm_rms_eps);
+    ggml_build_forward_expand(gf, cur);
+
+    ggml_tensor * h_nextn = cur;
+    if (cparams.embeddings_nextn_masked && inp_out_ids != nullptr) {
+        h_nextn = ggml_get_rows(ctx0, h_nextn, inp_out_ids);
+    }
+    res->t_h_nextn = h_nextn;
+
+    ggml_tensor * logits_input = h_nextn;
+    if (!cparams.embeddings_nextn_masked && inp_out_ids != nullptr) {
+        logits_input = ggml_get_rows(ctx0, cur, inp_out_ids);
+    }
+    res->t_logits = build_lora_mm(model_other->output, logits_input, model_other->output_s);
+    ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, res->t_logits);
+}
+
 std::unique_ptr<llm_graph_context> llama_model_k2_horizon::build_arch_graph (
     const llm_graph_params & params
 ) const {
+    if (params.gtype == LLM_GRAPH_TYPE_DECODER_MTP) {
+        return std::make_unique<graph_mtp>(*this, params);
+    }
     return std::make_unique<graph>(*this, params);
 }

@@ -8,6 +8,18 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-09-26
 
+### feat: K2-Horizon MTP-Sidecar-Support (draft-mtp)
+
+Der Fork lädt das K2-MTP-Sidecar (99 MB, nur `blk.48.nextn.*`-Head-Tensoren, kein Tokenizer/Embedding/Output — diese kommen vom Basismodell) und führt einen eigenen MTP-Forward-Graph samt separatem MTP-KV-Pfad aus: Embedding-First/Hidden-Second-Pairing `(E[t_{i+1}], h_i)` mit `h_i` post-`output_norm`, Group-RMS, softplus_{ln2}-Gate, RoPE-NEOX mit Position i+1, Chain-2 nutzt den `shared_head_norm`-Output als Folge-Hidden-State, Draft-Logits über den Output-Head des Targets. Der MTP-KV-Catch-up schreibt verifizierte Einträge ab Position 1 (kein Eintrag bei p=0); provisorische Draft-Einträge werden vor dem Verify-Batch entfernt. Nutzung: `--spec-type draft-mtp --spec-draft-model <sidecar.gguf>`.
+
+**Verifikation (Eris/CUDA + Phobos/Vulkan):** Funktional korrekt auf beiden Backends — auf der Trainings-Basis DERISKED-IQ3_M ~30-31 % Token-Akzeptanz bzw. 0,61 acc/Call (≈ Trainings-Eval exp_accept_len 0,54); auf dem nicht trainierten IFM-Checkpoint nur ~10 % (Gewichts-Mismatch wie in der Modellnotiz befürchtet). **Speed jedoch Nettoverlust:** 6,69 vs 10,16 t/s bei c4096 bzw. 0,91 vs 1,68 t/s bei ~10,8k gefülltem KV — der n+1-Positionen-Verify amortisiert sich bei ~0,6 acc/Call nicht. Daher implementiert, aber nicht für produktive Aktivierung empfohlen. `/v1/decision` läuft unter MTP korrekt.
+
+### fix: K2-KV-Sequenztest umgeht den Vulkan-Startup-Hänger
+
+`common_context_can_seq_rm()` prüft K2-Horizon direkt über die Standard-KV-`seq_rm`-Funktion statt mit einem synthetischen Zwei-Token-Decode. Auf RADV hing der Server bei c32768 in genau diesem Startup-Decode; mit dem K2-Pfad startet der Jinja-Server samt Decision-Slots.
+
+**Verifikation:** K2-Horizon-MoVA-36B-A4B-Q4_K_M, Vulkan, `-ngl33 -ub256`, turbo4/3, FlashAttention, kein Expert-Prefetch und `GGML_VK_PREFER_HOST_MEMORY=1`: Chat + `/v1/decision` funktionieren bei `-c4096` (Chat 13,26 t/s; positive Decision p=0,9966, Scoring 294 ms). Eine echte Prompt-Auswertung bei `-c32768` hängt weiterhin auch mit `-ngl32`; der erfasste Stack endet in der RADV/AMDGPU-BO-Allokation beim Vulkan-Command-Buffer. Ein Runtime-Fix für diesen Langkontextfehler ist nicht bestätigt.
+
 ### docs: System-1-Gate-Muster in der Decision-README dokumentiert
 
 Empfohlenes Kaskaden-Muster für Verbraucher: `/v1/decision` als Gate mit

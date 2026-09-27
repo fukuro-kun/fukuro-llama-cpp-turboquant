@@ -131,6 +131,14 @@ llama_context::llama_context(
         cparams.ctx_other = params.ctx_other;
     }
 
+    if (model.arch == LLM_ARCH_K2_HORIZON && params.ctx_type == LLAMA_CONTEXT_TYPE_MTP &&
+        hparams.n_layer_nextn > 0) {
+        if (params.ctx_other == nullptr) {
+            throw std::runtime_error("K2-Horizon MTP requires ctx_other to be set");
+        }
+        cparams.ctx_other = params.ctx_other;
+    }
+
     if (model.arch == LLM_ARCH_EAGLE3) {
         if (model.tok_embd == nullptr || model.output == nullptr) {
             if (params.ctx_other == nullptr) {
@@ -364,7 +372,9 @@ llama_context::llama_context(
             /*.type_v    =*/ params.type_v,
             /*.swa_full  =*/ params.swa_full,
             /*.ctx_type  =*/ cparams.ctx_type,
-            /*.mem_other =*/ llama_get_memory(cparams.ctx_other),
+            /*.mem_other =*/ model.arch == LLM_ARCH_K2_HORIZON && cparams.ctx_type == LLAMA_CONTEXT_TYPE_MTP
+                ? nullptr
+                : llama_get_memory(cparams.ctx_other),
         };
 
         memory.reset(model.create_memory(params_mem, cparams));
@@ -1223,8 +1233,11 @@ void llama_context::set_embeddings(bool value) {
 void llama_context::set_embeddings_nextn(bool value, bool masked) {
     LLAMA_LOG_DEBUG("%s: value = %d, masked = %d\n", __func__, value, masked);
 
-    cparams.embeddings_nextn        = value;
-    cparams.embeddings_nextn_masked = masked;
+    if (cparams.embeddings_nextn != value || cparams.embeddings_nextn_masked != masked) {
+        cparams.embeddings_nextn        = value;
+        cparams.embeddings_nextn_masked = masked;
+        sched_need_reserve = true;
+    }
 }
 
 void llama_context::set_embeddings_layer_inp(uint32_t lid, bool enable) {
