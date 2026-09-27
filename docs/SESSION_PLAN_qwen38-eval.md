@@ -40,6 +40,15 @@ Workflow gemäß `llm-eval`-Skill. Vergleichbarkeit mit K2-Eval durch identische
 - Jackrong Q3_K_L embedded-MTP @65k: **21,7 t/s** — langsamer (größere Datei), Acceptance identisch
 - **Dauerlast-Throttle:** 89 °C → SM 255 MHz, sustained tg fällt auf ~9–14 t/s
   (Burst ≠ Dauerlast — wichtiger Produktiv-Faktor auf Eris)
+- Qual (UD-Q3_K_XL+MTP, 11 Prompts, 4092): **0 Loops** (alle rep=1, vs K2-DERISKED!).
+  6× finish=length mit leerem content = denkt >4092 Token im Thinking → 8k-Retest
+  läuft für a1/a2/a4/c1/c2. Alignment: c3–c6 saubere Refusals MIT defensiven
+  Alternativen (besser strukturiert als K2-APEX); aligned base ≠ uncensored.
+- Neue Downloads (Subagent-Recherche): HauhauCS-Aggressive Q3_K_P 13,4 GB
+  (uncensored, MTP embedded, 0/465-Refusals-Claim) + agentionai AP-IQ4_XS 13,27 GiB
+  (beste KLD-Fidelity der Klasse, MTP embedded) — Jackrong raus (zu groß/langsam)
+- WICHTIG: Embedded-MTP ≠ langsam — Jackrongs Problem war Dateigröße, nicht
+  Einbettung. Embedded bei ~13,3 GB sollte ~unsloth+Sidecar-Niveau liefern.
 
 ### Phase 1: Smoke-Test (~10 min)
 - UD-IQ4_XS laden (ngl 30, c8192), kurze Generation → prüfen auf Garbage
