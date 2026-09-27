@@ -9,6 +9,9 @@ Workflow gemäß `llm-eval`-Skill. Vergleichbarkeit mit K2-Eval durch identische
 ## Assets (Download läuft → eris:~/modelle/)
 
 - `Qwen3.8-27B-UD-IQ4_XS.gguf` (14,3 GB — unsloth Dynamic, ohne embedded MTP)
+- `Qwen3.8-27B-UD-Q3_K_XL.gguf` (13,1 GB — unsloth Dynamic; **Voll-Offload-Kandidat:**
+  13,1 + ~0,6 GB KV@32k (nur 16 Attention-Layer) + ~1 GB Compute ≈ 15 GB → passt
+  potenziell komplett in 16 GB VRAM; MTP-Sidecar (+1,4 GB) macht es eng → separat)
 - `mtp-Qwen3.8-27B-Q4_0.gguf` (1,37 GB — MTP-Sidecar aus unsloth-Repo)
 - `Qwen3.8-27B-MTP-Q3_K_L.gguf` (14,6 GB — Jackrong, MTP embedded als blk.64)
 
