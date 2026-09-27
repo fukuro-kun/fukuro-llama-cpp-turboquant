@@ -29,6 +29,18 @@ Workflow gemäß `llm-eval`-Skill. Vergleichbarkeit mit K2-Eval durch identische
 
 ## Phasen
 
+## Interim-Ergebnisse (~18:10)
+
+- Smoke: **kein DeltaNet-Garbage** — saubere dt. Antwort, arch=qwen35, nextn=1 in allen Files
+- Partial (ngl30, IQ4_XS, 8k): 3,5 t/s — dense 27B ist CPU-Limit-dominiert
+- **Voll-Offload Q3_K_XL (ngl99): 22,7 t/s @8k, 22,6 @131k, 22,4 @160k** — KV auf nur
+  16 Attention-Layern → Kontext kostet fast keine Speed/VRAM
+- Frontier: 160k stabil (15,6 GB), 192k OOM Compute-Buffer, 262k OOM
+- **MTP n=2 Sidecar: 28,3 t/s @65k** (Acceptance ~49 %), n=3 schlechter (23,1)
+- Jackrong Q3_K_L embedded-MTP @65k: **21,7 t/s** — langsamer (größere Datei), Acceptance identisch
+- **Dauerlast-Throttle:** 89 °C → SM 255 MHz, sustained tg fällt auf ~9–14 t/s
+  (Burst ≠ Dauerlast — wichtiger Produktiv-Faktor auf Eris)
+
 ### Phase 1: Smoke-Test (~10 min)
 - UD-IQ4_XS laden (ngl 30, c8192), kurze Generation → prüfen auf Garbage
   (DeltaNet-Bug-Check) + ob `qwen35` sauber erkannt wird
