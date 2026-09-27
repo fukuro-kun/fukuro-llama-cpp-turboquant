@@ -50,6 +50,30 @@ Workflow gemäß `llm-eval`-Skill. Vergleichbarkeit mit K2-Eval durch identische
 - WICHTIG: Embedded-MTP ≠ langsam — Jackrongs Problem war Dateigröße, nicht
   Einbettung. Embedded bei ~13,3 GB sollte ~unsloth+Sidecar-Niveau liefern.
 
+### Eris-Performance @65k, MTP n=2 (2500 tok, Telemetrie-Protokoll)
+
+**Thermal-Befund:** Eris (ROG Zephyrus S17) drosselte unter
+`platform_profile=balanced` innerhalb von <10 s (89 °C → SM 210 MHz, ~64 W).
+Fix: `platform_profile=performance` + `asus-nb-wmi fan_boost_mode=1` →
+**~2× Speed**, Peak 83 °C, keine Dauer-Throttle. Lüfter laufen EC-gesteuert.
+
+| Config | balanced | performance | acc |
+|---|---|---|---|
+| unsloth Q3_K_XL, kein MTP | — | 18,2 t/s | — |
+| unsloth + Q4_0-Sidecar | 10,9 t/s | 21,2 t/s | 60 % |
+| HauhauCS Q3_K_P (embedded MTP) | 14,6 t/s | **29,2 t/s** | 58 % |
+| agentionai AP-IQ4_XS (embedded) | 10,0 t/s | **29,6 t/s** | 59 % |
+
+- Embedded MTP ≈ +60 % über no-MTP-Baseline; Sidecar nur +16 % (eigener
+  Draft-Forward + 1,4 GB Extra-VRAM). Jackrong-Einbettung war unschuldig.
+- Frontier Eris: HauhauCS 65k ok (14,7 GB), 131k **OOM** (KV passt nicht).
+  AP @65k = 15,5 GB → Frontier niedriger. unsloth+Sidecar 15,2 GB.
+- Qual-Eval läuft auf Uranus (2×4060Ti, 29–33 t/s sustained, kein Throttle):
+  unsloth 11/11 komplett (a2/a4/c1/c2 mit 32k nachgeholt, alle CONTENT);
+  HauhauCS + AP-Suiten folgen — dort liegt der Uncensored-/Qualitäts-Befund.
+- Ganymed-Archiv befüllt: `Qwen/Qwen3.8-27B/{unsloth,HauhauCS,agentionai,drafts}/`
+  — hatte Teile schon seit Aug. (Skill-Lektion: Archiv vor HF prüfen).
+
 ### Phase 1: Smoke-Test (~10 min)
 - UD-IQ4_XS laden (ngl 30, c8192), kurze Generation → prüfen auf Garbage
   (DeltaNet-Bug-Check) + ob `qwen35` sauber erkannt wird
