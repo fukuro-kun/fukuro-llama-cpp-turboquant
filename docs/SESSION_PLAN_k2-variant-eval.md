@@ -41,6 +41,12 @@ Produktiv-Gemma nicht unnötig pausieren.
 
 ### Phase 4: ✅ Trilium t1olegeZXmCF + Z9oedIkyYVy5 aktualisiert; eris-chat restauriert (health ok)
 
+### Nachtrag: DERISKED Loop-Root-Cause ✅ (~06:25)
+- Loop = deterministischer Verbatim-Attraktor im reasoning_content (tail_rep 31–85),
+  auch bei **Greedy** → Gewichts-Degeneration, nicht Sampling/Template (Template identisch zu APEX-mini)
+- **`repeat_penalty=1.15` bricht den Attraktor** (c6 → Refusal 14,7 s; a1 → 7,3k Content) —
+  für DERISKED-Profile Pflichtparameter. APEX-mini bleibt Empfehlung (schneller, stabil ohnedies).
+
 ### Ursprüngliche Spezifikation (3 Varianten)
 Pro Variante identischer Prompt-Satz, temp 0.7, max_tokens 8184, bestes ngl aus Phase 1 (ctx 32k-Profil):
 
