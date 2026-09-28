@@ -396,3 +396,7 @@ echter Slot-Admission live geholt. Commit `11d27fd` in InferenzQuelle.
 4. **Unsere Eigenentwicklungen sind der Wert.** Hybrid-Attention, Vulkan Shader-Cache, DOT2-Disable, cache-reuse, turbo4/3 KV-Optimierung — das sind Patches die niemand anders hat.
 
 **Schlussfolgerung:** Der Fork ist saturiert und stabil. Alle Hardware-Probleme (Intel Gibberish, AMD turbo4 V Shader, Pascal MoE-Offload, CUDA OOM) sind gelöst. Keine neuen Features nötig. Fokus auf Instandhaltung, nicht auf Expansion.
+
+## Ideen-Parkplatz
+
+- **mmproj/Vision-Stack Hotplug (Idee, 2026-09-28):** Runtime-Attach/Detach des Vision-Towers via `POST /mmproj/load|unload` (~2–5 s statt ~30–60 s Modell-Reload, KV-/Chat-State überlebt, Platzierung GPU/CPU dynamisch nach freiem VRAM). Benchmark: Encode ~0,9 s GPU / ~33 s CPU-F32 / ~40 s CPU-f16 / ~51 s CPU-Q8_0 (1024², Hydra). **Default bleibt CPU-mmproj permanent** (`--no-mmproj-offload`, 0 VRAM-Preis) — Hotplug nur relevant für Bild-Batches oder RAM-arme Hosts. Trilium: `gcJ0a7pcbMIW` (Idee), `CUGKuPGXXvNK` (Benchmark). Aufwand: mittel (~1–2 Tage).

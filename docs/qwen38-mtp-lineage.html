@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Qwen3.8-27B — MTP-embedded Lineage & VRAM-Budget</title>
+<style>
+  :root { --bg:#14161a; --panel:#1d2026; --line:#333a45; --txt:#dbe2ea; --dim:#8b95a3;
+          --unc:#7a3b3b; --ft:#2e4a63; --own:#2f5c34; --base:#3a3d63; --warn:#6b5b2a; --pipe:#4a3560; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.5 "Segoe UI",system-ui,sans-serif; }
+  main { max-width:1500px; margin:0 auto; padding:28px 32px 80px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:34px 0 10px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .sub { color:var(--dim); margin-bottom:8px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; margin:12px 0; }
+  table { border-collapse:collapse; width:100%; margin:8px 0; }
+  th,td { border:1px solid var(--line); padding:5px 9px; text-align:left; font-size:13px; }
+  th { background:#262a33; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .ok   { color:#7fd98a; }
+  .tight{ color:#e8c664; }
+  .no   { color:#e07a7a; }
+  .tag  { display:inline-block; padding:1px 7px; border-radius:9px; font-size:11px; margin-right:4px; }
+  .t-own { background:var(--own); } .t-unc { background:var(--unc); } .t-ft { background:var(--ft); }
+  .t-warn{ background:var(--warn); } .t-base{ background:var(--base); }
+  code { background:#262a33; padding:1px 5px; border-radius:4px; font-size:12px; }
+  small { color:var(--dim); }
+  .reco { border-left:4px solid #66cc66; }
+
+  /* ====== Stammbaum ====== */
+  .tree { margin-top:14px; }
+  .root {
+    display:inline-block; background:var(--base); border:1px solid #8888cc; border-radius:8px;
+    padding:10px 18px; font-weight:600; margin-left:26px;
+  }
+  .root small { display:block; font-weight:400; color:#c9cdea; }
+  .branches { border-left:2px solid var(--line); margin:14px 0 0 40px; padding:6px 0 6px 0; }
+  .branch { display:grid; grid-template-columns:minmax(230px,290px) 1fr; gap:0 14px;
+            position:relative; padding:10px 0; }
+  .branch::before { /* horizontal connector from spine to deriv */
+    content:""; position:absolute; left:0; top:30px; width:16px; height:2px; background:var(--line); }
+  .deriv {
+    background:var(--panel); border:1px solid var(--line); border-left-width:5px;
+    border-radius:6px; padding:8px 12px; margin-left:16px; align-self:start;
+  }
+  .deriv b { font-size:13.5px; }
+  .deriv small { display:block; margin-top:2px; }
+  .quants { display:flex; flex-wrap:wrap; gap:8px; align-content:flex-start; }
+  .q {
+    background:#22262e; border:1px solid var(--line); border-radius:6px;
+    padding:7px 10px; font-size:12.5px; max-width:330px; position:relative;
+  }
+  .q b { font-weight:600; }
+  .q .sz { color:#a9d7ff; font-weight:600; }
+  .q small { display:block; color:var(--dim); }
+  .q::before { /* connector stub */
+    content:""; position:absolute; left:-15px; top:16px; width:14px; height:2px; background:var(--line); }
+  .q.own { border-color:#77dd77; }
+  .q.own::after { content:"★"; position:absolute; right:6px; top:4px; color:#77dd77; }
+  .c-unc  > .deriv { border-left-color:#cc6666; }
+  .c-ft   > .deriv { border-left-color:#6699cc; }
+  .c-base > .deriv { border-left-color:#8888cc; }
+  .c-warn > .deriv { border-left-color:#cccc66; }
+  .q.warn { border-color:#cccc66; }
+  .legend { margin:10px 0 4px; }
+  .legend span { margin-right:16px; white-space:nowrap; }
+  .box { display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Qwen3.8-27B — Varianten mit eingebettetem MTP-Kopf + VRAM-Budget</h1>
+<div class="sub">Stand 2026-09-27 · nur Varianten mit <b>embedded MTP</b> (<code>blk.64.*</code> im Hauptfile) · Messwerte von den laufenden Eval-Sessions (Eris RTX 3080 Laptop 16 GB, Uranus 2× RTX 4060 Ti)</div>
+
+<h2>1 · Stammbaum (nur embedded-MTP)</h2>
+<div class="legend">
+  <span><span class="box" style="background:#8888cc"></span>aligned / Base</span>
+  <span><span class="box" style="background:#cc6666"></span>Uncensored (Abliteration/Finetune)</span>
+  <span><span class="box" style="background:#6699cc"></span>Finetune-Basis</span>
+  <span><span class="box" style="background:#cccc66"></span>Claim zweifelhaft</span>
+  <span><span class="box" style="background:#77dd77"></span>★ bei uns vorhanden</span><br>
+  <small>Links: Gewichts-Ableitung (safetensors/Finetune) · rechts: GGUF-Quant-Repos die darauf aufbauen · Größen = Dateigröße GB</small>
+</div>
+
+<div class="tree">
+  <div class="root">Qwen/Qwen3.8-27B
+    <small>BF16 · aligned · Release 05.08.2026 · MTP = blk.64 (NextN, 1 Layer)</small>
+  </div>
+  <div class="branches">
+
+    <!-- ============ UNCENSORED-BASEN ============ -->
+    <div class="branch c-unc">
+      <div class="deriv"><b>orcarouter/…-Uncensored</b>
+        <small>BF16-Abliteration (ai-red-team) — <b>De-facto-Standard-Basis</b> · unabhängig verifiziert: ~82 % HarmBench-ASR, „exactly as smart and truthful" (Abliterlitics-Studie, Gesamtsieger)</small></div>
+      <div class="quants">
+        <div class="q"><b>orcarouter-GGUF</b><br><span class="sz">IQ3_M 12,8 · Q3_K_M 13,5 · Q3_K_L 14,6 · IQ4_XS 15,3</span>
+          <small>embedded · imatrix · mmproj</small></div>
+        <div class="q"><b>bartowski/orcarouter_*</b><br><span class="sz">IQ3_XS 13,3 · IQ3_M 13,9 · IQ4_XS 15,6</span>
+          <small>embedded · bartowski-imatrix — <b>Top-Pick</b></small></div>
+        <div class="q"><b>RentedNoodle-OrcaRouter</b><br><span class="sz">GSQ-RCO-IQ3_XXS 10,4</span>
+          <small>GSQ-RCO + qatfa-Variante · evals/ · 16gb-vram-Tag</small></div>
+      </div>
+    </div>
+
+    <div class="branch c-unc">
+      <div class="deriv"><b>JonathanColetti/…-Uncensored</b>
+        <small>Heretic-Abliteration — <b>abliteration_metrics.json</b> + Optuna-Journal; publizierter Pareto-Punkt KL 0,119 / 12 % Refusals (etwas aggressiv); MTP-Tensoren aus Base zurück-gegraftet ✓</small></div>
+      <div class="quants">
+        <div class="q"><b>JonathanColetti-GGUF</b><br><span class="sz">IQ2_M 10,6 · IQ4_XS 15,3 · Q5_K_M 19,5</span>
+          <small>embedded + -noMTP-Pendants + draft-Sidecars · 2,26 Mio. DL</small></div>
+        <div class="q warn"><b>zerodigest YMQ-MTP</b><br><span class="sz">9,9–19,7 (YMQ-XXS…XL)</span>
+          <small>eigene Quant-Methode, imatrix — Güte unklar</small></div>
+      </div>
+    </div>
+
+    <div class="branch c-unc">
+      <div class="deriv"><b>huihui-ai/Huihui-…-abliterated</b>
+        <small>Abliteration direkt auf Qwen-Base · etablierter Uploader</small></div>
+      <div class="quants">
+        <div class="q"><b>huihui-GGUF</b><br><span class="sz">GSQ-RCO-IQ3_XXS-mtp 10,4 · IQ3_S-mtp 12,1</span>
+          <small>⚠ nur die <i>*-mtp</i>-Files embedded — UD-Serie ohne!</small></div>
+        <div class="q"><b>RentedNoodle</b><br><span class="sz">GSQ-RCO-IQ3_XXS-MTP 10,4</span>
+          <small>evals/ im Repo · eigene Tool-Use-Template</small></div>
+      </div>
+    </div>
+
+    <div class="branch c-unc">
+      <div class="deriv"><b>0bserverx Heretic-Abliteration</b>
+        <small>Heretic auf Base · im Studien-Panel solide, unauffällig</small></div>
+      <div class="quants">
+        <div class="q"><b>0bserverx-GGUF</b><br><span class="sz">IQ3_M-mtp 13,0</span>
+          <small>RVN-Serie · imatrix · -mtp sauber getrennt · multilingual-Varianten</small></div>
+      </div>
+    </div>
+
+    <div class="branch c-ft">
+      <div class="deriv"><b>ukisai/Swift-…-27b (+1.5)</b>
+        <small>efficient-thinking <b>Finetune</b> — keine Abliteration auf Base</small></div>
+      <div class="quants">
+        <div class="q"><b>ajgazin Swift-Uncensored UD-MTP</b><br><span class="sz">UD-Q3_K_XL 13,2 · UD-IQ4_XS 14,3</span>
+          <small>embedded · kld_results.csv dokumentiert · Abliteration auf Swift</small></div>
+        <div class="q"><b>bartowski/ukisai_Swift-*</b><br><span class="sz">Vollsortiment</span>
+          <small>embedded · aligned (Swift ohne Abliteration)</small></div>
+        <div class="q"><b>mradermacher i1 Swift-MTP</b><br><span class="sz">12,6–22,4</span>
+          <small>i1-imatrix · embedded</small></div>
+      </div>
+    </div>
+
+    <div class="branch c-ft">
+      <div class="deriv"><b>DavidAU NEO-CODER-MAX</b>
+        <small>Multi-Stage-Finetune (Fable/Cold-Fusion + Heretic/STRICT) · Coder-orientiert</small></div>
+      <div class="quants">
+        <div class="q warn"><b>DavidAU-MTP-GGUF</b><br><span class="sz">IQ4_XS-MTP 17,0 · LOW-MTP-IQ4_XS 15,3</span>
+          <small>⚠ KL 1,48 (Abliterlitics) — 2.-höchste Drift aller Varianten: de facto anderes Modell, NICHT "minimal degradiert". MTP-Tensoren in Q8_0 → technisch interessant, Basis zu driftig</small></div>
+      </div>
+    </div>
+
+    <div class="branch c-unc">
+      <div class="deriv"><b>★ HauhauCS Aggressive</b>
+        <small>uncensored, Custom-Quant · Methode undokumentiert · bei uns: 29,2 t/s @65k</small></div>
+      <div class="quants">
+        <div class="q own"><b>HauhauCS Q3_K_P / IQ4_XS</b><br><span class="sz">13,4 / 15,7</span>
+          <small>embedded · getestet · 0/465-Refusals-Claim</small></div>
+        <div class="q"><b>LuffyTheFox Genesis-MTP</b><br><span class="sz">NVFP4/Q5_K_P/Q8_K_P</span>
+          <small>Re-Quant von HauhauCS — kein neuer Wert</small></div>
+      </div>
+    </div>
+
+    <div class="branch c-unc">
+      <div class="deriv"><b>weitere Abliterations-/Finetune-Basen</b>
+        <small>llmfan46 (Heretic+mpoa) · philbert440-Cyber · hotdogs · nerkyor EfficientThink</small></div>
+      <div class="quants">
+        <div class="q warn"><b>llmfan46-GGUF</b><br><span class="sz">Q3_K_M 14,5</span>
+          <small>embedded · Claim unbelegt, kein imatrix/Eval</small></div>
+        <div class="q"><b>cyjin-yl (Cyber-Basis)</b><br><span class="sz">IQ4_XS+mtp 16,5</span>
+          <small>embedded · nur Uranus-tauglich</small></div>
+        <div class="q"><b>hotdogs-mtp</b><br><span class="sz">IQ3_M 12,8 · Q4_K_M 16,8</span>
+          <small>embedded · eigene cpu-imatrix</small></div>
+        <div class="q"><b>nerkyor LynnStyle DFlash2</b><br><span class="sz">Q2–Q8 heterogen</span>
+          <small>embedded · Distill-Mix (Opus5/Grok/GPT5.6)</small></div>
+      </div>
+    </div>
+
+    <!-- ============ ALIGNED-QUANTS auf Base ============ -->
+    <div class="branch c-base">
+      <div class="deriv"><b>aligned / Base-Quants</b>
+        <small>direkt auf Qwen/Qwen3.8-27B</small></div>
+      <div class="quants">
+        <div class="q own"><b>agentionai AP-IQ4_XS</b><br><span class="sz">14,25</span>
+          <small>embedded · beste KLD-Fidelity-Claim · 29,6 t/s @65k · getestet</small></div>
+        <div class="q own"><b>Jackrong Q3_K_L</b><br><span class="sz">14,6</span>
+          <small>embedded · verworfen (zu groß/langsam)</small></div>
+        <div class="q"><b>ISTA-DASLab GSQ-RCO *-mtp</b><br><span class="sz">IQ3_XXS 10,4 · IQ3_S 12,1</span>
+          <small>akademisch (IST Austria) · imatrix + Allocation-TXTs · 1,6 Mio. DL</small></div>
+        <div class="q"><b>NikiKrutan NIKI-IQ4_XS</b><br><span class="sz">13,6 / 14,7 / 15,7</span>
+          <small>embedded · nach Ziel-VRAM benannt</small></div>
+        <div class="q"><b>Krasnopjorovs Q4_K_M_MTP8</b><br><span class="sz">17,0</span>
+          <small>embedded · einziger Build mit MTP in Q8_0 → beste Draft-Fidelity · Uranus</small></div>
+        <div class="q"><b>ubergarm MTP-IQ4_KS</b><br><span class="sz">16,9</span>
+          <small>embedded · ⚠ ik_llama-Trellis-Tensoren</small></div>
+        <div class="q warn"><b>Bucoid IQ4_XS-4bpw (+Uncensored-Variante)</b><br><span class="sz">13,9</span>
+          <small>embedded · "16-GB-VRAM"-Build · Uncensored-Claim ohne Basis-Nachweis</small></div>
+        <div class="q"><b>cdiamond NVFP4</b><br><span class="sz">17,1</span>
+          <small>embedded · ⚠ kein FP4-HW auf Ampere/Ada — trotz 4,7 Mio. DL ungeeignet</small></div>
+        <div class="q warn"><b>FenomAI UD-Serie</b><br><span class="sz">13,4–31,5</span>
+          <small>MTP-Einbettung nur inferiert — Header prüfen</small></div>
+      </div>
+    </div>
+
+    <!-- ============ Eigene Pipeline ============ -->
+    <div class="branch" style="--x:1">
+      <div class="deriv" style="border-left-color:#cc99ee"><b>fukuro UDT-Pipeline</b>
+        <small><code>scripts/qwen-udt</code> · nextn→Q8_0, attn_q/k→Q6_K<br>Quellen: unsloth-BF16+imatrix <i>oder</i> orcarouter-BF16 (→ eigener Uncensored-UDT)</small></div>
+      <div class="quants">
+        <div class="q" style="border-color:#cc99ee"><b>UDT-MTP-Selbstbau</b><br><span class="sz">beliebige Quant-Matrix</span>
+          <small>AtomicChat hat UDT-MTP nur für Qwen3.6 — für 3.8 einziger Weg</small></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+<small>Ausgeblendet (kein embedded MTP): unsloth UD-* (nur Q4_0-Sidecar) · ggml-org (Sidecars) · AtomicChat AD · ddh0 bpw · mradermacher/ThinkingCap · philbert440-Cyber-Hauptfile (nur Sidecar) · DevQuasar · lmstudio-community u.a. · <i>Rettungsanker:</i> a4lg MTP-ONLY-Sidecars (Q4_0–Q8_0, 2,1–4,5 GB) passen zu jedem noMTP-File.</small>
+
+<h2>2 · Studien-Befund: Abliterations-Qualität (Abliterlitics, 12 Varianten, ~333 GPU-h)</h2>
+<div class="panel">
+<p>Unabhängige Vergleichsstudie (Nathan Sapwell): Gewichts-Forensik, KL-Divergenz, 13 Benchmarks, HarmBench (400 Prompts), LLM-Judge.
+<a href="https://abliterlitics.dev/models/qwen38-27b/">abliterlitics.dev/models/qwen38-27b</a> · Daten: DreamFast/Qwen-3.8-27b-abliterlitics</p>
+<table>
+<tr><th>Abliterations-Basis</th><th>Studien-Urteil</th><th>Für uns</th></tr>
+<tr><td><b>orcarouter</b></td><td class="ok">Gesamtsieger — ~82 % ASR, „exactly as smart and truthful", Card-Claims verifiziert</td><td><b>Primäre Uncensored-Basis</b></td></tr>
+<tr><td><b>huihui</b></td><td class="ok">„Reliable classic", ~75 % ASR, bleibt smart; harte Copyright-Wall</td><td>Solide Nr. 2</td></tr>
+<tr><td><b>JonathanColetti</b> (nicht im Panel)</td><td>Transparenteste Methodik; KL 0,119 — absichtlich aggressiver Pareto-Punkt; MTP zurück-gegraftet</td><td>Gut, aber drifte</td></tr>
+<tr><td>trohrbaugh/coder3101 (Heretic)</td><td>„Safe pick"/„solid unremarkable", teils Refusals übrig</td><td>optional</td></tr>
+<tr><td>llmfan46</td><td class="tight">„Dodged statt refused", weniger truthful</td><td>Claim bestätigt schwach</td></tr>
+<tr><td>DavidAU NEO-CODER-MAX</td><td class="no">KL 1,48 — zweithöchste Drift des Panels, kein „minimal degradiert"</td><td><b>Skip</b> (MTP-in-Q8 bleibt technisch interessant)</td></tr>
+<tr><td>OBLITERATUS / Blackfrost</td><td class="no">Bis ~50 % Antworten in Thinking-Loops; Jailbreak im Template</td><td><b>Avoid</b></td></tr>
+</table>
+<p><b>Kritisch für Thinking-Modelle:</b> der dominante Degradations-Modus ist nicht Refusal, sondern <b>„Delivery"</b> — stark abliterierte Varianten hängen in Thinking-Loops und liefern nie Content. Surgical-Edits (KL &lt; ~0,1) zeigen <b>keinen messbaren Capability-Drop</b> über 13 Benchmarks.</p>
+<p><b>Swift-1.5 (ukisai):</b> efficient-thinking-Finetune — <b>~58 % weniger Thinking-Tokens, ~2× Speedup</b>, Scores ±1 pp (Terminal-Bench sogar +5–6 pp). Für agentisches Coding doppelt relevant: weniger Token = weniger Zeit <i>und</i> mehr nutzbarer Kontext. Hinweis: gated, eigene Lizenz.</p>
+<p><b>GSQ-RCO (ISTA-DASLab):</b> arXiv 2604.18556 + 2605.00649 — differenzierbar gelernte Scalar-Grids + per-Tensor-Quant-Allokation unter Budget. DASLab = GPTQ/QuIP-Gruppe → beste Low-Bit-Methode im Feld.</p>
+</div>
+
+<h2>3 · Gemessene VRAM-Werte (live, 27.09. ~23:10)</h2>
+<div class="panel">
+<table>
+<tr><th>Host</th><th>Modell (File)</th><th class="num">Ctx</th><th class="num">ngl</th><th class="num">GPU belegt</th><th class="num">File (GiB)</th><th class="num">Overhead</th><th class="num">Frei</th></tr>
+<tr><td>Eris (3080 Laptop, 15,6 GiB nutzbar)</td><td>AP-IQ4_XS <span class="tag t-own">vorhanden</span></td><td class="num">65 536</td><td class="num">99</td><td class="num">15 468 MiB</td><td class="num">13,27</td><td class="num">1 876 MiB</td><td class="num tight">494 MiB</td></tr>
+<tr><td>Uranus (2× 4060 Ti, 32 GiB)</td><td>HauhauCS Q3_K_P <span class="tag t-own">vorhanden</span></td><td class="num">131 072</td><td class="num">99</td><td class="num">20 130 MiB<br><small>(9 132 + 10 998)</small></td><td class="num">12,52</td><td class="num">7 309 MiB</td><td class="num ok">~11,9 GiB</td></tr>
+</table>
+<small>Beide Läufe: <code>--spec-type draft-mtp --spec-draft-n-max 2 -ub 512 -fa -ctk turbo4 -ctv turbo3</code>, MTP aktiv (~58–60 % Acceptance). Overhead = KV + Draft-KV (f16!) + DeltaNet-State + Compute/CUDA-Graphs. Uranus-Overhead höher: 2 CUDA-Kontexte + Compute-Buffer @131k + replizierte Tensoren.</small>
+</div>
+
+<h2>4 · KV-Cache-Rechnung (turbo4 K / turbo3 V)</h2>
+<div class="panel">
+<p>Modell-Geometrie (GGUF-Header AP-IQ4_XS): <b>64 Layer = 48 DeltaNet + 16 Gated-Attention</b> (every-4.), dazu 1 NextN-Layer.
+KV fällt nur auf den 16 Attention-Layern an: <code>4 KV-Heads × 256 dim</code> = 1 024 Elemente/Tensor/Layer.</p>
+<table>
+<tr><th>Komponente</th><th>Rechnung</th><th class="num">pro Token</th></tr>
+<tr><td>K (turbo4 = 4,25 bit/elt)</td><td>16 × 1 024 × 4,25/8</td><td class="num">8 704 B ≈ 8,50 KiB</td></tr>
+<tr><td>V (turbo3 = 3,125 bit/elt)</td><td>16 × 1 024 × 3,125/8</td><td class="num">6 400 B ≈ 6,25 KiB</td></tr>
+<tr><td><b>KV gesamt turbo4/3</b></td><td></td><td class="num"><b>15 104 B ≈ 14,75 KiB</b></td></tr>
+<tr><td>MTP-Draft-KV (f16, 1 Layer)</td><td>2 × 1 024 × 2 B</td><td class="num">4 096 B = 4,00 KiB</td></tr>
+<tr><td>DeltaNet-Recurrent-State</td><td>48 L. × ~3 MB, feste Größe<br><small>gemessen: Checkpoint 149,79 MiB @42 tok</small></td><td class="num">einmalig ≈ 0,15 GiB</td></tr>
+</table>
+<table>
+<tr><th class="num">Kontext</th><th class="num">KV turbo4/3</th><th class="num">Draft-KV f16</th><th class="num">+ Fixkosten¹</th><th class="num">Overhead gesamt</th><th class="num">max. Datei Eris²</th><th class="num">max. Datei Uranus³</th></tr>
+<tr><td class="num">32 768</td><td class="num">0,46 GiB</td><td class="num">0,13 GiB</td><td class="num">0,70 GiB</td><td class="num">1,29 GiB</td><td class="num">13,9 GiB (15,0 GB)</td><td class="num">~26,7 GiB</td></tr>
+<tr><td class="num"><b>65 536</b></td><td class="num">0,92 GiB</td><td class="num">0,25 GiB</td><td class="num">0,70 GiB</td><td class="num">1,87 GiB <small>(gemessen 1,83 ✓)</small></td><td class="num"><b>13,4 GiB (14,4 GB)</b></td><td class="num">~25,2 GiB</td></tr>
+<tr><td class="num">81 920 (80k)</td><td class="num">1,14 GiB</td><td class="num">0,31 GiB</td><td class="num">0,70 GiB</td><td class="num">2,16 GiB</td><td class="num">13,1 GiB (14,1 GB)</td><td class="num">~24,8 GiB</td></tr>
+<tr><td class="num"><b>98 304 (96k)</b></td><td class="num">1,38 GiB</td><td class="num">0,38 GiB</td><td class="num">0,70 GiB</td><td class="num">2,46 GiB</td><td class="num"><b>12,8 GiB (13,8 GB)</b></td><td class="num">~24,6 GiB</td></tr>
+<tr><td class="num"><b>114 688 (112k)</b></td><td class="num">1,60 GiB</td><td class="num">0,44 GiB</td><td class="num">0,70 GiB</td><td class="num">2,74 GiB</td><td class="num"><b>12,6 GiB (13,5 GB)</b></td><td class="num">~24,3 GiB</td></tr>
+<tr><td class="num"><b>131 072 (128k)</b></td><td class="num">1,84 GiB</td><td class="num">0,50 GiB</td><td class="num">0,70 GiB</td><td class="num">3,04 GiB</td><td class="num"><b>12,3 GiB (13,2 GB)</b></td><td class="num">~23,9 GiB <small>(gemessen 20,1 belegt)</small></td></tr>
+<tr><td class="num">163 840 (160k)</td><td class="num">2,30 GiB</td><td class="num">0,63 GiB</td><td class="num">0,70 GiB</td><td class="num">3,63 GiB</td><td class="num">11,7 GiB (12,5 GB)</td><td class="num">~23,3 GiB</td></tr>
+<tr><td class="num">196 608 (192k)</td><td class="num">2,77 GiB</td><td class="num">0,75 GiB</td><td class="num">0,70 GiB</td><td class="num">4,22 GiB</td><td class="num">11,1 GiB (11,9 GB)</td><td class="num">~22,8 GiB</td></tr>
+<tr><td class="num">262 144 (256k)</td><td class="num">3,69 GiB</td><td class="num">1,00 GiB</td><td class="num">0,70 GiB</td><td class="num">5,39 GiB</td><td class="num">9,9 GiB (10,6 GB)</td><td class="num">~21,7 GiB</td></tr>
+</table>
+<small>¹ CUDA-Kontext + Compute-Buffer (ub512) + Recurrent-State, Eris-Einzel-GPU ≈ 0,52+0,15.
+² Nutzbar ~15,6 GiB minus 0,3 Sicherheit. ³ 32 GiB, gemessener Fix-Overhead 4,65 GiB @131k (2 CUDA-Kontexte, Compute-Buffer, Repliken) — daraus linear skaliert. Fett = relevante Zielkonfigurationen.<br>
+<b>Kritischer Cut auf Eris:</b> die 13–14-GB-Klasse (HauhauCS 12,5 GiB, bartowski-IQ3_M 12,9 GiB, AP 13,3 GiB) liegt zwischen <b>96k und 131k</b> — HauhauCS sollte bis ~112k gerade noch passen, AP-IQ4_XS kippt schon ab ~96k.</small>
+<p style="margin-top:10px"><b>🔧 Fork-Hebel — Draft-KV in turbo:</b> Der MTP-Draft-Kontext läuft aktuell in <b>f16</b> (4 KiB/Token). Der Fork hat bereits Flags <code>-ctkd</code>/<code>-ctvd</code> (<code>--spec-draft-type-k/-v</code>, server-context.cpp:1124-1125 plombt sie in den MTP-Kontext; turbo2/3/4 sind in <code>kv_cache_types</code> registriert). Mit <code>-ctkd turbo4 -ctvd turbo3</code> sinkt Draft-KV auf ~0,92 KiB/Token → <b>+0,38 GiB Datei-Decke @131k</b> (dann ~12,6 GiB): bartowski-IQ3_XS und orcarouter-Q3_K_M werden bei 131k plötzlich spielbar. Zu verifizieren: (a) ob MTP-KV-Pfad turbo frisst (CUDA-Pfad sollte), (b) Acceptance-Verlust durch Draft-KV-Quantisierung. <b>Test im nächsten Eval-Lauf mit aufnehmen.</b><br><br>
+<b>⚖️ Gegenhebel — V-Cache höher quantisieren (AP-Card-Empfehlung):</b> agentionai warnt: „4-bit value cache lässt lange Reasoning-Traces degenerieren" → empfiehlt <code>-ctv q8_0</code>. Preis auf Eris:
+<table style="margin-top:6px">
+<tr><th>V-Cache-Typ</th><th class="num">V/Token</th><th class="num">Mehrkosten @131k vs. turbo3</th><th class="num">Datei-Decke Eris @131k</th></tr>
+<tr><td><code>-ctv turbo3</code> (akt. Standard)</td><td class="num">6,25 KiB</td><td class="num">—</td><td class="num">12,3 GiB (13,2 GB)</td></tr>
+<tr><td><code>-ctv turbo4</code> (Kompromiss)</td><td class="num">8,50 KiB</td><td class="num">+0,28 GiB</td><td class="num">12,0 GiB (12,9 GB)</td></tr>
+<tr><td><code>-ctv q8_0</code> (AP-Empfehlung)</td><td class="num">16,0 KiB</td><td class="num">+1,22 GiB</td><td class="num">11,0 GiB (11,8 GB)</td></tr>
+</table>
+<small>Unsere Suite lief mit turbo3-V loop-frei — q8_0 ist eine Option für Langläufe, turbo4-V der mittlere Kandidat. Gehört als A/B-Punkt in den Eval-Lauf (Reasoning-Qualität bei >32k Denk-Traces).</small></p>
+</div>
+
+<h2>5 · Welche Datei passt wohin (embedded MTP only)</h2>
+<div class="panel">
+<table>
+<tr><th>Repo / Quant</th><th class="num">GB</th><th class="num">GiB</th><th>Basis</th>
+    <th>Eris 65k<br><small>≤13,4 GiB</small></th><th>Eris 96k<br><small>≤12,8 GiB</small></th><th>Eris 112k<br><small>≤12,6 GiB</small></th><th>Eris 131k<br><small>≤12,3 GiB</small></th><th>Eris 262k<br><small>≤9,9 GiB</small></th><th>Uranus 131k<br><small>≤23,9 GiB</small></th></tr>
+<tr><td>★ agentionai AP-IQ4_XS</td><td class="num">14,25</td><td class="num">13,27</td><td><span class="tag t-base">aligned</span></td><td class="tight">knapp ✓<br><small>gemessen</small></td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>★ HauhauCS Q3_K_P</td><td class="num">13,44</td><td class="num">12,52</td><td><span class="tag t-unc">uncensored</span></td><td class="ok">✓</td><td class="tight">knapp</td><td class="tight"><b>grenzwertig⁴</b></td><td class="no">✗ OOM</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>orcarouter IQ3_M · Q3_K_M · IQ4_XS</td><td class="num">12,8 · 13,5 · 15,3</td><td class="num">11,9 · 12,6 · 14,3</td><td><span class="tag t-unc">uncensored</span></td><td class="ok">✓·✓·✗</td><td class="ok">✓·knapp·✗</td><td class="ok">✓·✗·✗</td><td class="ok">✓·✗·✗</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td><b>bartowski/orcarouter IQ3_XS · IQ3_M</b></td><td class="num">13,3 · 13,9</td><td class="num">12,4 · 12,9</td><td><span class="tag t-unc">uncensored</span></td><td class="ok">✓·knapp</td><td class="ok">✓·✗</td><td class="ok">✓·✗</td><td class="tight">knapp·✗</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>0bserverx IQ3_M-mtp</td><td class="num">13,0</td><td class="num">12,1</td><td><span class="tag t-unc">Heretic</span></td><td class="ok">✓</td><td class="ok">✓</td><td class="ok">✓</td><td class="tight">knapp</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>huihui GSQ-RCO-IQ3_S-mtp · IQ3_XXS-mtp</td><td class="num">12,1 · 10,4</td><td class="num">11,3 · 9,7</td><td><span class="tag t-unc">abliterated</span></td><td class="ok">✓·✓</td><td class="ok">✓·✓</td><td class="ok">✓·✓</td><td class="ok">✓·✓</td><td class="tight">✗·knapp</td><td class="ok">✓</td></tr>
+<tr><td>RentedNoodle GSQ-RCO-IQ3_XXS-MTP</td><td class="num">10,4</td><td class="num">9,7</td><td><span class="tag t-unc">uncensored</span></td><td class="ok">✓</td><td class="ok">✓</td><td class="ok">✓</td><td class="ok">✓</td><td class="tight">knapp</td><td class="ok">✓</td></tr>
+<tr><td>ISTA-DASLab GSQ-RCO-IQ3_S-mtp</td><td class="num">12,1</td><td class="num">11,3</td><td><span class="tag t-base">aligned</span></td><td class="ok">✓</td><td class="ok">✓</td><td class="ok">✓</td><td class="ok">✓</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>ajgazin UD-Q3_K_XL · UD-IQ4_XS (Swift-Unc.)</td><td class="num">13,2 · 14,3</td><td class="num">12,2 · 13,3</td><td><span class="tag t-ft">Finetune</span></td><td class="ok">✓·knapp</td><td class="ok">✓·✗</td><td class="ok">✓·✗</td><td class="tight">knapp·✗</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>JonathanColetti IQ4_XS · IQ2_M</td><td class="num">15,3 · 10,6</td><td class="num">14,3 · 9,9</td><td><span class="tag t-unc">Heretic</span></td><td class="no">✗·✓</td><td class="no">✗·✓</td><td class="no">✗·✓</td><td class="no">✗·knapp</td><td class="tight">✗·knapp</td><td class="ok">✓</td></tr>
+<tr><td>llmfan46 Q3_K_M</td><td class="num">14,5</td><td class="num">13,5</td><td><span class="tag t-unc">Heretic</span> <span class="tag t-warn">unbelegt</span></td><td class="tight">knapp-✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>Bucoid IQ4_XS-4bpw (aligned/unc.)</td><td class="num">13,9</td><td class="num">12,9</td><td><span class="tag t-warn">Claim?</span></td><td class="tight">knapp</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>NikiKrutan NIKI-IQ4_XS 13000·14000</td><td class="num">13,6 · 14,7</td><td class="num">12,7 · 13,7</td><td><span class="tag t-base">aligned</span></td><td class="ok">✓·✗</td><td class="tight">knapp·✗</td><td class="tight">knapp·✗</td><td class="no">✗·✗</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>Krasnopjorovs Q4_K_M_MTP8</td><td class="num">17,0</td><td class="num">15,8</td><td><span class="tag t-base">aligned</span></td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>DavidAU LOW-MTP-IQ4_XS · MTP-IQ4_XS</td><td class="num">15,3 · 17,0</td><td class="num">14,3 · 15,8</td><td><span class="tag t-ft">Finetune</span></td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="ok">✓</td></tr>
+<tr><td>JonathanColetti Q5_K_M · mradermacher-i1-Q5_K_M</td><td class="num">19,5</td><td class="num">18,2</td><td><span class="tag t-unc">unc.</span>/<span class="tag t-ft">ft</span></td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="no">✗</td><td class="ok">✓</td></tr>
+</table>
+<small>⁴ HauhauCS (12,52 GiB) vs. Budget: 96k → 12,84 GiB (passt, ~0,3 Luft) · 112k → 12,56 GiB (<b>0,04 GiB Marge — reine Glückssache</b>) · 131k → 12,26 GiB (OOM, gemessen). Der Uncensored-Sweet-Spot ~12,5–13,5 GiB überlebt also bis ~96–112k, danach nur noch ≤12,3-GiB-Files. "knapp" = <0,5 GiB Luft, OOM-Risiko bei Compute-Spitzen.</small>
+</div>
+
+<h2>6 · Empfehlung — Testliste für die Zwei-Profil-Entscheidung</h2>
+<div class="panel reco">
+<p><b>Design-Punkt (Vorgabe):</b> ≥96k Kontext auf Eris, volles GPU-Offload, stabil — danach Frontier bis ~112k maximieren. Datei-Decke bei 96k: <b>≤13,8 GB</b> (~14,1 GB mit Draft-KV-turbo via <code>-ctkd turbo4 -ctvd turbo3</code>).</p>
+<p><b>Uncensored-Spur — nach Studien-Befund priorisiert:</b><br>
+1. <b>HauhauCS Q3_K_P</b> (vorhanden, verifiziert c3–c6) — Referenz; Frontier 96k→112k bisecten.<br>
+2. <b>orcarouter IQ3_M</b> (12,8 GB) — <b>Studien-Gesamtsieger-Basis</b>, passt bis 131k. Hauptkontrahent.<br>
+3. <b>bartowski/orcarouter IQ3_XS</b> (13,3 GB) — gleiche Basis, besserer Quantizer; @131k nur mit Draft-KV-turbo.<br>
+4. <b>huihui GSQ-RCO-IQ3_S-mtp</b> (12,1 GB) — verifizierte Basis × akademische Quant-Methode; wenn sie IQ3_M schlägt, ist das der Qualitäts-Sprung bei <131k.<br>
+5. Wildcard: <b>ajgazin Swift-1.5-Uncensored UD</b> — falls Token-Effizienz (−58 % Thinking) real: doppelter Gewinn auf Kontext <i>und</i> Speed.<br>
+<span class="no">Skip:</span> DavidAU (KL 1,48 = anderes Modell), OBLITERATUS/Blackfrost (Thinking-Loops), llmfan46 (unbelegt, dodging).</p>
+<p><b>Aligned-Spur:</b> <b>AP-IQ4_XS = Primär-Standard</b> — Card-Analyse: head-to-head vs. unsloth UD bei identischen 13,27 GiB → KLD −7,6 % (techn. Prosa, 5,7σ signifikant) / −9,3 % worst-1%-Tokens; reproduzierbare Methodik (llama-perplexity --kl-divergence vs. BF16, publizierte Korpora+md5), baut auf unsloth-Maps auf. Caveat: Ein-Personen-Team, held-out-Korpus intern — aber Richtung stichhaltig, und für Agentik (techn. Prosa) ist genau dort der Gewinn. Constraint: deckt nur bis ~80–96k auf Eris.<br>
+Kontrahent: <b>ISTA-DASLab GSQ-RCO-IQ3_S-mtp</b> (12,1 GB → +35k Frontier, ~+10 % Speed) — wenn Fidelity hält, verliert der Aligned-Slot die 96k-Kette. <b>Effizienz-Arm:</b> bartowski/ukisai_<b>Swift-1.5</b> (aligned, embedded MTP) — ~58 % weniger Thinking-Tokens/≈2× effektiver Speedup könnte AP in der Praxis schlagen. Fidelity-Decke Uranus: Krasnopjorovs Q4_K_M_MTP8 (Acceptance-Messlatte).</p>
+<p><b>Metrik-Protokoll je Kandidat:</b> tg @96k + MTP-Acceptance + 11-Prompt-Qual (c3–c6 Compliance + <b>Delivery-Check: Thinking-Loop-Rate</b> — der echte Degradations-Modus) + Frontier-Bisection 96k→131k. Kleineres File = schneller (~1/Größe): 12 GiB sollte ~32–34 t/s liefern.</p>
+<p><b>Strategisch:</b> orcarouter-BF16 + eigene UDT-Pipeline = einziger Weg zu "Studien-verifizierter Uncensored-Basis + eigene Q8_0-MTP-Maske".</p>
+</div>
+</main>
+</body>
+</html>

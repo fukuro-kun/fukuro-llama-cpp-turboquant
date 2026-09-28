@@ -1,0 +1,20 @@
+Du bist ein Senior-Python-Entwickler. Implementiere vollständig einen asynchronen Single-Flight-Cache in Python 3.12, nur mit der Standardbibliothek. Liefere zwei vollständige Dateien: `singleflight.py` und `test_singleflight.py`. Keine Pseudocode-Platzhalter.
+
+API:
+- `AsyncSingleFlightCache(clock=time.monotonic)`
+- `await cache.get(key, loader, ttl)`; `key` ist hashbar, `loader` ist eine asynchrone Funktion ohne Argumente, `ttl` eine endliche Zahl >= 0.
+- `cache.invalidate(key)` synchron, idempotent.
+- `await cache.aclose()` idempotent.
+
+Verbindliche Semantik:
+1. Überlappende `get`-Aufrufe für denselben Schlüssel und dieselbe Generation führen genau einen Loader aus und erhalten dasselbe Ergebnis. Verschiedene Schlüssel dürfen parallel laden; während `loader()` läuft darf kein globaler Cache-Lock gehalten werden.
+2. Ein erfolgreicher Wert wird für `ttl` Sekunden gecacht. Die TTL beginnt erst beim erfolgreichen Abschluss des Loaders. `ttl=0` liefert den Wert an aktuelle Wartende, speichert ihn aber nicht.
+3. Ein Loader-Fehler wird an alle aktuellen Wartenden weitergegeben und nie gecacht; der nächste `get` muss neu laden können.
+4. Wird ein Wartender abgebrochen, darf das den geteilten Loader oder andere Wartende nicht abbrechen. Der Loader darf nach Abbruch aller Wartenden fertiglaufen und bei Erfolg den Cache füllen.
+5. `invalidate(key)` während eines laufenden Loads erzeugt eine neue Generation. Bereits wartende Aufrufer dürfen das alte Ergebnis erhalten; neue Aufrufer starten/teilen einen Loader der neuen Generation. Der alte Loader darf niemals einen neuen Cache-Eintrag überschreiben.
+6. `aclose()` schließt den Cache, bricht laufende Loader ab, weckt deren Wartende zuverlässig auf, räumt Tasks und interne Zustände auf. Weitere `get`-Aufrufe müssen mit `RuntimeError` scheitern. Es dürfen keine „Task exception was never retrieved“-Warnungen entstehen.
+7. Ablauf und Invalidierung dürfen keine unbegrenzten Einträge pro Schlüsselgeneration zurücklassen.
+
+Tests müssen `unittest.IsolatedAsyncioTestCase` und `asyncio.Event`/injizierte Fake-Uhr verwenden, nicht Timing-Rennen mit `sleep` kaschieren. Decke mindestens ab: 100 gleiche Wartende → ein Loader; verschiedene Schlüssel gleichzeitig; Loader-Fehler + erfolgreicher Retry; TTL beginnt am Ende und exakte Grenze; `ttl=0`; Abbruch eines einzelnen Wartenden; Abbruch aller Wartenden; Invalidierung während eines Loads mit gleichzeitigem neuen Load; `aclose` mit aktiven Wartenden und wiederholtes Schließen. Tests müssen reproduzierbar sein.
+
+Antwortformat: zuerst `singleflight.py` als Codeblock, dann `test_singleflight.py` als Codeblock, danach höchstens 10 Zeilen zur Synchronisations-/Generationsstrategie. Keine externe Abhängigkeit.

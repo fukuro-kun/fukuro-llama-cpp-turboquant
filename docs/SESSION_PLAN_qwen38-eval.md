@@ -127,3 +127,38 @@ sinnvoll nur falls unsloth-Quant gewinnt — AP ist embedded + schneller.
 - Bei Garbage-Output/Gewichtsfehlern → Variante dokumentieren + andere testen
 - Bei MTP-Crash → Baseline ohne spec ist trotzdem valides Ergebnis
 - pkill nie mit Port-Pattern; Kill via PID; curl -o für Bodies
+
+## Coding-Aufgaben-Vergleich (2026-09-28, läuft)
+
+Kanonisches Testkonzept + crash-sichere Ergebnisablage:
+**`docs/qwen38-eval/`** — `TESTKONZEPT.md` (Parameter, Matrix, Resume),
+`results.jsonl` (append-only Run-Log), `runs/*.json` (Vollantworten),
+Task-Prompts + Eval-Client.
+
+Parameter: `reasoning_effort=medium`, `max_tokens=98304` (vorher 65536;
+xhigh lieferte bei beiden Modellen 65536 reine Reasoning-Tokens, 0 Content).
+
+Bereits gesichert:
+- AP-IQ4_XS @Uranus medium: task1 stop 21 640 ct (15 692 Content-Chars,
+  689 s), task2 stop 22 735 ct (20 185 Content-Chars) — beide delivered.
+- HauhauCS task1 medium läuft auf Eris @96k (voller Offload, ~15,5 GiB, 89 °C).
+
+Ausstehend: Swift-1.5 aligned (GSQ-RCO-IQ3_S-mtp, Uranus) +
+Swift-1.5-Uncensored (UD-Q3_K_XL-MTP, Eris — 13,15 GB @96k Grenzfall,
+Transfer uranus→eris läuft). Alignment-Gradient c1–c6 für Swift-Unc separat.
+
+## Abschluss der Kampagne (2026-09-28)
+
+Alle geplanten Bloecke gelaufen: ap, udiq4, udq3, ista, swiftal, swiftunc,
+bartXS, orcM, hauhau, rnorca, huihui — je task1+task2+Gradient+Vision,
+plus Seed-Sensitivitaetsserie fuer orcM/hauhau/rnorca/huihui/swiftal/swiftunc.
+
+Ergebnis: `docs/qwen38-eval/RANKING.md`
+- Aligned-Empfehlung: ISTA-DASLab GSQ-RCO IQ3_S-mtp (4/4 Delivery, ~34t/s)
+- Uncensored-Empfehlung: Swift-1.5 Uncensored UD-Q3_K_XL-MTP (3/3 task1,
+  voll compliant, ~33-35t/s)
+- AP + UD-IQ4_XS: OOM auf Eris bei 98k+MTP (Draft-KV-Alloc) → nicht Eris-tauglich
+- Dominanter Failure: Reasoning-Loop → 0 Content (seed-abhaengig, kein
+  Quant-Defekt); Delivery-Rate ist das Ranking-Kriterium Nummer eins
+
+eris-chat.service (Gemma-4 QAT) restauriert, aktiv, alle Slots idle.
