@@ -16,24 +16,28 @@ mkdir -p "$OUTDIR/runs" "$OUTDIR"
 
 echo "=== PROBE $LABEL $(date -Is) ===" >> "$RUNLOG"
 if [ -n "$GPU" ]; then export CUDA_VISIBLE_DEVICES="$GPU"; fi
-"$BIN" -m "$MODEL" \
-  --spec-type draft-mtp --spec-draft-n-max 2 \
-  -c 98304 -ngl 99 -ub 512 -fa on -ctk turbo4 -ctv turbo3 \
-  --parallel 1 --cache-ram 0 --no-warmup -fit off --jinja \
-  --host 127.0.0.1 --port "$PORT" > "$SRVLOG" 2>&1 &
-SRV=$!
-echo "srv pid=$SRV gpu=${GPU:-all} port=$PORT" >> "$RUNLOG"
 
-ok=0
-for i in $(seq 1 360); do
-  kill -0 $SRV 2>/dev/null || break
-  curl -sf -m2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && { ok=1; break; }
-  sleep 5
-done
-if [ "$ok" != 1 ]; then
-  echo "LOAD-FAIL $LABEL" >> "$RUNLOG"; tail -15 "$SRVLOG" >> "$RUNLOG"; exit 1
-fi
-echo "$(date -Is) healthy" >> "$RUNLOG"
+RESTARTS=0
+start_server() {
+  "$BIN" -m "$MODEL" \
+    --spec-type draft-mtp --spec-draft-n-max 2 \
+    -c 98304 -ngl 99 -ub 512 -fa on -ctk turbo4 -ctv turbo3 \
+    --parallel 1 --cache-ram 0 --no-warmup -fit off --jinja \
+    --host 127.0.0.1 --port "$PORT" >> "$SRVLOG" 2>&1 &
+  SRV=$!
+  echo "$(date -Is) srv pid=$SRV gpu=${GPU:-all} port=$PORT" >> "$RUNLOG"
+  local ok=0
+  for i in $(seq 1 360); do
+    kill -0 $SRV 2>/dev/null || break
+    curl -sf -m2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && { ok=1; break; }
+    sleep 5
+  done
+  if [ "$ok" != 1 ]; then
+    echo "LOAD-FAIL $LABEL" >> "$RUNLOG"; tail -15 "$SRVLOG" >> "$RUNLOG"; return 1
+  fi
+  echo "$(date -Is) healthy" >> "$RUNLOG"; return 0
+}
+start_server || exit 1
 
 T1F=0; T2F=0
 for s in $SEEDS; do
@@ -42,11 +46,37 @@ for s in $SEEDS; do
     [ "$curfails" -ge 5 ] && continue
     out="$OUTDIR/runs/dlv-$LABEL-task$t-seed$s.json"
     [ -s "$out" ] && { echo "skip $out" >> "$RUNLOG"; continue; }
+    # Server-Ueberlebens-Check: Crash -> Restart (max 2x), dann Abbruch
+    if ! kill -0 $SRV 2>/dev/null || \
+       ! curl -sf -m2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+      echo "$(date -Is) SERVER-DOWN, restart" >> "$RUNLOG"
+      RESTARTS=$((RESTARTS+1))
+      if [ "$RESTARTS" -gt 2 ]; then
+        echo "ABORT $LABEL: >2 Restarts" >> "$RUNLOG"; exit 2
+      fi
+      sleep 10
+      start_server || exit 2
+      # nach Restart diesen Run erneut probieren
+    fi
     echo "$(date -Is) run task$t seed$s" >> "$RUNLOG"
     line=$(python3 "$CLIENT" "$PORT" "/tmp/qwen38-task$t.txt" "$out" \
            "dlv-$LABEL-task$t-seed$s" "$s" medium 7200 2>>"$RUNLOG")
     rc=$?
     echo "  -> $line" >> "$RUNLOG"
+    # Mid-Run-Servercrash: kein Modell-Fail -> Restart + Run wiederholen
+    if [ "$rc" != 0 ] && ! kill -0 $SRV 2>/dev/null; then
+      echo "$(date -Is) MIDRUN-CRASH bei task$t seed$s -> Restart+Retry" >> "$RUNLOG"
+      RESTARTS=$((RESTARTS+1))
+      if [ "$RESTARTS" -gt 2 ]; then
+        echo "ABORT $LABEL: >2 Restarts" >> "$RUNLOG"; exit 2
+      fi
+      sleep 10
+      start_server || exit 2
+      line=$(python3 "$CLIENT" "$PORT" "/tmp/qwen38-task$t.txt" "$out" \
+             "dlv-$LABEL-task$t-seed$s" "$s" medium 7200 2>>"$RUNLOG")
+      rc=$?
+      echo "  retry-> $line" >> "$RUNLOG"
+    fi
     cc=$(printf '%s' "$line" | python3 -c \
          "import json,sys;print(json.load(sys.stdin).get('content_chars') or 0)" \
          2>/dev/null || echo 0)

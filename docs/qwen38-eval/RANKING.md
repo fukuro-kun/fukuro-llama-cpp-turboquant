@@ -122,35 +122,104 @@ GPU-Offload (~0,9 s) → Hotplug-Idee in `docs/fork/ROADMAP.md`.
 
 ---
 
+## 6. Multi-Seed-Delivery-Serie (12 Seeds, 3 Slots)
+
+Finale Messung der Fehlschlag-Wahrscheinlichkeit: Seeds 1 7 42 99 777
+1337 2024 3141 4242 5555 8888 12345, task1/task2 interleaved, identische
+Sampler-Config, Server-Restart-Logik (Uranus-CUDA-Crashes absorbiert,
+Infra-Fails nicht als Modell-Fails gezählt).
+
+| Modell | task1 | task2 | Gesamt (echte Runs) |
+|---|---|---|---|
+| **swiftal** | **12/12** | 10/12 (✗s1 deterministisch, ✗s2024) | **22/24 ≈ 92 %** |
+| **ISTA** | 9/12 (✗s7,42,2024) | 10/11 (✗s3141) + 2 Crash-Abbruch | **19/23 ≈ 83 %** |
+| swiftunc (eris) | ≥10/10 | ≥9/9 | **≥19/19 = 100 %** (vorzeitig gestoppt) |
+| swiftuncU (uranus) | ~4/5 (✗s7) | ~4/4 | ~8/10 (vorzeitig gestoppt) |
+| bartXSU (uranus) | ~1/2 (✗s1, 30.9k ct) | ~1/1 | ~2/3 (vorzeitig gestoppt) |
+
+Befunde:
+- **ISTA ist seed-sensitiver als die 4/4-Kleinserie suggerierte** — die
+  Perfekt-Rate war Seed-4242-Glück. swiftal schlägt ISTA nun auch bei
+  Delivery (92 % vs 83 %).
+- **Seed-Attraktoren sind teils deterministisch**: swiftal-task2@seed1
+  starb zweimal mit exakt 26 853 ct → fester Attraktor dieser
+  Seed×Task-Kombi, kein Rauschen.
+- **Host-Effekt**: swiftunc-t1-seed7 failt auf Uranus, liefert auf Eris —
+  Failures sind seed×host-Kombis.
+- **Uranus-Instabilität**: 3× `CUDA error: unsupported value` in
+  `ggml_cuda_op_mul_mat_cublas` nach je ~60–80 min Volllast (beide GPUs).
+  Kein Modellfehler — Treiber-/Power-Hickup; Restart-Logik absorbiert.
+
+Wilson 95 %-CI (Delivery-Rate): swiftal 22/24 → [74 %, 98 %];
+ISTA 19/23 → [63 %, 93 %]; swiftunc-eris ≥19/19 → ≥83 % untere Schranke.
+
+## 7. Draft-KV-Quantisierung (-ctkd/-ctvd) — gemessen, verworfen
+
+Matrix auf leichtem Coding-Task (2 Seeds × 3 Configs × 3 Slots;
+Acceptance aus Response-`timings.draft_n_accepted/draft_n`).
+
+| | base (f16) | q8_0/q8_0 | turbo4/turbo3 |
+|---|---|---|---|
+| Draft-KV @98k (Buffer) | **384.0 MiB** | ~192 MiB | **88.5 MiB** |
+| Draft-Compute-Buffer | 164 MiB | — | **560 MiB (+396)** |
+| **Netto-VRAM (nvidia-smi)** | — | **+100–200 schlechter** | **+~100 schlechter** |
+| Acceptance swiftal | .920/.902 | .920/.902 | .915/.905 |
+| Acceptance swiftuncU | .907/.888 | .909/.890 | .908/.903 |
+| Acceptance swiftunc-eris | .883/.885 | .884/.885 | .881/… |
+| Speed | ~40 t/s | ~40 t/s | ~40 t/s |
+
+**Ergebnis: Acceptance-Preis ≈ 0** (±0,5 pp = Rauschen; der 1-Layer-MTP-
+Draft ist robust gegen quantisierte KV) — **aber VRAM-Gewinn negativ**:
+die quantisierte Draft-Attention reserviert denselben 560-MiB-Compute-
+Workspace wie der Target (+396 MiB), frisst die 295-MiB-KV-Ersparnis
+und legt ~100 MiB drauf. Break-even erst bei ctx ≳ 200k (Draft-KV f16
+skaliert ~3,9 KiB/Token, Compute-Overhead fix).
+→ **Bei ≤ ~130k Kontext nicht verwenden.** Haupt-Cache bleibt
+`-ctk turbo4 -ctv turbo3`, Draft bleibt f16.
+→ mmproj-GPU-Offload hilft das nicht: kein freiwerdender Speicher.
+
+## 8. Kontext-Frontier Eris (verifiziert mit echter Generierung)
+
+"Load ≠ Generate": 163840 *lädt*, stürzt aber am ersten Forward ab.
+Gemessen: Server-Health + Light-Coding-Task + nvidia-smi.
+
+| Modell | Max verifiziert (Load+Gen) | Headroom | Grenze |
+|---|---|---|---|
+| **swiftal** | **131 072** | ~830 MiB frei | 163840 lädt, Gen-Crash (~35 MiB); 180224 Load-Fail |
+| **swiftunc** | **114 688** | ~390 MiB frei | 131072 Load-OOM |
+
+VRAM-Budget swiftal@98k: 11160 Gewichte + 1416 KV + 449 Recurrent +
+560 Compute + 384 Draft-KV + 164 Draft-Compute ≈ 14,2 GiB.
+swiftunc@98k (12,2 GiB Datei): 15591 @112k gemessen, ~790 frei @98k.
+Marginale KV-Kosten ~18,3 KiB/Token (Target turbo4/3 + Draft f16).
+
 ## FINALE EMPFEHLUNG
 
-### Aligned: **ISTA-DASLab Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp**
+### Aligned: **Swift-1.5 GSQ-RCO-IQ3_S-mtp** (vom Nutzer entschieden)
 
 Begründung:
-- 4/4 Delivery auf beiden Hosts (einziges Aligned-Modell mit perfekter Rate)
-- Sauberste Refusals am Gradienten (aligned-Verhalten verifiziert)
-- 12,1 GB → kleinste Aligned-Datei mit MTP → größte Kontext-Frontier auf Eris
-- ~34 t/s Uranus, ~18–19 t/s Eris; akademische GSQ-RCO-Methode (IST-Austria)
-- Codequalität: 2er-Noten, saubere Concurrency + saubere task2
+- Delivery 22/24 ≈ 92 % > ISTA 19/23 ≈ 83 % (Multi-Seed-Serie, §6)
+- **−35 % Tokens** vs ISTA (27 084 vs 41 794 Σ, §4a) → ~764 s vs ~1 230 s
+- Beste Codequalität im Subagent-Review (per-Waiter-Futures,
+  sauberste Cancel-Semantik)
+- task2-Fails (seed1 deterministisch, seed2024) werden durch
+  `seed=-1` + Retry-Policy absorbiert — Erwartungswert-Rechnung §4a
+- 11,28 GiB Datei → Eris-ctx-Frontier **131 072** (größter getesteter
+  sicherer Kontext aller 27B-Kandidaten)
 
-Runner-up: **Swift-1.5 aligned** — beste Codequalität im Review, 35 %
-weniger Tokens als ISTA (siehe 4a); aber task2 2/3 (Früh-Termination
-+ Loop) und ein dünnes task2-Medium (3 719 Content-Chars).
-**Entscheidungsbedingt:** Mit produktiver Retry-Policy (seed=-1 +
-Retry bei leerem Content) kippt die Empfehlung faktisch zu **swiftal**
-— Erwartete Zeit ~800–950 s vs ~1 230 s für ISTA, bei besserer
-Codequalität. Ohne Retry bleibt ISTA die sicherere Wahl (4/4).
-**AP-IQ4_XS** bleibt die Qualitätsreferenz, scheidet aber aus Eris-Produktion:
-OOM bei 98k+MTP (nur ≤~80k oder Uranus-tauglich).
+Runner-up: **ISTA-DASLab IQ3_S-mtp** — solide, aber inzwischen bei
+Delivery UND Effizienz hinter swiftal; keine Eris-ctx-Messung nötig.
+**AP-IQ4_XS**: Qualitätsreferenz, Eris-untauglich (98k+MTP OOM).
 
-### Uncensored: **Swift-1.5 Uncensored UD-Q3_K_XL-MTP**
+### Uncensored: **Swift-1.5 Uncensored UD-Q3_K_XL-MTP** (vom Nutzer entschieden)
 
 Begründung:
-- 3/3 task1 + task2 delivery — einziger Unc-Kandidat mit perfekter Rate
+- Beste Unc-Delivery-Rate des Feldes: ≥19/19 auf Eris in der Serie,
+  einziger Unc-Kandidat mit ~100 %-Beobachtung
 - Volle Compliance am Gradienten (c3–c6 Content), aligned-c1/c2 sicher
-- ~33–35 t/s Uranus, ~23–26 t/s Eris; 13,1 GB passt 98k auf Eris
-- Finetune-Effizienz halbiert Reasoning-Tokens → faktisch schnellste Antwort
-- Caveat: c4-Exploit-Loop auf Uranus reproduzierbar (seed-abhängig; eris lief)
+- ~33–35 t/s Uranus, ~23–26 t/s Eris
+- Einzige beobachtete Unc-Fails: swiftuncU-t1-seed7 auf Uranus
+  (Host×Seed-Effekt, Eris lief) + c4-Exploit-Loop reproduzierbar
 - **Qualitätsdegradation durch Uncensored-Finetune — Befund:** moderat,
   aber messbar. swiftunc verbraucht ~46 % **mehr** Tokens als der
   aligned Zwilling swiftal (39 422 vs 27 084 Σ) — der Finetune hat
@@ -158,18 +227,37 @@ Begründung:
   (shared Future ohne `asyncio.shield`) trat bei swiftunc-uranus auf,
   swiftal war dort sauber. Bei n=2 Tasks ist das ein Signal, kein
   Beweis: qualitative Einbuße ~klein, Effizienz-Einbuße real.
-- Caveat: eigene Lizenz (1 Mio. USD Umsatzgrenze kommerziell) —
-  für rein private Nutzung nicht relevant
+- Caveat: eigene Lizenz — für rein private Nutzung nicht relevant
+- 13,1 GiB Datei → Eris-ctx-Frontier **114 688** (112k, verifiziert)
 
 Runner-up: **bartowski/orcarouter IQ3_XS** — 4/4 Delivery, compliant,
-orcarouter-Basis (unabhängig verifizierter Studien-Sieger); langsamer und
-token-intensiver (108k Reasoning-Chars task1). **Huihui** drittbest:
-2/3 task1, guter Code, kleinste Datei — intermittente Loop-Gefahr.
+orcarouter-Basis; aber Serie zeigte sofort Fail (t1-seed1, 30,9k ct
+verbrannt) und ~2/3 insgesamt — deklassiert sich selbst bei größerem n.
+**Huihui** drittbest: 2/3 task1, intermittente Loop-Gefahr.
 
 ### Nicht empfohlen
 - **orcM, HauhauCS, RN-Orca:** task1-Delivery 1/4 bzw. 1/3 — Reasoning-Loop-
   Risiko zu hoch für Produktion trotz passabler Qualität wenn geliefert.
 - **AP/UD-IQ4_XS auf Eris:** 98k+MTP OOM.
+
+### Empfohlene Produktions-Configs (Eris, 16 GB)
+
+```text
+# swiftal (aligned) — verifiziert Load+Gen @131072
+-m Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf
+--spec-type draft-mtp --spec-draft-n-max 2
+-c 131072 -ngl 99 -ub 512 -fa on -ctk turbo4 -ctv turbo3
+--parallel 1 --cache-ram 0 --no-warmup -fit off --jinja
+# Request: seed=-1, temp=0.7, top_p=0.95, min_p=0.0,
+#          reasoning_effort=medium, Retry bei content_chars==0
+
+# swiftunc (uncensored) — verifiziert Load+Gen @114688
+-m Swift-1.5-Qwen3.8-27B-Uncensored-Dynamic-MTP-UD-Q3_K_XL.gguf
+-c 114688  (Rest identisch; 98304 für ~800 MiB Sicherheitsmarge)
+```
+
+Nicht verwenden: `-ctkd/-ctvd` bei ≤~130k (§7), ctx > empfohlene Werte
+(§8 — 163840 lädt, aber Generation crasht).
 
 ### Offene Risiken
 - Delivery-Flakiness ist teils seed-sensitiv: Produktion sollte Retry-Logik
@@ -180,8 +268,9 @@ token-intensiver (108k Reasoning-Chars task1). **Huihui** drittbest:
   Seed würde einen schlechten Attraktor *systematisch* treffen —
   Randomisierung macht Retries tatsächlich verschieden. Festen Seed nur
   für reproduzierbare Tests/Debugging.
-- Draft-KV-Quantisierung (-ctkd/-ctvd): sinnvoller Test an den
-  **Swift-Varianten** (nicht AP): swiftunc (13,1 GiB) sitzt genau an der
-  Eris-98k-Kante — Draft-KV-Quant würde Sicherheitsmarge oder mehr
-  Kontext kaufen. Zu messen: MTP-Acceptance-Verlust durch quantisierte
-  Draft-KV.
+- Uranus-Dauerlast-Instabilität (CUDA-cublas-Crashes ~60–80 min) —
+  für Produktion-Eris irrelevant (3080 Laptop-GPU stabil), für Uranus-
+  Batch-Runs Restart-Logik behalten.
+- mmproj-GPU-Offload auf Eris: bei ≥98k ctx kein Headroom (mmproj F32
+  ~1,8 GiB); nur via ctx ≤64k oder teilweises Offload möglich —
+  separates Thema.
