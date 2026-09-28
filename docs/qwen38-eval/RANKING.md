@@ -77,10 +77,48 @@ Loop ist host/seed-sensitiv.
 Eris-Grenze: ≤~13.1 GiB Datei passt bei 98k; 13.27 GiB (AP/udiq4) scheitert
 an der MTP-Draft-KV-Alloc (384 MiB über).
 
+## 4a. Absolute Token-/Zeitkosten (gelieferte Coding-Runs)
+
+`ct` = Completion-Tokens (echt verbrauchtes Kontingent), `s` = gemessene
+Wandzeit. Fehlende `s` wurden nicht nachträglich geschätzt — wo `t/s`
+gemessen ist, gilt Zeit ≈ ct ÷ t/s.
+
+| Modell | Host | task1 ct / s | task2 ct / s | Σ ct |
+|---|---|---|---|---|
+| **swiftal** | uranus | 12 462 / 350 | 14 622 / 414 | **27 084 / 764 s** |
+| swiftal | eris | 14 764 / — | 17 932 / — | 32 696 |
+| **swiftunc** | uranus | 20 487 / 627 | 18 935 / 563 | **39 422 / 1 190 s** |
+| swiftunc | eris | 19 402 / 850 | 18 601 / — | 38 003 |
+| **ISTA** | uranus | 21 116 / — | 20 678 / — | 41 794 |
+| ISTA | eris | 20 793 / — | 23 717 / — | 44 510 |
+| AP | uranus | 21 640 / 690 | 22 735 / — | 44 375 |
+| UD-IQ4_XS | uranus | 24 652 / 784 | 24 393 / — | 49 045 |
+| UD-Q3_K_XL | eris | 23 279 / — | 24 542 / — | 47 821 |
+| bartXS | uranus | 31 334 / — | 25 995 / — | 57 329 |
+| bartowski-eris | eris | 27 054 / 1 617 | 37 303 / 2 291 | 64 357 |
+| huihui | eris | (fail) | 33 603 / 1 732 | — |
+| hauhau | uranus | (fail ×3) | 20 208 / 648 | — |
+| orcM | uranus | (fail; seed1: 17 182) | 26 258 / 856 | — |
+| rnorca | uranus | (fail ×2; 777: 18 995) | 27 981 / — | — |
+
+**Erwartungswert-Rechnung (Aligned-Entscheidung):** swiftal verbraucht
+**35 % weniger Tokens als ISTA** (27 084 vs 41 794 für beide Tasks;
+die oft zitierten −42 % gelten vs. AP task1). Roh-t/s fast gleich
+(35,5 vs ~34). Bei Retry-Policy (seed=-1, Retry bei leerem Content):
+ein Fail verbrennt ~20–27k Reasoning-Tokens bevor er stirbt →
+Erwartete Gesamtkosten swiftal ≈ 764 s × ~1,05 + ~0,2×Fails ≈
+**800–950 s**, ISTA ≈ **~1 230 s** (4/4, kein Retry nötig).
+→ Mit Retry ist swiftal im Erwartungswert **~20–35 % schneller**.
+
 ## 5. Vision (CPU-mmproj, ~960 prompt tok)
 
 Alle getesteten Kandidaten liefern plausible Bildbeschreibung. Eris ~140–160 s,
 Uranus ~54–66 s (CPU-Encode dominiert). Kein Differenzierer.
+Verwendet: **mmproj F32** — laut eigenem Encode-Benchmark (Trilium
+`CUGKuPGXXvNK`, 1024² auf Hydra) ist CPU-F32 (~33 s) die *schnellste*
+CPU-Variante (f16 ~40 s, Q8_0 ~51 s); die Eris-Langsamkeit ist
+CPU-/Konkurrenz-bound, nicht Quantisierungs-Schuld. Schneller geht nur
+GPU-Offload (~0,9 s) → Hotplug-Idee in `docs/fork/ROADMAP.md`.
 
 ---
 
@@ -95,9 +133,13 @@ Begründung:
 - ~34 t/s Uranus, ~18–19 t/s Eris; akademische GSQ-RCO-Methode (IST-Austria)
 - Codequalität: 2er-Noten, saubere Concurrency + saubere task2
 
-Runner-up: **Swift-1.5 aligned** — schnellste Token-Effizienz (-42% Reasoning
-vs AP), beste Codequalität im Review, 2/2 task1; aber task2 2/3 (ein
-Früh-Termination-Flake + ein Loop) → leicht schwächere Delivery-Sicherheit.
+Runner-up: **Swift-1.5 aligned** — beste Codequalität im Review, 35 %
+weniger Tokens als ISTA (siehe 4a); aber task2 2/3 (Früh-Termination
++ Loop) und ein dünnes task2-Medium (3 719 Content-Chars).
+**Entscheidungsbedingt:** Mit produktiver Retry-Policy (seed=-1 +
+Retry bei leerem Content) kippt die Empfehlung faktisch zu **swiftal**
+— Erwartete Zeit ~800–950 s vs ~1 230 s für ISTA, bei besserer
+Codequalität. Ohne Retry bleibt ISTA die sicherere Wahl (4/4).
 **AP-IQ4_XS** bleibt die Qualitätsreferenz, scheidet aber aus Eris-Produktion:
 OOM bei 98k+MTP (nur ≤~80k oder Uranus-tauglich).
 
@@ -109,8 +151,15 @@ Begründung:
 - ~33–35 t/s Uranus, ~23–26 t/s Eris; 13,1 GB passt 98k auf Eris
 - Finetune-Effizienz halbiert Reasoning-Tokens → faktisch schnellste Antwort
 - Caveat: c4-Exploit-Loop auf Uranus reproduzierbar (seed-abhängig; eris lief)
-- Caveat: eigene Lizenz (1 Mio. USD Umsatzgrenze kommerziell) — vor
-  Produktivnutzung prüfen
+- **Qualitätsdegradation durch Uncensored-Finetune — Befund:** moderat,
+  aber messbar. swiftunc verbraucht ~46 % **mehr** Tokens als der
+  aligned Zwilling swiftal (39 422 vs 27 084 Σ) — der Finetune hat
+  einen Teil der Reasoning-Effizienz gefressen; und der Cancel-Bug
+  (shared Future ohne `asyncio.shield`) trat bei swiftunc-uranus auf,
+  swiftal war dort sauber. Bei n=2 Tasks ist das ein Signal, kein
+  Beweis: qualitative Einbuße ~klein, Effizienz-Einbuße real.
+- Caveat: eigene Lizenz (1 Mio. USD Umsatzgrenze kommerziell) —
+  für rein private Nutzung nicht relevant
 
 Runner-up: **bartowski/orcarouter IQ3_XS** — 4/4 Delivery, compliant,
 orcarouter-Basis (unabhängig verifizierter Studien-Sieger); langsamer und
@@ -125,6 +174,14 @@ token-intensiver (108k Reasoning-Chars task1). **Huihui** drittbest:
 ### Offene Risiken
 - Delivery-Flakiness ist teils seed-sensitiv: Produktion sollte Retry-Logik
   oder `presence_penalty`/seed-Rotation vorsehen.
-- Swift-Lizenz prüfen.
-- Draft-KV-Quantisierung (-ctkd/-ctvd) könnte AP auf Eris retten (~0.4–1 GiB
-  Headroom) — ungetestet.
+- **Seed-Empfehlung: `seed=-1` (randomisiert) + Retry bei leerem
+  Content.** Kein fester Seed ist "lucky": 777 rettete hauhau, versagte
+  aber bei orcM; 4242 lief bei manchen, loopt bei anderen. Ein fester
+  Seed würde einen schlechten Attraktor *systematisch* treffen —
+  Randomisierung macht Retries tatsächlich verschieden. Festen Seed nur
+  für reproduzierbare Tests/Debugging.
+- Draft-KV-Quantisierung (-ctkd/-ctvd): sinnvoller Test an den
+  **Swift-Varianten** (nicht AP): swiftunc (13,1 GiB) sitzt genau an der
+  Eris-98k-Kante — Draft-KV-Quant würde Sicherheitsmarge oder mehr
+  Kontext kaufen. Zu messen: MTP-Acceptance-Verlust durch quantisierte
+  Draft-KV.
