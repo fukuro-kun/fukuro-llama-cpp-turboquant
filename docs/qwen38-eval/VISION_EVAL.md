@@ -56,3 +56,14 @@ Warnung des Servers belegt: <1024 problematisch fuer Grounding/Detail.
 - ptok: nativ aufloesungsgetrieben 736 (code) bis 4124 (chart)
 - Fehler: 3× 300-s-Client-Timeout (swiftal sweep), 1× CUDA-Crash
   (swiftunc @64k Encode-Peak) → bei ctx 40960 stabil
+
+## Ops-Hinweis: n_ubatch-Constraint ist GEMMA-spezifisch
+
+Auf phobos (Gemma 4) gilt `n_ubatch >= Bild-Tokens` — dort schaltet
+`mtmd_decode_use_non_causal()` (tools/mtmd/mtmd.cpp) die Decoder-Attention
+fuer Bild-Embeddings bidirektional (nur GEMMA3/GEMMA4V/GEMMA4UV), Micro-
+Batching ist dann unmoeglich (Assert in llama-context.cpp). Qwen-VL faellt
+in `default: return false` → Bild-Embeddings werden causal decodiert und
+duerfen ueber U-Batches gesplittet werden — diese Eval lief komplett mit
+`-ub 512` bei Bildern bis 4112 Tokens. Fuer Qwen-VLM-Profile muss `-ub`
+daher NICHT auf image-max-tokens dimensioniert werden (nur ctx/VRAM).
