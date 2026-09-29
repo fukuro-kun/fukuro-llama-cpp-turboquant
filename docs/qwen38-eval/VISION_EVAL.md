@@ -148,25 +148,89 @@ Gleicher Qwen3.8-Swiftal GGUF + F16-mmproj, ctx65536, batch8192,
 cache_n=0, Promptlaengen 10k/25k (je 2 Messungen); p50k wurde an ub256/512/1024
 je 1× getestet. Start je Request bei ≤72 °C ohne Throttle. Ada-RTX4060Ti-Server lief
 loopback-only auf der bereits reservierten GPU1-Portzuweisung; GPU0 blieb
-unangetastet.
+unangetastet. Ein anfaenglicher parallel gestarteter Wrapper-Lauf wurde abgebrochen;
+die Tabelle stammt ausschliesslich aus den danach separat gefahrenen, bereinigten
+Ledgers (ohne die ueberlappenden Messungen).
 
-| ub | RTX3080-Laptop 10k | RTX3080-Laptop 25k | RTX3080-Laptop 50k | Ada-RTX4060Ti GPU1 10k | Ada-RTX4060Ti GPU1 25k | Ada-RTX4060Ti GPU1 50k |
-|---:|---:|---:|---:|---:|---:|---:|
-| 160 | 489 | 415 | — | 713 | 616 | — |
-| 192 | 498 | 443 | — | 758 | 675 | — |
-| 256 | 536 | 473 | 374 | 820 | 726 | 603 |
-| 320 | 505 | 448 | — | 771 | 671 | — |
-| 512 | 543 | 484 | 382 | 825 | 756 | 662 |
-| 1024 | **556** | **500** | **399** | 819 | 759 | **669** |
+#### RTX 3080 Laptop
+
+| ub | 10k t/s (mean, range; n=2) | 25k t/s (mean, range; n=2) | 50k t/s (n=1) |
+|---:|---:|---:|---:|
+| 160 | 489.2 (460.5–517.8) | 415.0 (403.6–426.4) | — |
+| 192 | 498.3 (496.1–500.6) | 443.3 (438.6–448.1) | — |
+| 256 | 535.6 (533.2–538.1) | 473.3 (469.8–476.7) | 374.4 |
+| 320 | 505.1 (503.8–506.3) | 447.6 (445.0–450.1) | — |
+| 512 | 542.8 (542.3–543.3) | 484.2 (483.4–485.0) | 382.2 |
+| 1024 | **555.7 (554.6–556.7)** | **499.8 (498.6–500.9)** | **398.5** |
+| 1536 | 596.9 (560.8–633.0)* | 513.1 (497.2–529.1) | 404.5 |
+| 2048 | 556.7 (553.4–560.0) | 496.2 (490.3–502.4) | 389.0 |
+| 3072 | 559.7 (557.2–562.4) | 488.6 (486.2–491.3) | 372.1 |
+| 4096 | 554.1 (553.0–555.3) | 475.2 (473.6–476.9) | 357.9 |
+
+*ub1536 rep1 (633.0) war ein Kaltstart-Ausreisser (GPU startete bei 66 °C,
+Vergleichslaeufe bei ≥72 °C); rep2 = 560.8. RTX3080-Laptop blieb bis ub4096
+OOM-frei — der Compute-Puffer skaliert mit ub, reichte hier aber aus.
+
+#### RTX 4060 Ti GPU 1
+
+| ub | 10k t/s (mean, range; n=2) | 25k t/s (mean, range; n=2) | 50k t/s (n=1) |
+|---:|---:|---:|---:|
+| 160 | 712.5 (708.1–717.0) | 615.9 (613.5–619.3) | — |
+| 192 | 757.8 (756.6–759.0) | 675.4 (674.8–678.5) | — |
+| 256 | 819.8 (819.3–820.3) | 726.4 (726.0–726.9) | 602.8 |
+| 320 | 771.3 (770.5–772.0) | 671.1 (671.1–671.2) | — |
+| 512 | **824.7 (824.6–826.2)** | 756.0 (755.5–757.0) | 661.9 |
+| 1024 | 819.1 (818.8–821.1) | **759.0 (758.6–760.5)** | **669.3** |
+| 1536 | 810.1 (806.2–814.4) | 751.9 (749.3–754.5) | 667.1 |
+| 2048 | 807.7 (805.8–808.7) | 755.4 (754.0–756.9) | 674.4 |
+| 3072 | 794.4 (793.6–795.2) | 743.8 (743.0–744.5) | 661.5 |
+| 4096 | 780.5 (780.2–780.7) | 730.5 (730.2–730.7) | 654.6 |
 
 Durchsatz in t/s. Auf RTX3080-Laptop war `SW Thermal Slowdown` bei allen 10k/25k-Stichproben
 aktiv; 50k-Max-Temperatur 89 °C, ein 50k/ub512-In-Request-Sample fiel auf
 78,81 W. Ada-RTX4060Ti GPU1 blieb bei ≤75 °C ohne Thermal-Flag; 10k/25k liegen dort
 im getesteten Band nahe ub512–1024, 50k steigt weiter bis ub1024.
 Das spricht fuer hardwareabhaengige Sweetspots, aber **nicht** fuer eine
-allgemeingueltige ub-Regel; ub>1024 ist offen. Ein Ada-RTX4060Ti-CUBLAS-Fehler bei
+allgemeingueltige ub-Regel. Ein Ada-RTX4060Ti-CUBLAS-Fehler bei
 50k/ub96 trat im separaten Wiederholungsversuch nach Position 49152 auf;
 frische cache-disabled 50k-Laeufe bei ub256/512/1024 liefen.
+
+## Ada-RTX4060Ti-GPU1 Feinsweep 512–3072 (29.09., throttle-frei)
+
+128er-Raster 640–2944 (n=1 je Punkt) plus ±64-Verifikation 512–768 (n=2,
+aufsteigend+absteigend). Gleiche Config wie oben; GPU1 ≤76 °C, nie Thermal-Flag.
+Anker 512/1024/1536/2048/3072 aus der Stichprobe oben.
+
+#### 10k-Prefill (t/s)
+
+| ub | t/s | | ub | t/s | | ub | t/s |
+|---:|---:|---|---:|---:|---|---:|---:|
+| 256 | 820 | | 1024 | 819 | | 2176 | 795 |
+| 320 | 771 | | 1152 | 812 | | 2304 | 797 |
+| 512 | 825/831/823 | | 1280 | 816 | | 2432 | 797 |
+| **576** | **776/774 ⚠** | | 1408 | 817 | | 2560 | 795 |
+| **640** | **837/826/825** | | 1536 | 810 | | 2688 | 794 |
+| **704** | **777/776 ⚠** | | 1664 | 804 | | 2816 | 796 |
+| 768 | 820/815/816 | | 1792 | 804 | | 2944 | 791 |
+| 896 | 811 | | 1920 | 802 | | 3072 | 794 |
+| | | | 2048 | 808 | | 4096 | 781 |
+
+#### 25k-Prefill (t/s, Auswahl)
+
+| ub | 512 | 576 | 640 | 704 | 768 | 1024 | 1536 | 2048 | 3072 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| t/s | 757 | 717 ⚠ | 757 | 709 ⚠ | 737 | 759 | 752 | 755 | 744 |
+
+**Ergebnis:** Flaches Plateau 512–1536 (~810–825 t/s @10k), Optimum **ub 640**
+(837/826/825 @10k, 765/757/756 @25k). Darunter echte, reproduzierbare Struktur:
+**ub-Werte die keine Vielfachen von 128 sind** (576 = 4,5×128, 704 = 5,5×128)
+fallen ~6 % ab — cuBLAS-Tile-Selektion, kein Rauschen (beide Reps identisch).
+Praxisregel fuer Ada-RTX4060Ti/Qwen3.8: **ub ∈ {512, 640, 768, 1024, 1536},
+d.h. Vielfache von 128**, Abfall erst ab ~2048–3072, 4096 noch -5 %.
+Die ±64-Frage ist damit beantwortet: Zwischen 128er-Rasterpunkten gibt es
+Dips; die Wahl muss auf das 128er-Gitter fallen. Keine Produktionsprofil-
+Aenderung — Uranus-Produktion laeuft weiter auf GPU0/ub512, was innerhalb
+des Optimum-Bands liegt.
 
 **Vergleichsvorbehalt:** Die Hosts liefen nicht dieselbe Binärrevision:
 RTX3080-Laptop `aa1976da9` / llama.cpp 9549 (GCC 15.2), Ada-RTX4060Ti `d5b96935a` /

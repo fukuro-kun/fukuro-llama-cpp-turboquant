@@ -46,6 +46,43 @@ nicht als isolierter Hardware-Effekt zu lesen. Ein CUBLAS-Abbruch bei 50k/
 ub96 im selben-server-Wiederholungstest wurde dokumentiert; frische
 cache-disabled Hoch-ub-Stichproben bei 50k liefen.
 
+### bench: UB-Feinsweep bis 4096 — Plateau + 128er-Ausrichtungs-Artefakt
+
+Qwen3.8-27B Swiftal + F16-mmproj, `n_ctx=65536`, `-b8192`, cachefrei,
+Thermal-Telemetrie je Request. Erweiterung der Stichprobe auf ub
+1536/2048/3072/4096 beider Hosts; anschließend 128er-Raster 640–2944 plus
+±64-Verifikation 512–768 (je 2 Reps) auf der Ada-RTX4060Ti (GPU1, loopback).
+
+**Befund Ada-GPU1 (throttle-frei, ≤76 °C):** flaches Plateau 512–1536
+(~810–825 t/s @10k), Optimum **ub 640** (837/826/825), Abfall erst ab
+~2048–3072, 4096 noch -5 %. Reproduzierbarer Dip bei ub **576 und 704**
+(~776 statt ~826, beide Reps, -6 %): beide sind keine 128er-Vielfachen —
+cuBLAS-Tile-Selektion bestraft ungerade 64er-Multiples. Regel: ub aus
+{512, 640, 768, 1024, 1536} wählen; Produktions-ub512 liegt bereits im
+Optimum-Band und wurde **nicht** geändert.
+
+**Befund RTX3080-Laptop (thermisch kontaminiert, SW Slowdown bei fast
+allen langen Prompts):** kein OOM bis ub4096; 10k flach ~553–560 ab
+ub1536, einzelner Kaltstart-Ausreißer 633 @1536 (66 °C Start); 50k
+fällt monoton 404→358 mit steigendem ub. Kein verwertbares Optimum —
+Thermik dominiert die Kurve.
+
+Details in `docs/qwen38-eval/VISION_EVAL.md`. GPU0-Produktion auf Uranus
+blieb unangetastet; Gemma auf Eris wurde nach dem Sweep restauriert
+(`/health` ok).
+
+### bench: UB-Stichprobe bis 1024 auf zwei CUDA-Klassen
+
+Mit demselben Qwen3.8-27B Swiftal + GPU-mmproj, `ctx=65536`, `batch=8192`
+und Prompts 10k/25k (je zwei Messungen) wurden ub160/192/256/320/512/1024
+auf einem RTX-3080-Laptop und einer RTX-4060-Ti-Desktop-GPU getestet. Die
+50k-Stichprobe umfasst ub256/512/1024. Auf Eris tritt bei langen Prompts
+SW-Thermal-Slowdown auf; Uranus bleibt bis 75 °C ohne Thermal-Flag.
+**Kein universelles Optimum:** Die llama.cpp-Build-Revisionen unterschieden
+sich (9549 vs. 9559), und die gemessenen ub-Bänder weichen sichtbar ab.
+Ergebnisse inkl. min/max und Abbruchdetails in `docs/qwen38-eval/VISION_EVAL.md`;
+keine Produktions-UB-Konfiguration wurde aus diesem Sample geändert.
+
 ## 2026-09-26
 
 ### feat: K2-Horizon MTP-Sidecar-Support (draft-mtp)
