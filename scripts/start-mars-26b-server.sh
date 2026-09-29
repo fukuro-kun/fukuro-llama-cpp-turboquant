@@ -41,8 +41,10 @@
 #   TTM-Deckel + nogttspill, nicht der VkPipelineCache).
 #   mmproj-F16.gguf (GPU-Offload): Encode 4.1s @280 Tok, ~19s @1024 Tok.
 #   --image-min/max-tokens steuert die Scan-Granularitaet (wie Qwen).
-#   WICHTIG: -ub muss >= image-max-tokens sein! Non-causal Vision-Attention
-#   assertet sonst (GGML_ASSERT crash) — daher -ub 4096 bei max 1024.
+#   Gemma-4-Bild-Chunks nutzen non-causal Attention: -ub muss mindestens
+#   die tatsaechliche Chunk-Tokenzahl aufnehmen (sonst GGML_ASSERT).
+#   -ub 2048, image-max-tokens 1984: 64 Tokens (~3 %) Reserve fuer
+#   Alignment/zusatzliche Bild-Tokens; bei neuen Bildern erneut pruefen.
 #
 # Performance (2026-09-29): ~18 t/s pro Slot parallel (~36 t/s Aggregat) —
 #   2×128k, turbo4/4, mmproj-F16 aktiv. Vision-Encode: 4.1s @280 Tok,
@@ -59,6 +61,14 @@ SERVER="${SERVER:-${ROOT}/build/bin/llama-server}"
 MAIN="${MAIN_GGUF:-/jade/models/gemma-4-26B-A4B-it/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}"
 PORT="${PORT:-18080}"
 HOST="${HOST:-0.0.0.0}"
+IMAGE_MIN_TOKENS="${IMAGE_MIN_TOKENS:-512}"
+IMAGE_MAX_TOKENS="${IMAGE_MAX_TOKENS:-1984}"
+
+if [[ ! "$IMAGE_MIN_TOKENS" =~ ^[0-9]+$ || ! "$IMAGE_MAX_TOKENS" =~ ^[0-9]+$ ]] ||
+   (( IMAGE_MIN_TOKENS < 1 || IMAGE_MIN_TOKENS > IMAGE_MAX_TOKENS || IMAGE_MAX_TOKENS > 1984 )); then
+  echo "error: image token range must satisfy 1 <= min <= max <= 1984 with -ub 2048" >&2
+  exit 1
+fi
 
 # Modell-Check
 if [[ ! -f "$SERVER" ]]; then
@@ -136,13 +146,13 @@ cd "$ROOT"
 exec "$SERVER" \
   -m "$MAIN" \
   --mmproj "${MMPROJ:-/jade/models/gemma-4-26B-A4B-it/mmproj-F16.gguf}" \
-  --image-min-tokens "${IMAGE_MIN_TOKENS:-256}" \
-  --image-max-tokens "${IMAGE_MAX_TOKENS:-1024}" \
+  --image-min-tokens "$IMAGE_MIN_TOKENS" \
+  --image-max-tokens "$IMAGE_MAX_TOKENS" \
   --host "$HOST" --port "$PORT" \
   -c 262144 -ngl 99 \
   -ctk turbo4 -ctv turbo4 -fa on \
   -fit off \
-  -ub 4096 \
+  -ub 2048 \
   --parallel 2 -np 2 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 12288 \
