@@ -67,3 +67,9 @@ in `default: return false` → Bild-Embeddings werden causal decodiert und
 duerfen ueber U-Batches gesplittet werden — diese Eval lief komplett mit
 `-ub 512` bei Bildern bis 4112 Tokens. Fuer Qwen-VLM-Profile muss `-ub`
 daher NICHT auf image-max-tokens dimensioniert werden (nur ctx/VRAM).
+
+Vermessung 29.09. (llama-bench, pp4096, -r 1): phobos/Gemma saturiert bei
+`-ub 2048` (250 t/s; 187@256, 219@512, 239@1024, 245@4096). eris/Qwen3.8:
+Thermik dominiert (kalt 320 t/s @2048 → ~178 unter Dauerlast,
+Reihenfolge-unabhaengig); `-ub 4096` crasht in VRAM-OOM (Compute-Puffer +
+11,3 GiB Modell > 16 GiB). Empfehlung Qwen-VLM-Profil: `-ub 1024`–`2048`.
