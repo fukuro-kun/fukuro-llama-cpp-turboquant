@@ -8,6 +8,12 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-09-29
 
+### fix: Qwen3.8-Startskript kann Decision-Sequenzen optional reservieren
+
+`start-uranus-qwen38-server.sh` reicht `DECISION_SEQS` als `--decision-seqs`
+weiter und validiert Werte ab 3. Ohne Variable bleibt der bisherige Startpfad
+unverändert; es gibt keinen stillen Default, der die Speicherbelegung erhöht.
+
 ### ops: Gemma-4-Vision-Profil auf ub 2048 mit Bild-Budget 512–1984
 
 Gemma-Vision verarbeitet Bild-Chunks non-causal in einem U-Batch. Das bisherige

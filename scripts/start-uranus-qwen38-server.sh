@@ -19,6 +19,10 @@
 #   seed=-1 temp=0.7 top_p=0.95 min_p=0.0 reasoning_effort=medium
 #   Bei content="" retryen (Loop-Rate ~8%, seed×host-abhängig)
 #
+# Decision-Endpoint optional aktivieren (Standard unverändert, keine Zusatzreservierung):
+#   DECISION_SEQS=3 bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-uranus-qwen38-server.sh
+#   DECISION_SEQS=8 bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-uranus-qwen38-server.sh
+# Werte >=3 reservieren zusätzliche Decision-Sequenzen; VRAM-Bedarf je Konfiguration messen.
 # Rasch auf-/abbaubar:
 #   Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-uranus-qwen38-server.sh
 #          VARIANT=unc bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-uranus-qwen38-server.sh
@@ -33,6 +37,15 @@ HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-18080}"
 CTX="${CTX:-131072}"
 VARIANT="${VARIANT:-al}"
+DECISION_SEQS="${DECISION_SEQS:-}"
+DECISION_ARGS=()
+if [[ -n "$DECISION_SEQS" ]]; then
+  if [[ ! "$DECISION_SEQS" =~ ^[0-9]+$ ]] || (( DECISION_SEQS < 3 )); then
+    echo "error: DECISION_SEQS muss leer (deaktiviert) oder eine ganze Zahl >= 3 sein" >&2
+    exit 2
+  fi
+  DECISION_ARGS=(--decision-seqs "$DECISION_SEQS")
+fi
 
 MODEL_DIR="/media/fukuro/raid5/modelle/Qwen/Qwen3.8-27B"
 case "$VARIANT" in
@@ -73,7 +86,7 @@ if [[ -n "$VRAM_FREE_MIB" && "$VRAM_FREE_MIB" -lt 15000 ]]; then
 fi
 
 # --- Instanz: GPU 0, Port 18080 ---
-echo "Starte llama-server (Qwen3.8-27B ${PROFILE_NAME}, GPU 0, Port $PORT, ctx $CTX)..."
+echo "Starte llama-server (Qwen3.8-27B ${PROFILE_NAME}, GPU 0, Port $PORT, ctx $CTX, decision-seqs ${DECISION_SEQS:-off})..."
 setsid "$SERVER" \
   -m "$MAIN" \
   --host "$HOST" --port "$PORT" \
@@ -81,6 +94,7 @@ setsid "$SERVER" \
   -c "$CTX" -ngl 99 -ub 512 -fa on \
   -ctk turbo4 -ctv turbo3 \
   --spec-type draft-mtp --spec-draft-n-max 2 \
+  "${DECISION_ARGS[@]}" \
   --parallel 1 --cont-batching \
   --jinja \
   --temp 0.7 --top-p 0.95 --min-p 0.0 \
