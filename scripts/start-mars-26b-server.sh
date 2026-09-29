@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
 # Mars/phobos llama-server für InferenzQuelle.
-# Gemma-4 26B-A4B QAT, Vulkan, turbo4/3 KV-Cache, 2 Slots à 128k.
-# Vision (mmproj) DEAKTIVIERT — turbo4/3 ohne mmproj für maximale TG-Performance.
+# Gemma-4 26B-A4B QAT, Vulkan, turbo4/4 KV-Cache, 2 Slots à 128k.
+# Vision (mmproj-F16) AKTIV seit 2026-09-29 — §5.20 Retest: funktioniert.
 #
-# KV-Cache: turbo3/turbo4 (K=turbo3 5.1x, V=turbo4 4.25x Kompression).
-#   V-Cache höhere Präzision als turbo3/3 (4.25 vs 3.125 bit).
-#   turbo4/3 ohne mmproj funktioniert zuverlässig mit 262144 Kontext.
-#   turbo4/3 + mmproj + 262144 → ❌ BLOCKED (RADV VkPipelineCache defekt, §5.17).
+# KV-Cache: turbo4/4 (K=turbo4 4.25x, V=turbo4 4.25x) seit 2026-09-29.
+#   V-Cache höhere Präzision als turbo3 (4.25 vs 3.125 bit).
+#   Funktioniert mit mmproj + 262144 seit §5.20-Retest.
 #
 # Echte KV-Buffer-Größen (GQA-korrigiert, gemessen auf Phobos):
 #   turbo3/3 bei 2x128k = 1.0 GB (passt in 1 GiB Default-Suballocation)
 #   turbo4/3 bei 2x128k = 1.3 GB  (braucht 2 GiB Suballocation)
 # Alle passen problemlos in GTT (27.6 GB). GTT ist nicht limitierend.
 #
-# ⚠️ turbo4 V + mmproj + 262144 Wartungsfenster-Test (2026-08-15, §5.17):
-#   RADV VkPipelineCache produziert keine Cache-Hits für turbo4 V FA-Shader.
-#   Precompile nutzlos — jeder Restart erfordert 5+min pro Pipeline-Variante.
-#   turbo4/3 ohne mmproj funktioniert: Pipeline-Cache wird effektiv genutzt.
-#   Siehe Trilium SWumEN7WOXBI §5.17 und docs/fork/2026-08-15_TURBO4_V_INVESTIGATION.md.
+# turbo4 V + mmproj + 262144 (2026-08-15, §5.17): damals BLOCKED
+#   (keine Pipeline-Cache-Hits, 5+min Recompiles). RETEST 2026-09-29 (§5.20):
+#   FUNKTIONIERT — Vision korrekt in 2.8s, ~23 t/s Decode.
+#   Damalige Ursache war vermutlich TTM-Deckel ~15 GiB + nogttspill,
+#   nicht (nur) der VkPipelineCache. Siehe Trilium SWumEN7WOXBI §5.19/§5.20.
 #
 # GGML_VK_SUBALLOCATION_BLOCK_SIZE=2147483648 (2 GiB):
 #   Default ist 1 GiB (ggml-vulkan.cpp, Fragmentierungs-Limit, NICHT BIOS-Carveout).
@@ -35,17 +34,19 @@
 #
 # Cache-Konfiguration:
 #   --cache-ram 12288        12 GB CPU-RAM für serialisierte KV-States
-#                            (freies RAM aus fehlendem mmproj genutzt)
 #   --cache-reuse 1        KV-shift für nicht-prefix Chunks (RAG, Tool-Defs)
 #   --slot-cache-key-*       cache_key-Validierung (Router sendet cache_key)
 #
-# Vision: DEAKTIVIERT. Vision-Requests werden an venus geroutet.
-#   turbo4/3 + mmproj + 262144 → ❌ BLOCKED (RADV Pipeline-Cache defekt).
-#   turbo3/3 + mmproj + 262144 + nogttspill funktionierte, aber TG langsamer.
+# Vision: AKTIV seit 2026-09-29 (§5.20 Retest — historischer Blocker war
+#   TTM-Deckel + nogttspill, nicht der VkPipelineCache).
+#   mmproj-F16.gguf (GPU-Offload): Encode 4.1s @280 Tok, ~19s @1024 Tok.
+#   --image-min/max-tokens steuert die Scan-Granularitaet (wie Qwen).
+#   WICHTIG: -ub muss >= image-max-tokens sein! Non-causal Vision-Attention
+#   assertet sonst (GGML_ASSERT crash) — daher -ub 4096 bei max 1024.
 #
-# Performance (2026-08-15): ~16.8 t/s (tg parallel) — 2×128k, turbo4/3, kein mmproj.
-#   Erster Request mit Pipeline-Cache: 2.9s (Cache funktioniert für turbo4/3 ohne mmproj).
-#   Startup: ~290s (Pipeline-Kompilierung, nur beim ersten Start nach Cache-Reset).
+# Performance (2026-09-29): ~18 t/s pro Slot parallel (~36 t/s Aggregat) —
+#   2×128k, turbo4/4, mmproj-F16 aktiv. Vision-Encode: 4.1s @280 Tok,
+#   ~19s @1024 Tok (GPU). Text im Bild wird ab ~1024 Tok gelesen (OCR).
 #
 # Start: bash ~/git/fukuro-llama-cpp-turboquant/scripts/start-mars-26b-server.sh
 # Stop:  systemctl --user stop llama-server.service
@@ -134,10 +135,14 @@ export RADV_PERFTEST="${RADV_PERFTEST:-nircache}"
 cd "$ROOT"
 exec "$SERVER" \
   -m "$MAIN" \
+  --mmproj "${MMPROJ:-/jade/models/gemma-4-26B-A4B-it/mmproj-F16.gguf}" \
+  --image-min-tokens "${IMAGE_MIN_TOKENS:-256}" \
+  --image-max-tokens "${IMAGE_MAX_TOKENS:-1024}" \
   --host "$HOST" --port "$PORT" \
   -c 262144 -ngl 99 \
-  -ctk turbo4 -ctv turbo3 -fa on \
+  -ctk turbo4 -ctv turbo4 -fa on \
   -fit off \
+  -ub 4096 \
   --parallel 2 -np 2 --cont-batching \
   --temp 1.0 --top-p 0.95 --top-k 64 \
   --cache-ram 12288 \
