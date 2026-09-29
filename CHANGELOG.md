@@ -6,6 +6,23 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-09-29
+
+### ops: Gemma-4-Vision-Profil auf ub 2048 mit Bild-Budget 512–1984
+
+Gemma-Vision verarbeitet Bild-Chunks non-causal in einem U-Batch. Das bisherige
+`-ub 4096` wurde auf 2048 gesenkt; `--image-max-tokens 1984` lässt 64 Tokens
+(~3 %) Reserve für Alignment und zusätzliche Bild-Tokens. Überschreibungen mit
+Max >1984 werden beim Start abgewiesen. Das Minimum wurde auf 512 angehoben;
+das ist ein Konfigurationswert, **keine** bewiesene Qualitätsverbesserung.
+
+**Verifikation:** `bash -n` und Start-Guard geprüft; auf dem produktiven
+Vulkan-Host nach Stop und GTT-Freigabe neu gestartet, `/health` ok. Chart
+(1969 Prompt-Tokens, 87 s) und Dashboard (905, 38 s) mit Vision erfolgreich.
+Der frühere `llama-bench`-pp4096-Sweep ergab 250 t/s @ub2048 gegen 245 t/s
+@ub4096 (`-r 1`, text-only ohne mmproj/volle Kontextbelegung) — daraus folgt
+**kein** abgesicherter Produktiv-Speedup; weitere Bildformate bleiben zu testen.
+
 ## 2026-09-26
 
 ### feat: K2-Horizon MTP-Sidecar-Support (draft-mtp)

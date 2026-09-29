@@ -43,10 +43,10 @@
 | `run-gemma4-e4b-mtp-mmproj-server.sh` | Gemma 4 E4B multimodaler MTP-Server starten. |
 | `run-gemma4-12b-iq4nl-pascal-server.sh` | Gemma 4 12B IQ4_NL MTP-Server (Pascal-Host, Port 18080). |
 | `run-gemma4-26b-a4b-mtp-pascal-server.sh` | Gemma 4 26B-A4B MoE MTP-Server mit thecodacus Pinning+Prefetch (Pascal-Host). |
-| `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT Server (Vulkan, turbo4/3, kein mmproj, 262144 ctx). |
+| `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT (Vulkan, turbo4/4, mmproj-F16, 262144 ctx, ub 2048, Bild-Tokens 512–1984). |
 | `precompile-vulkan-shaders.sh` | Systematisches Precompile aller FA-Pipeline-Varianten mit Cache-Backup. |
 | `start-venus-26b-server.sh` | Gemma 4 26B-A4B QAT Vulkan-Server mit `--mmproj` (Vision/SigLIP). f16 KV, 256k Ctx, 2 Slots. Siehe `docs/fork/2026-08-14_GEMMA4_VISION_MMPROX.md`. |
-| `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT Vulkan-Server (RDNA3). turbo4/3 KV, 262144 Ctx (2×128k), kein mmproj. |
+| `start-mars-26b-server.sh` | Vision-Produktivprofil: Gemma 4 QAT, turbo4/4 KV, 2×128k, mmproj-F16, ub ≥ Bild-Chunk; vor Neustart GTT-Freigabe prüfen. |
 | `start-styx-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Pascal). turbo4/3 KV, 196k Ctx. |
 | `start-uranus-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Ada, GPU 0, Port 18080). MoE-Offload, MTP. |
 | `start-uranus-26b-gpu1-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Ada, GPU 1, Port 18082). 2. Instanz, Prefetch deaktiviert. |

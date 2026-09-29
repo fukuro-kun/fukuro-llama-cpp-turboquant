@@ -68,8 +68,24 @@ duerfen ueber U-Batches gesplittet werden — diese Eval lief komplett mit
 `-ub 512` bei Bildern bis 4112 Tokens. Fuer Qwen-VLM-Profile muss `-ub`
 daher NICHT auf image-max-tokens dimensioniert werden (nur ctx/VRAM).
 
-Vermessung 29.09. (llama-bench, pp4096, -r 1): phobos/Gemma saturiert bei
-`-ub 2048` (250 t/s; 187@256, 219@512, 239@1024, 245@4096). eris/Qwen3.8:
-Thermik dominiert (kalt 320 t/s @2048 → ~178 unter Dauerlast,
-Reihenfolge-unabhaengig); `-ub 4096` crasht in VRAM-OOM (Compute-Puffer +
-11,3 GiB Modell > 16 GiB). Empfehlung Qwen-VLM-Profil: `-ub 1024`–`2048`.
+Vorlaeufige Text-only-Messungen 29.09. (`llama-bench`, -r 1, b8192):
+AMD-APU/Gemma: pp4096 187/219/239/250/245 t/s bei ub256/512/1024/2048/4096.
+ub2048 statt 4096 ist ein Kandidat, keine statistisch belegte
+Produktivbeschleunigung. Im Vision-Produktivprofil sind seitdem ub2048,
+Bild-Tokens 512–1984 aktiv; Chart (1969 Prompt-Tokens) und Dashboard
+(905) liefen mit GPU-mmproj durch. Die 64-Token-Marge beweist nicht,
+dass alle Bildformate unterhalb der Chunk-Grenze bleiben.
+
+CUDA/Qwen3.8: Der fruehere Schluss „ub 256–384 optimal“ bzw.
+„ub128 wegen kompaktem MoE-Working-Set schneller“ war **nicht belegt**.
+Bei einem gespiegelten Text-only-Sweep mit konstantem p4096, n0, b8192
+und `n_ctx=4096` wechselte das ASUS-Profil **waehrend** der Messung von
+`quiet` auf `performance`; SW-Thermal-Slowdown war aktiv. Ein zweiter
+Sweep bei `n_ctx=8192` (p4096 + d4096) ergab u. a. ub32 215/194,
+ub48 267/263, ub64 297/304, ub80 313/319, ub96 343/336,
+ub112 350/350 und ub128 474/371 t/s (hin/zurueck).
+Die grosse 128-Drift und 88–89 °C zeigen Thermik als Stoergroesse.
+Bei ub4096 scheiterte ein separater b8192-Benchmark an CUDA-VRAM;
+daraus folgt **keine** universelle Obergrenze fuer andere Kontext-/Batch-
+Konfigurationen. Ein Qwen-VLM-Optimum fuer feste 64k ist noch nicht
+ermittelt; aus diesen Daten folgt **keine** ub-Empfehlung fuer Produktion.
