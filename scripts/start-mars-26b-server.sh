@@ -72,6 +72,30 @@ if lsof -ti:"$PORT" >/dev/null 2>&1; then
   echo "error: port $PORT already in use (lsof -ti:$PORT)" >&2; exit 1
 fi
 
+# GPU-Exklusivitaets-Guard (2026-09-29, Host-OOM auf mars):
+# Auf dieser APU (GTT == System-RAM, 30 GB Host) duerfen niemals zwei
+# llama-server parallel allokieren. SIGTERM braucht Sekunden bis die
+# GTT-Buffer freigegeben sind — ein neuer Server waehrend der alte noch
+# freigibt => kombinierter Peak > RAM => Host-Kernel-OOM.
+# Regel: stoppen -> Prozess weg + GTT gefallen -> erst dann starten.
+deadline=$((SECONDS + 90))
+while pgrep -x llama-server >/dev/null 2>&1; do
+  if (( SECONDS >= deadline )); then
+    echo "error: other llama-server process still running after 90s" >&2
+    echo "       (check: pgrep -af llama-server)" >&2; exit 1
+  fi
+  echo "waiting for other llama-server to exit (GTT release)..." >&2
+  sleep 3
+done
+GTT_USED="/sys/bus/pci/devices/0000:65:00.0/mem_info_gtt_used"
+if [[ -r "$GTT_USED" ]]; then
+  used=$(cat "$GTT_USED")
+  # >4 GiB Rest-GTT ohne laufenden Server = anderer Allokator oder Leak
+  if (( used > 4294967296 )); then
+    echo "warning: gtt_used=${used} bytes — GPU memory not fully released" >&2
+  fi
+fi
+
 # thecodacus MoE-Optimierungen
 export GGML_SCHED_PREFETCH_EXPERTS="${GGML_SCHED_PREFETCH_EXPERTS:-1}"
 export GGML_SCHED_PREFETCH_SLOTS="${GGML_SCHED_PREFETCH_SLOTS:-2}"
@@ -97,10 +121,15 @@ export GGML_VK_CACHE_DIR="${GGML_VK_CACHE_DIR:-/home/fukuro/.cache/ggml-vk-pipel
 export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-/home/fukuro/.cache/mesa-shader-cache}"
 export MESA_SHADER_CACHE_MAX_SIZE="${MESA_SHADER_CACHE_MAX_SIZE:-2G}"
 # NIR-Cache beschleunigt Replay bei Graphics Pipeline Libraries.
-# nogttspill: Deaktiviert RADV GTT-Spill-Heuristik — fixt 262144+mmproj Pathologie
-# auf gfx1103 (UMA-APU, GTT == System-RAM, Spilling ist kostenlos).
-# Siehe Trilium SWumEN7WOXBI §5.15.
-export RADV_PERFTEST="${RADV_PERFTEST:-nircache,nogttspill}"
+# ⚠️ nogttspill (2026-09-29 RCA): verbietet RADV den GTT-Spill-Pfad.
+#   War urspruenglich fuer die 262144+mmproj Pathologie auf gfx1103.
+#   ABER: ohne Spill schlaegt die amdgpu CS-Validation bei grosser
+#   Gesamt-Allokation fehl -> "Not enough memory for command submission"
+#   -> vk::Queue::submit ErrorDeviceLost beim Context-Init.
+#   Auf UMA-APUs (VRAM-Carveout ~1 GiB, GTT == System-RAM) ist das Flag
+#   kontraproduktiv — nur noch nircache setzen.
+#   Siehe Trilium SWumEN7WOXBI §5.15 + zYeLUsss9udM / o6jGT8Qwqm4y.
+export RADV_PERFTEST="${RADV_PERFTEST:-nircache}"
 
 cd "$ROOT"
 exec "$SERVER" \

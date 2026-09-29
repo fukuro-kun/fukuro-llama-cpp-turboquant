@@ -78,6 +78,7 @@
 **Benchmark-Best-Practices (gelernt aus InferenzQuelle):**
 
 1. **GPU-Bereinigung vor jedem Test:** `killall -9 llama-cli` + 3s Pause (verhindert OOM bei aufeinanderfolgenden Tests).
+   **Auf APU-Hosts (phobos/mars, GTT == System-RAM) strengere Regel (UNVERHANDELBAR, Host-OOM am 2026-09-29):** Niemals zwei Vulkan-Server-Allokationen ueberlappen lassen. Reihenfolge: Server stoppen → `pgrep -x llama-server` leer UND `mem_info_gtt_used` gefallen → erst dann neuen Server starten. SIGTERM braucht Sekunden fuer die GTT-Freigabe; ein parallel startender Server erzeugt einen Peak > Host-RAM → Kernel-OOM legt den ganzen Host lahm. `start-mars-26b-server.sh` enthaelt diesen Guard eingebaut.
 2. **Datei-Pruefung:** Target und Draft vor dem Test auf Existenz pruefen (vermeidet Exit 127).
 3. **Output in Variable:** Statt direkte Log-Umleitung — Output in Variable speichern, dann parsen (sauberes Extrahieren von Metriken).
 4. **sync nach CSV-Eintrag:** `sync` nach jedem `echo >> "$CSV"` (Persistenz bei Absturz oder SIGKILL).
