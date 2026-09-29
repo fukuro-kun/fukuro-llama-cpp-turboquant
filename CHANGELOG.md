@@ -19,6 +19,8 @@ das ist ein Konfigurationswert, **keine** bewiesene Qualitätsverbesserung.
 **Verifikation:** `bash -n` und Start-Guard geprüft; auf dem produktiven
 Vulkan-Host nach Stop und GTT-Freigabe neu gestartet, `/health` ok. Chart
 (1969 Prompt-Tokens, 87 s) und Dashboard (905, 38 s) mit Vision erfolgreich.
+Text-Prefill im Produktionsprofil ergab 210/295/252/190 t/s für
+256/1024/4096/10240 Tokens (`cache_n=0`; `prompt_n` enthält zusätzlich BOS).
 Der frühere `llama-bench`-pp4096-Sweep ergab 250 t/s @ub2048 gegen 245 t/s
 @ub4096 (`-r 1`, text-only ohne mmproj/volle Kontextbelegung) — daraus folgt
 **kein** abgesicherter Produktiv-Speedup; weitere Bildformate bleiben zu testen.

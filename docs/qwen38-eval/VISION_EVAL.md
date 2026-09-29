@@ -131,3 +131,12 @@ Eris-Qwen-VLM-Profiltest; noch kein Produktionsoptimum. 112 war der groesste
 gemessene Wert, kein bewiesener Knick/Saettigungspunkt. Auf Phobos nicht
 uebertragbar: anderes Modell und Vulkan-Backend; Gemma-Vision erzwingt zusaetzlich
 `ub >= Bild-Chunk-Tokens`.
+
+Phobos/Gemma Produktionsprofil (Vulkan, `-ub 2048`, 262144 total / zwei
+Slots, echte Prompt-Requests bei zuvor idle Slots): 256/1024/4096/10240
+Prompt-Tokens ergaben 210/295/252/190 t/s (`prompt_n` jeweils +1 BOS-Token,
+`cache_n=0`). Der Durchsatz ist nicht monoton mit Promptlaenge; das laengste
+Sample war langsamer. Das ist eine einzelne Laufserie und wegen anderer
+Architektur/Backend kein direkter Zahlenvergleich mit Eris/Qwen. Der aktuelle
+Vision-Chunk-Grenzwert (1984) ist unabhaengig davon durch den Gemma-Assert
+bestimmt.
