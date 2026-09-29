@@ -122,11 +122,12 @@
 - [x] InferenzQuelle `AGENTS.md`: Remote-Topologie statt codeberg-origin
 - [x] `LOKAL.md`: Git-Remote-Topologie-Sektion + clone-URL gefixt
 - [x] zirkon-Archiv: `sicherung_ganymed.sh` v0.3.2-Museumsstück → **Blaupause v0.6.0** (generisches Deployment-Rezept, kanonische SUBVOLUMES-Liste)
-- [ ] DOX-Durchlauf Fork-Repo (AGENTS.md-Kette — Fork-AGENTS.md Git-Hosting-Abschnitt ggf. erwähnen?)
-- [ ] TTT-Eintrag (ttt-Skill)
-- [ ] `git rm docs/HANDOFF-forgejo-selfhost.md` + Plan-Commit (Plan bleibt als Archiv oder wird mitgelöscht — fukuro-Entscheidung? Handoff-Anweisung sagte beide löschen)
+- [x] DOX-Durchlauf Fork-Repo: `AGENTS.md` (Primary Remote) + `FORKS.md` (Remote-Tabelle/Branch-Strategie) auf Forgejo umgestellt; IQ `AGENTS.md` committed+gepusht (`6646ac4`)
+- [x] TTT-Eintrag (Tag 29.09, ~17:00–23:06)
+- [x] `docs/HANDOFF-forgejo-selfhost.md` gelöscht (Implementation abgeschlossen)
+- [ ] **Restpunkt heute Nacht:** erster echter sicherung_ganymed-Lauf (tethys 04:45 / rhea 06:45) — pyrit-Inhalt muss auf beiden ankommen → morgen verifizieren (`ssh root@jupiter 'pct exec 102 -- du -sh /titan/pyrit'`)
 - [ ] `git fetch --unshallow` auf hydra + 228 Rest-Tags pushen (optional, Upstream-Tags auch via github erreichbar)
-- [ ] Session-Titel final prüfen
+- [ ] Diese Plan-Datei am Ende löschen + committen — nach Backup-Verifikation
 
 ## Bekannte Fallstricke (aus Recherche)
 
