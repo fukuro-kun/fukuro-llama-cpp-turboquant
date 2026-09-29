@@ -31,6 +31,21 @@ Der frühere `llama-bench`-pp4096-Sweep ergab 250 t/s @ub2048 gegen 245 t/s
 @ub4096 (`-r 1`, text-only ohne mmproj/volle Kontextbelegung) — daraus folgt
 **kein** abgesicherter Produktiv-Speedup; weitere Bildformate bleiben zu testen.
 
+### bench: Grobe UB-Stichprobe auf Ampere-Laptop und Ada-GPU
+
+Qwen3.8-27B Swiftal + F16-mmproj, `n_ctx=65536`, `-b8192`, cachefrei:
+`-ub 160/192/256/320/512/1024` bei 10k- und 25k-Prefill (2 Läufe je Punkt),
+50k-Stichprobe für ub256/512/1024. Ada erreicht 512–1024 ein Plateau,
+die Laptop-Messwerte steigen bis 1024, sind bei 86–89 °C aber oft mit
+`SW Thermal Slowdown` markiert. Daher Kandidatenbereiche je Host, kein
+universelles Optimum und keine Produktionsänderung.
+
+**Vergleichsvorbehalt:** Die beiden Server-Binaries waren nicht gleich gebaut
+(Version 9549/GCC 15.2 vs. 9559/GCC 13.3); absolute t/s-Abstände sind daher
+nicht als isolierter Hardware-Effekt zu lesen. Ein CUBLAS-Abbruch bei 50k/
+ub96 im selben-server-Wiederholungstest wurde dokumentiert; frische
+cache-disabled Hoch-ub-Stichproben bei 50k liefen.
+
 ## 2026-09-26
 
 ### feat: K2-Horizon MTP-Sidecar-Support (draft-mtp)

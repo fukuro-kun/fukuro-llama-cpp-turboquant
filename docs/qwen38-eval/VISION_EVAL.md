@@ -59,7 +59,7 @@ Warnung des Servers belegt: <1024 problematisch fuer Grounding/Detail.
 
 ## Ops-Hinweis: n_ubatch-Constraint ist GEMMA-spezifisch
 
-Auf phobos (Gemma 4) gilt `n_ubatch >= Bild-Tokens` — dort schaltet
+Auf amd-apu (Gemma 4) gilt `n_ubatch >= Bild-Tokens` — dort schaltet
 `mtmd_decode_use_non_causal()` (tools/mtmd/mtmd.cpp) die Decoder-Attention
 fuer Bild-Embeddings bidirektional (nur GEMMA3/GEMMA4V/GEMMA4UV), Micro-
 Batching ist dann unmoeglich (Assert in llama-context.cpp). Qwen-VL faellt
@@ -76,7 +76,7 @@ Bild-Tokens 512–1984 aktiv; Chart (1969 Prompt-Tokens) und Dashboard
 (905) liefen mit GPU-mmproj durch. Die 64-Token-Marge beweist nicht,
 dass alle Bildformate unterhalb der Chunk-Grenze bleiben.
 
-## Eris/Qwen3.8 Prefill ub-Sweep (29.09.)
+## RTX3080-Laptop/Qwen3.8 Prefill ub-Sweep (29.09.)
 
 Setup: llama-server, CUDA, Swiftal + GPU-offloaded F16-mmproj, batch 8192,
 slot context 65536, `cache_prompt=false`, gemessener `cache_n=0`. Je ub gab es
@@ -105,7 +105,7 @@ Starttemperatur verifiziert. Bei 4k/10k erschien trotzdem wiederholt
 `SW Thermal Slowdown` bei 86–89 °C; die waehrend-request 1-s Samples
 lagen meist bei 90–140 W. Ein unmittelbarer 10k/ub48-Nach-request-Snapshot
 zeigte 78,8 W bei aktivem Throttle; das war kein belegter Sustained-Wert
-waehrend des Prefills. Das sind Eris-Messwerte unter Performance-Profil,
+waehrend des Prefills. Das sind RTX3080-Laptop-Messwerte unter Performance-Profil,
 aber keine „throttle-freien“ Idealwerte. Das erwartbare Erreichen von 86 °C und
 die softwareseitige Slowdown-Anzeige werden getrennt protokolliert.
 
@@ -127,17 +127,49 @@ fest auf 65536 — deren ub-Trend kann also nicht durch unterschiedliche
 Kontextallokationen erklaert werden. Das 128k-Ergebnis gilt fuer ub112, nicht
 fuer jede ub-Stufe; ausserdem ist die VRAM-Reserve klein.
 
-**Vorlaeufige Empfehlung:** ub96–112 als naechstes Kandidatenband fuer einen
-Eris-Qwen-VLM-Profiltest; noch kein Produktionsoptimum. 112 war der groesste
-gemessene Wert, kein bewiesener Knick/Saettigungspunkt. Auf Phobos nicht
-uebertragbar: anderes Modell und Vulkan-Backend; Gemma-Vision erzwingt zusaetzlich
+**Zwischenstand:** Der erste Sweep bis ub112 war unvollstaendig; siehe die
+Erweiterungsstichprobe unten. Es gibt noch kein Produktionsoptimum und keinen
+Speedup-Beleg fuer ein produktives Profil. AMD-APU-Werte nicht uebertragen:
+anderes Modell/Backend; Gemma-Vision erzwingt zusaetzlich
 `ub >= Bild-Chunk-Tokens`.
 
-Phobos/Gemma Produktionsprofil (Vulkan, `-ub 2048`, 262144 total / zwei
+AMD-APU/Gemma Produktionsprofil (Vulkan, `-ub 2048`, 262144 total / zwei
 Slots, echte Prompt-Requests bei zuvor idle Slots): 256/1024/4096/10240
 Prompt-Tokens ergaben 210/295/252/190 t/s (`prompt_n` jeweils +1 BOS-Token,
 `cache_n=0`). Der Durchsatz ist nicht monoton mit Promptlaenge; das laengste
 Sample war langsamer. Das ist eine einzelne Laufserie und wegen anderer
-Architektur/Backend kein direkter Zahlenvergleich mit Eris/Qwen. Der aktuelle
+Architektur/Backend kein direkter Zahlenvergleich mit RTX3080-Laptop/Qwen. Der aktuelle
 Vision-Chunk-Grenzwert (1984) ist unabhaengig davon durch den Gemma-Assert
 bestimmt.
+
+## UB-Stichprobe bis 1024 auf RTX3080-Laptop und Ada-RTX4060Ti-GPU1 (29.09.)
+
+Gleicher Qwen3.8-Swiftal GGUF + F16-mmproj, ctx65536, batch8192,
+cache_n=0, Promptlaengen 10k/25k (je 2 Messungen); p50k wurde an ub256/512/1024
+je 1× getestet. Start je Request bei ≤72 °C ohne Throttle. Ada-RTX4060Ti-Server lief
+loopback-only auf der bereits reservierten GPU1-Portzuweisung; GPU0 blieb
+unangetastet.
+
+| ub | RTX3080-Laptop 10k | RTX3080-Laptop 25k | RTX3080-Laptop 50k | Ada-RTX4060Ti GPU1 10k | Ada-RTX4060Ti GPU1 25k | Ada-RTX4060Ti GPU1 50k |
+|---:|---:|---:|---:|---:|---:|---:|
+| 160 | 489 | 415 | — | 713 | 616 | — |
+| 192 | 498 | 443 | — | 758 | 675 | — |
+| 256 | 536 | 473 | 374 | 820 | 726 | 603 |
+| 320 | 505 | 448 | — | 771 | 671 | — |
+| 512 | 543 | 484 | 382 | 825 | 756 | 662 |
+| 1024 | **556** | **500** | **399** | 819 | 759 | **669** |
+
+Durchsatz in t/s. Auf RTX3080-Laptop war `SW Thermal Slowdown` bei allen 10k/25k-Stichproben
+aktiv; 50k-Max-Temperatur 89 °C, ein 50k/ub512-In-Request-Sample fiel auf
+78,81 W. Ada-RTX4060Ti GPU1 blieb bei ≤75 °C ohne Thermal-Flag; 10k/25k liegen dort
+im getesteten Band nahe ub512–1024, 50k steigt weiter bis ub1024.
+Das spricht fuer hardwareabhaengige Sweetspots, aber **nicht** fuer eine
+allgemeingueltige ub-Regel; ub>1024 ist offen. Ein Ada-RTX4060Ti-CUBLAS-Fehler bei
+50k/ub96 trat im separaten Wiederholungsversuch nach Position 49152 auf;
+frische cache-disabled 50k-Laeufe bei ub256/512/1024 liefen.
+
+**Vergleichsvorbehalt:** Die Hosts liefen nicht dieselbe Binärrevision:
+RTX3080-Laptop `aa1976da9` / llama.cpp 9549 (GCC 15.2), Ada-RTX4060Ti `d5b96935a` /
+llama.cpp 9559 (GCC 13.3). Innerhalb jedes Hosts ist der ub-Trend vergleichbar;
+die absolute RTX3080-Laptop-vs-Ada-RTX4060Ti-Speeddifferenz ist daher kein isolierter Hardware-
+Beweis. Ein streng kontrollierter Hardwarevergleich erfordert denselben Build.
