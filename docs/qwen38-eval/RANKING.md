@@ -120,6 +120,49 @@ CPU-Variante (f16 ~40 s, Q8_0 ~51 s); die Eris-Langsamkeit ist
 CPU-/Konkurrenz-bound, nicht Quantisierungs-Schuld. Schneller geht nur
 GPU-Offload (~0,9 s) → Hotplug-Idee in `docs/fork/ROADMAP.md`.
 
+### 5a. Vision-Tiefeneval beider Finalisten (2026-09-29, eris, GPU-mmproj)
+
+71 + 24 Requests gegen den fixierten 14-Bilder-Korpus
+(`/tmp/vision-eval/`, Scores in `/tmp/vision-eval-qwen38/scores.md`).
+Beide Finalisten mit `--spec-type draft-mtp n=2`, turbo4/3, F16-mmproj
+**GPU-offloaded** (Encode ~2,1 s @ ~2000 Tokens — der CPU-Bottleneck
+aus §5 ist damit eliminiert; VRAM-Preis ~0,9 GiB).
+
+**Ergebnis: swiftal 68/75 (2,72) — swiftunc 69/75 (2,76). Gleichstand.**
+Der Uncensored-Finetune kostet bei Vision **keine** messbare Qualitaet —
+die Fehler sind sogar *identisch* (gleiche Zifferndreher in der
+Wikipedia-Tabelle: Istanbul …602 statt …082, Rom …084 statt …984).
+
+Staerken (beide): UI-/Dashboard-Lesung, Chart-Datenextraktion (4,4 t/yr,
+33,5 Gt korrekt), Code-Transkription (17 Zeilen), Fraktur-OCR
+(Rauchwarenmarkt 1930 exzellent), Maxwell-LaTeX, Multi-Image.
+Schwaeche (beide): Kurrentschrift-Ankerdaten halluziniert (Ort/Jahr
+erfunden: „Stuttgart 1836" bzw. „Loerrach 1836" statt Friedrichshafen
+1856) — Grundstruktur + 600 fl. + Majestaets-Anrede aber korrekt.
+
+**Bild-Token-Granularitaet** (`--image-min/max-tokens`, forciert 256/512/1024
+auf 4 Kern-Bildern):
+- Homogene Anker-Bilder (Zeitungs-Titelkopf, Wiki-Artikeltitel)
+  ueberleben selbst **256 Tokens** mit korrekten Fakten → **3**.
+- Dichtes heterogenes Material (Dashboard) **halluziniert bei 256**
+  komplett (erfundenes Layout); braucht ≥512, besser ≥1024.
+- Server warnt selbst: „Qwen-VL require minimum 1024 image tokens for
+  grounding tasks" → Empfehlung **min 1024** wenn Detailtreue zaehlt;
+  256–512 reicht fuer grobe Klassifikation.
+- Nativ (keine Flags) ist aufloesungsgetrieben 736–4124 Tokens —
+  die sinnvollste Default-Einstellung.
+
+Ops-Befund: swiftunc @65536 crashte mit CUDA error beim Vision-Encode
+(Encode-Workspace ueber knapper VRAM-Marge ~1 GiB) — bei **ctx 40960**
+stabil. Produktions-Regel: Vision + swiftunc → ctx ≤48k oder mmproj Q8_0.
+Multi-Image (2 Bilder, 6151 ptok) funktioniert, ~190 s bei ~6,5 t/s
+(thermisch gedrosselte 3080, 88 °C).
+
+**Vergleichsanker:** Qualitaetsniveau ist praktisch identisch mit der
+Gemma-4-Konfiguration auf phobos (beide ~2,7) — Vision ist bei Qwen3.8
+produktiv nutzbar, sofern GPU-Offload des mmproj moeglich ist (ctx ≤64k
+bei swiftal / ≤48k bei swiftunc auf 16 GiB).
+
 ---
 
 ## 6. Multi-Seed-Delivery-Serie (12 Seeds, 3 Slots)
