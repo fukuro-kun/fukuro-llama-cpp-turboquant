@@ -76,16 +76,58 @@ Bild-Tokens 512–1984 aktiv; Chart (1969 Prompt-Tokens) und Dashboard
 (905) liefen mit GPU-mmproj durch. Die 64-Token-Marge beweist nicht,
 dass alle Bildformate unterhalb der Chunk-Grenze bleiben.
 
-CUDA/Qwen3.8: Der fruehere Schluss „ub 256–384 optimal“ bzw.
-„ub128 wegen kompaktem MoE-Working-Set schneller“ war **nicht belegt**.
-Bei einem gespiegelten Text-only-Sweep mit konstantem p4096, n0, b8192
-und `n_ctx=4096` wechselte das ASUS-Profil **waehrend** der Messung von
-`quiet` auf `performance`; SW-Thermal-Slowdown war aktiv. Ein zweiter
-Sweep bei `n_ctx=8192` (p4096 + d4096) ergab u. a. ub32 215/194,
-ub48 267/263, ub64 297/304, ub80 313/319, ub96 343/336,
-ub112 350/350 und ub128 474/371 t/s (hin/zurueck).
-Die grosse 128-Drift und 88–89 °C zeigen Thermik als Stoergroesse.
-Bei ub4096 scheiterte ein separater b8192-Benchmark an CUDA-VRAM;
-daraus folgt **keine** universelle Obergrenze fuer andere Kontext-/Batch-
-Konfigurationen. Ein Qwen-VLM-Optimum fuer feste 64k ist noch nicht
-ermittelt; aus diesen Daten folgt **keine** ub-Empfehlung fuer Produktion.
+## Eris/Qwen3.8 Prefill ub-Sweep (29.09.)
+
+Setup: llama-server, CUDA, Swiftal + GPU-offloaded F16-mmproj, batch 8192,
+slot context 65536, `cache_prompt=false`, gemessener `cache_n=0`. Je ub gab es
+zwei gepaarte Laeufe (ub64 vier); vor jedem Prompt wurde auf ≤72 °C und ohne
+aktives Throttle abgekuehlt. 256/1024/4096/10240 Tokens wurden per
+`/tokenize` exakt kalibriert. Gemessen wird der llama-server Prompt-Prefill
+mit synthetischem, identischem Wortfragment — nicht eine reale Chat-Aufgabe.
+
+| ub | 256 t/s | 1k t/s | 4k t/s | 10k t/s |
+|---:|---:|---:|---:|---:|
+| 32 | 308,7 | 332,9 | 311,7 | 284,9 |
+| 48 | 358,8 | 416,3 | 398,0 | 363,7 |
+| 64 | 431,8 | 492,3 | 472,5 | 424,5 |
+| 80 | 417,3 | 513,6 | 487,2 | 444,9 |
+| 96 | **475,2** | 557,7 | 526,2 | 476,6 |
+| 112 | 461,4 | **561,8** | **557,8** | **501,4** |
+
+Der getestete Bereich steigt fuer laengere Prefills bis ub112 an; ein Optimum
+ist das nicht, da groessere Werte noch nicht vermessen wurden. Bei 256 Tokens
+liegt ub96 vorn; bei 1k sind ub96/112 praktisch gleich. Qwen3.8 ist in dieser
+Konfiguration ein Dense-Modell — die fruehere Erklaerung mit „kompaktem MoE-
+Aktivierungs-Working-Set“ war sachlich falsch.
+
+**Thermik:** Vor jedem Lauf waren Performance-Profil, Fan-Boost und ≤72 °C
+Starttemperatur verifiziert. Bei 4k/10k erschien trotzdem wiederholt
+`SW Thermal Slowdown` bei 86–89 °C; die taeglichen waehrend-request Samples
+lagen meist bei 90–140 W. Ein 10k/ub48-Sample fiel auf 78,8 W mit aktivem
+Throttle. Deshalb sind das die realen Eris-Messwerte unter Performance-Profil,
+aber keine „throttle-freien“ Idealwerte. Das erwartbare Erreichen von 86 °C und
+die softwareseitige Slowdown-Anzeige werden getrennt protokolliert.
+
+## Kontextfenster isoliert (ub112, gleiche Prompts und Batch)
+
+Qwen3.8 + mmproj lief auch mit reserviertem `n_ctx=131072` (VRAM 14,9 GiB von
+15,6 GiB). Zwei Durchlaeufe pro Promptlaenge, `cache_n=0`:
+
+| Prompt | ctx 65536 | ctx 131072 |
+|---:|---:|---:|
+| 256 | 461,4 t/s | 462,1 t/s |
+| 1024 | 561,8 t/s | 562,5 t/s |
+| 4096 | 557,8 t/s | 559,8 t/s |
+| 10240 | 501,4 t/s | 502,7 t/s |
+
+Bei diesen Promptlaengen ist kein messbarer Prefill-Nachteil durch das
+reservierte 128k-Fenster sichtbar. Die ub-Reihe bei 64k hielt das Kontextfenster
+fest auf 65536 — deren ub-Trend kann also nicht durch unterschiedliche
+Kontextallokationen erklaert werden. Das 128k-Ergebnis gilt fuer ub112, nicht
+fuer jede ub-Stufe; ausserdem ist die VRAM-Reserve klein.
+
+**Vorlaeufige Empfehlung:** ub96–112 als naechstes Kandidatenband fuer einen
+Eris-Qwen-VLM-Profiltest; noch kein Produktionsoptimum. 112 war der groesste
+gemessene Wert, kein bewiesener Knick/Saettigungspunkt. Auf Phobos nicht
+uebertragbar: anderes Modell und Vulkan-Backend; Gemma-Vision erzwingt zusaetzlich
+`ub >= Bild-Chunk-Tokens`.
