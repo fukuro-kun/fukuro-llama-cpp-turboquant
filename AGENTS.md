@@ -240,7 +240,7 @@ Trilium `B3dfpx01pApY`
 
 ### Git-Workflow
 
-- **Primary Remote:** `git@codeberg.org:fukuro/fukuro-llama-cpp-turboquant.git`
+- **Primary Remote:** `git@git.eulenhorst.lan:fukuro/fukuro-llama-cpp-turboquant.git` (Forgejo `europa`, LXC 233 auf pluto — seit 2026-09-29; `codeberg`-Remote bleibt als Mirror-Option erhalten)
 - **Branch:** `master` (Hauptentwicklung)
 - **Commit-Format:** `<type>: <Was> — <Warum>` — Types: `feat`, `docs`, `fix`, `security`, `refactor`, `bench`
 - **Commits:** Deutsch, kurz und sachlich (keine generischen Marketing-Floskeln)

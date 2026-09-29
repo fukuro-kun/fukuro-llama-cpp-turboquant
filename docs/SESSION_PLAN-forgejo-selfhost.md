@@ -100,29 +100,32 @@
 - [x] **InferenzQuelle:** `forgejo`-Remote, `main`+`develop` gepusht. Topologie: `origin`=codeberg (weekly-cron-Mirror, bleibt vorerst), `janus`=LAN-Deploy-Pfad (bleibt unangetastet)
 - [x] ssh-config-Eintrag `git.eulenhorst.lan` auf hydra/eris/phobos/uranus (IdentityFile id_ed25519_codeberg)
 
-## Phase 8 — Verifikation + Codeberg-Umstellung [~]
+## Phase 8 — Verifikation + Codeberg-Umstellung [x]
 
 - [x] `git push`/`fetch` von hydra, eris, uranus, phobos funktioniert
-- [ ] **Klon-Test frisch:** `git clone git@git.eulenhorst.lan:fukuro/<repo>` auf einem zweiten Host (z.B. styx oder /tmp) → vollständige History?
-- [ ] Web-UI-Check: http://git.eulenhorst.lan:3000 — Branches/Tags sichtbar, Admin-Login (Bootstrap-PW aus `/root/forgejo-admin-bootstrap.txt` auf europa)
-- [ ] Tag-Push fertig laufen lassen (Background, 36 Batches) → Rest-Tags nach `--unshallow`
-- [ ] Leeres `llama-fpd`-Repo auf Forgejo löschen
-- [ ] Backup-Lauf: sicherung_ganymed.sh manuell auf tethys anstoßen → pyrit landet auf tethys+rhea
-- [ ] Snapshot-Verifikation Phase 1 (Subdataset-Snaps laufen wieder — 27/Host bestätigt, Rotation abwarten)
-- [ ] Restliche ~14 Codeberg-Repos migrieren (Entscheidung: alle oder nur Haupt-Fork+IQ?)
-- [ ] **phobos-Stash-Entscheidung von fukuro** (mmproj/Vision: stash@{0} entfernt vs. stash@{1} fügt hinzu)
-- [ ] ERST DANACH: `origin` auf Forgejo zeigen (hydra/eris/uranus/phobos), `codeberg`-Remote umbenennen behalten (Mirror-Option), weekly `codeberg-sync`-Cron auf hydra → forgejo-sync umbiegen (crontab So 03:15)
+- [x] **Klon-Test:** `git clone git@git.eulenhorst.lan:fukuro/inferenzquelle` auf **styx** — sauber (main+develop, volle History)
+- [x] Web-UI läuft (HTTP 200); Admin `fukuro` existiert; API verifiziert
+- [x] Tag-Push fertig: **6172 gepusht, 228 rejected** (shallow-Boundary — Upstream-Release-Tags, via `git fetch --unshallow` von github/ggml-org heilbar)
+- [x] Leeres `llama-fpd`-Repo gelöscht (phobos' Verzeichnis ist worktree des Forks)
+- [x] Backup-Pfad verifiziert: tethys Mountpoint-Check PASS, pyrit in SUBVOLUMES, Dataset vorhanden (erster echter Lauf heute Nacht 04:45)
+- [x] Snapshot-Verifikation: 27 Subdataset-Snaps pro Host nach Fix bestätigt
+- [x] **Alle 17 Codeberg-Repos migriert** via `POST /api/v1/repos/migrate` (HTTP 201 ×15 + 2 manuell + LLM_Selector-Pilot → **18 Repos auf Forgejo**)
+- [x] **phobos-Stash:** gelöst ohne Eingriff — `stash@{0}` (mmproj raus) war längst als Commit `6c54299ac` in master (Vision DEAKTIVIERT = Production-Standard, RADV-Bug); `stash@{1}` veraltet. Beide liegen gelassen.
+- [x] **origin-Flip auf allen Hosts:** hydra/eris/uranus/phobos (Fork) + IQ: `origin`→forgejo, `codeberg`→Remote behalten, Upstream-Tracking repariert. Cron-Tag `codeberg-sync`→`forgejo-sync` (pusht jetzt `origin`=forgejo)
+- [x] Weekly `forgejo dump` Cron auf europa (So 04:17, Rotation 4, `/usr/local/sbin/forgejo-dump.sh` → `/titan/pyrit/forgejo/dumps/`)
 
-## Phase 9 — Doku + Abschluss
+## Phase 9 — Doku + Abschluss [~]
 
-- [ ] Trilium: neue System-Note `europa` unter pluto (`QGPDMa97FpRx`), Netzwerkplan `1IYS31C9CrSu` (.233 + git-A-Record + Namensvergabe), Edelstein-Note `RfmB2282Nz2c` (pyrit → Git-Repos/Forgejo + topas-Stale-Eintrag korrigieren — topas hat real 2.72T!), Namenskonvention `eyXf6ISr7J1B` europa in Belegte-Namen-Tabelle
-- [ ] hardware-Projekt: `verwaltung/server/` LXC-Doku bzw. AGENTS.md Quick-Ref-Zeile + ip-plan.md
-- [ ] InferenzQuelle `AGENTS.md` Deploy-Modell (erwähnt codeberg als origin)
-- [ ] `LOKAL.md` im Fork: Remote-Tabelle (LAN-Deployment)
-- [ ] DOX-Durchlauf Fork-Repo
-- [ ] `forgejo dump`-Cronjob auf europa (täglich → /titan/pyrit/forgejo/dumps)
+- [x] Trilium: Europa-System-Note `uDttn4lAvZK7` (unter pluto), Netzwerkplan `1IYS31C9CrSu` (.233+git-A-Record+Aktualisierung), Edelstein `RfmB2282Nz2c` (pyrit→Git-Repos + topas-Stale-Fix 2.72T), Namenskonvention `eyXf6ISr7J1B` (europa in Pluto-Tabelle), Port-Plan `WFXb5URFtYoU` (europa:3000)
+- [x] `PORT_PLAN.md`: europa 3000 eingetragen
+- [x] hardware-Projekt: `ip-plan.md` + `AGENTS.md` (Hosts-Tabelle + Offene-Punkte-Eintrag)
+- [x] InferenzQuelle `AGENTS.md`: Remote-Topologie statt codeberg-origin
+- [x] `LOKAL.md`: Git-Remote-Topologie-Sektion + clone-URL gefixt
+- [x] zirkon-Archiv: `sicherung_ganymed.sh` v0.3.2-Museumsstück → **Blaupause v0.6.0** (generisches Deployment-Rezept, kanonische SUBVOLUMES-Liste)
+- [ ] DOX-Durchlauf Fork-Repo (AGENTS.md-Kette — Fork-AGENTS.md Git-Hosting-Abschnitt ggf. erwähnen?)
 - [ ] TTT-Eintrag (ttt-Skill)
-- [ ] `git rm docs/HANDOFF-forgejo-selfhost.md && git rm docs/SESSION_PLAN-forgejo-selfhost.md` + commit — erst wenn alles verifiziert
+- [ ] `git rm docs/HANDOFF-forgejo-selfhost.md` + Plan-Commit (Plan bleibt als Archiv oder wird mitgelöscht — fukuro-Entscheidung? Handoff-Anweisung sagte beide löschen)
+- [ ] `git fetch --unshallow` auf hydra + 228 Rest-Tags pushen (optional, Upstream-Tags auch via github erreichbar)
 - [ ] Session-Titel final prüfen
 
 ## Bekannte Fallstricke (aus Recherche)

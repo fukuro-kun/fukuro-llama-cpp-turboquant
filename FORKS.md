@@ -24,7 +24,7 @@ fukuro-kun/fukuro-llama-cpp-turboquant  (GitHub-Mirror)
     |
     |  (+ DiffusionGemma, Vulkan-Turbo3, lokale Anpassungen)
     v
-codeberg.org/fukuro/fukuro-llama-cpp-turboquant  (PRIMARY REMOTE)
+git.eulenhorst.lan/fukuro/fukuro-llama-cpp-turboquant  (PRIMARY REMOTE — Forgejo europa, seit 2026-09-29; vormals codeberg.org)
 ```
 
 ---
@@ -33,7 +33,8 @@ codeberg.org/fukuro/fukuro-llama-cpp-turboquant  (PRIMARY REMOTE)
 
 | Remote | URL | Rolle |
 |--------|-----|-------|
-| **Primary** | `git@codeberg.org:fukuro/fukuro-llama-cpp-turboquant.git` | Haupt-Repository. Hier laeuft die Entwicklung. |
+| **Primary** | `git@git.eulenhorst.lan:fukuro/fukuro-llama-cpp-turboquant.git` | Haupt-Repository (Forgejo `europa`, LXC 233 auf pluto). Hier laeuft die Entwicklung. |
+| **Codeberg** | `git@codeberg.org:fukuro/fukuro-llama-cpp-turboquant.git` | Legacy-Remote (nicht mehr gepusht, Mirror-Option). |
 | **GitHub** | `git@github.com:fukuro-kun/fukuro-llama-cpp-turboquant.git` | Mirror und Sync-Punkt mit AtomicBot-ai. |
 | **AtomicBot (Upstream-Fork)** | `git@github.com:AtomicBot-ai/atomic-llama-cpp-turboquant.git` | Direkter Upstream-Fork. PR-Ziel fuer saubere Aenderungen. |
 | **TheTom (Origin-TurboQuant)** | `git@github.com:TheTom/llama-cpp-turboquant.git` | Ursprung der TurboQuant-Features. |
@@ -42,7 +43,7 @@ codeberg.org/fukuro/fukuro-llama-cpp-turboquant  (PRIMARY REMOTE)
 **Empfohlener Workflow:**
 ```bash
 # Standard-Entwicklung
-origin = codeberg.org:fukuro/... (push/pull)
+origin = git.eulenhorst.lan:fukuro/... (push/pull)  # Forgejo europa
 
 # Sync mit AtomicBot
 upstream = github.com:AtomicBot-ai/... (fetch only)
@@ -244,9 +245,9 @@ Alle Cherry-Picks wurden vor dem Sync-Merge abgeschlossen oder blockiert. Detail
 
 | Branch | Remote | Zweck |
 |--------|--------|-------|
-| `master` | Codeberg (primary) | Hauptentwicklung (vor Sync-Merge). |
+| `master` | Forgejo `europa` (primary) | Hauptentwicklung (vor Sync-Merge). |
 | `feature/sync-atomicbot-2026-06-19` | lokal | Sync-Merge mit AtomicBot 2026-06-19. Sauber als Squash-Commit auf master neu aufgebaut (Original-Branch hatte korrupte Git-Objekte). Neuer Haupt-Branch nach Verifikation. |
-| `feature/diffusion-gemma-v2` | Codeberg | DiffusionGemma V2 (Entropy-Bound Decoder, PREFILL/DECODE-Fix, PKV pro Layer). |
+| `feature/diffusion-gemma-v2` | Forgejo `europa` | DiffusionGemma V2 (Entropy-Bound Decoder, PREFILL/DECODE-Fix, PKV pro Layer). |
 
 **Nach Sync-Merge:** `feature/sync-atomicbot-2026-06-19` wird nach `master` gemerged. Die alten Branches sind gelöscht.
 
