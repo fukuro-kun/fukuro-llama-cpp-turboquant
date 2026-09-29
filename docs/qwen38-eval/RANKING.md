@@ -181,17 +181,31 @@ skaliert ~3,9 KiB/Token, Compute-Overhead fix).
 ## 8. Kontext-Frontier Eris (verifiziert mit echter Generierung)
 
 "Load ≠ Generate": 163840 *lädt*, stürzt aber am ersten Forward ab.
+Checkpoints allokieren dynamisch ~+200 MiB während der Generation.
 Gemessen: Server-Health + Light-Coding-Task + nvidia-smi.
 
-| Modell | Max verifiziert (Load+Gen) | Headroom | Grenze |
+| Modell | Stabil (Load+Gen) | Absolutes Max | Grenze |
 |---|---|---|---|
-| **swiftal** | **131 072** | ~830 MiB frei | 163840 lädt, Gen-Crash (~35 MiB); 180224 Load-Fail |
-| **swiftunc** | **114 688** | ~390 MiB frei | 131072 Load-OOM |
+| **swiftal** | **147 456** (Peak 15 755, ~230 frei) | 155 648 überlebt knapp (~31 frei) | 163 840 lädt, Gen-Crash; 180 224 Load-Fail |
+| **swiftunc** | **114 688** (~390 frei) | 122 880 auf Uranus ok (~125 frei → Eris ~160) | 131 072 Load-OOM |
 
 VRAM-Budget swiftal@98k: 11160 Gewichte + 1416 KV + 449 Recurrent +
 560 Compute + 384 Draft-KV + 164 Draft-Compute ≈ 14,2 GiB.
-swiftunc@98k (12,2 GiB Datei): 15591 @112k gemessen, ~790 frei @98k.
 Marginale KV-Kosten ~18,3 KiB/Token (Target turbo4/3 + Draft f16).
+
+### --parallel 2: gemessen, verworfen
+
+| Host | Config | pro Slot | Aggregat | Latenz/Req |
+|---|---|---|---|---|
+| uranus | par2 @131072 (2×65536) | 19,8–24,2 t/s | ~40 t/s | ~94 s (vs ~55 s) |
+| uranus | par1 @131072 | 40,9 t/s | ~41 t/s | 55 s |
+| eris | par2 @131072 | 7,4–7,8 t/s | **~15 t/s** | Timeout @280 s |
+| eris | par1 @131072 | ~30 t/s | ~30 t/s | ~110 s |
+
+Decode ist bandwidth-/SM-bound: zwei Slots teilen Bandbreite, Aggregat
+steigt nicht (uranus ~gleich, eris **halbiert sich**), Latenz pro
+Request ~verdoppelt. Zudem LOAD-FAIL bei par2@155648 (Compute-pp-
+Buffer verdoppelt sich → +~560 MiB). → **Produktion: --parallel 1.**
 
 ## FINALE EMPFEHLUNG
 
@@ -243,21 +257,23 @@ verbrannt) und ~2/3 insgesamt — deklassiert sich selbst bei größerem n.
 ### Empfohlene Produktions-Configs (Eris, 16 GB)
 
 ```text
-# swiftal (aligned) — verifiziert Load+Gen @131072
+# swiftal (aligned) — verifiziert Load+Gen @147456 (~230 MiB frei)
 -m Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf
 --spec-type draft-mtp --spec-draft-n-max 2
--c 131072 -ngl 99 -ub 512 -fa on -ctk turbo4 -ctv turbo3
+-c 147456 -ngl 99 -ub 512 -fa on -ctk turbo4 -ctv turbo3
 --parallel 1 --cache-ram 0 --no-warmup -fit off --jinja
 # Request: seed=-1, temp=0.7, top_p=0.95, min_p=0.0,
 #          reasoning_effort=medium, Retry bei content_chars==0
 
 # swiftunc (uncensored) — verifiziert Load+Gen @114688
 -m Swift-1.5-Qwen3.8-27B-Uncensored-Dynamic-MTP-UD-Q3_K_XL.gguf
--c 114688  (Rest identisch; 98304 für ~800 MiB Sicherheitsmarge)
+-c 114688  (Rest identisch; 122880 läuft auf Uranus, Eris-Reserve ~160 MiB;
+           98304 für ~800 MiB Sicherheitsmarge)
 ```
 
-Nicht verwenden: `-ctkd/-ctvd` bei ≤~130k (§7), ctx > empfohlene Werte
-(§8 — 163840 lädt, aber Generation crasht).
+Nicht verwenden: `-ctkd/-ctvd` bei ≤~130k (§7), `--parallel 2` (§8 —
+kein Durchsatzgewinn, Latenz verdoppelt, eris-Aggregat halbiert),
+ctx > empfohlene Werte (§8 — 163840 lädt, aber Generation crasht).
 
 ### Offene Risiken
 - Delivery-Flakiness ist teils seed-sensitiv: Produktion sollte Retry-Logik
