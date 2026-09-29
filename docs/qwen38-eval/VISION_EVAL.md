@@ -102,9 +102,10 @@ Aktivierungs-Working-Set“ war sachlich falsch.
 
 **Thermik:** Vor jedem Lauf waren Performance-Profil, Fan-Boost und ≤72 °C
 Starttemperatur verifiziert. Bei 4k/10k erschien trotzdem wiederholt
-`SW Thermal Slowdown` bei 86–89 °C; die taeglichen waehrend-request Samples
-lagen meist bei 90–140 W. Ein 10k/ub48-Sample fiel auf 78,8 W mit aktivem
-Throttle. Deshalb sind das die realen Eris-Messwerte unter Performance-Profil,
+`SW Thermal Slowdown` bei 86–89 °C; die waehrend-request 1-s Samples
+lagen meist bei 90–140 W. Ein unmittelbarer 10k/ub48-Nach-request-Snapshot
+zeigte 78,8 W bei aktivem Throttle; das war kein belegter Sustained-Wert
+waehrend des Prefills. Das sind Eris-Messwerte unter Performance-Profil,
 aber keine „throttle-freien“ Idealwerte. Das erwartbare Erreichen von 86 °C und
 die softwareseitige Slowdown-Anzeige werden getrennt protokolliert.
 
