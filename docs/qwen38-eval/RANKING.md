@@ -256,19 +256,31 @@ verbrannt) und ~2/3 insgesamt — deklassiert sich selbst bei größerem n.
 
 ### Empfohlene Produktions-Configs (Eris, 16 GB)
 
+**Dateien (eindeutige Identifikation):**
+- `Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf` — **12 120 016 896 B**
+  (11,29 GiB, 3.55 BPW). GGUF `general.name`: `Swift15-GSQ-V1MIX-ISTAalloc-IQ3_S MTP`.
+  HF-Org `ukisai`, Lizenz `swift-open-license-1.0`. MTP-Head eingebaut
+  (nextn-Layer im GGUF — kein separates Draft-File nötig).
+- `Swift-1.5-Qwen3.8-27B-Uncensored-Dynamic-MTP-UD-Q3_K_XL.gguf` —
+  **13 146 392 192 B** (12,24 GiB, 3.85 BPW). UD-Quant + eingebauter MTP.
+
 ```text
 # swiftal (aligned) — verifiziert Load+Gen @147456 (~230 MiB frei)
--m Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf
---spec-type draft-mtp --spec-draft-n-max 2
--c 147456 -ngl 99 -ub 512 -fa on -ctk turbo4 -ctv turbo3
---parallel 1 --cache-ram 0 --no-warmup -fit off --jinja
-# Request: seed=-1, temp=0.7, top_p=0.95, min_p=0.0,
-#          reasoning_effort=medium, Retry bei content_chars==0
+BIN -m Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf \
+    --spec-type draft-mtp --spec-draft-n-max 2 \
+    -c 147456 -ngl 99 -ub 512 -fa on -ctk turbo4 -ctv turbo3 \
+    --parallel 1 --cache-ram 0 --no-warmup -fit off --jinja \
+    --host 127.0.0.1 --port <PORT>
 
-# swiftunc (uncensored) — verifiziert Load+Gen @114688
--m Swift-1.5-Qwen3.8-27B-Uncensored-Dynamic-MTP-UD-Q3_K_XL.gguf
--c 114688  (Rest identisch; 122880 läuft auf Uranus, Eris-Reserve ~160 MiB;
-           98304 für ~800 MiB Sicherheitsmarge)
+# swiftunc (uncensored) — verifiziert Load+Gen @114688 (~390 MiB frei)
+BIN -m Swift-1.5-Qwen3.8-27B-Uncensored-Dynamic-MTP-UD-Q3_K_XL.gguf \
+    (alle übrigen Flags identisch) \
+    -c 114688        # 122880 geht knapp (~160 MiB); 98304 für ~800 MiB Marge
+
+# Request-Sampler (OpenAI-kompatibel):
+#   seed=-1  temperature=0.7  top_p=0.95  min_p=0.0
+#   chat_template_kwargs.reasoning_effort="medium"   # low für leichte Tasks
+#   max_tokens großzügig; RETRY bei content_chars==0 (Loop-Fail ~8 %)
 ```
 
 Nicht verwenden: `-ctkd/-ctvd` bei ≤~130k (§7), `--parallel 2` (§8 —
