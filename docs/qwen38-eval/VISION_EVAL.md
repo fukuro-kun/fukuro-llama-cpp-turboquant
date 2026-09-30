@@ -228,9 +228,9 @@ fallen ~6 % ab — cuBLAS-Tile-Selektion, kein Rauschen (beide Reps identisch).
 Praxisregel fuer Ada-RTX4060Ti/Qwen3.8: **ub ∈ {512, 640, 768, 1024, 1536},
 d.h. Vielfache von 128**, Abfall erst ab ~2048–3072, 4096 noch -5 %.
 Die ±64-Frage ist damit beantwortet: Zwischen 128er-Rasterpunkten gibt es
-Dips; die Wahl muss auf das 128er-Gitter fallen. Keine Produktionsprofil-
-Aenderung — Uranus-Produktion laeuft weiter auf GPU0/ub512, was innerhalb
-des Optimum-Bands liegt.
+Dips; die Wahl muss auf das 128er-Gitter fallen. Die damalige
+Produktionsbasis nutzte GPU0/ub512; das spaeter aktivierte Profil P mit UB640
+ist im Deployment-Abschnitt unten dokumentiert.
 
 **Vergleichsvorbehalt:** Die Hosts liefen nicht dieselbe Binärrevision:
 RTX3080-Laptop `aa1976da9` / llama.cpp 9549 (GCC 15.2), Ada-RTX4060Ti `d5b96935a` /
@@ -238,22 +238,129 @@ llama.cpp 9559 (GCC 13.3). Innerhalb jedes Hosts ist der ub-Trend vergleichbar;
 die absolute RTX3080-Laptop-vs-Ada-RTX4060Ti-Speeddifferenz ist daher kein isolierter Hardware-
 Beweis. Ein streng kontrollierter Hardwarevergleich erfordert denselben Build.
 
-## Produktionsupdate 2026-09-30
+## Dual-GPU Profile-P-Deployment mit MTP (2026-09-30)
 
-Auf Wunsch wurde der laufende Qwen3.8-Standardserver auf der CUDA-GPU mit
-`-ub 640` neu gestartet (ctx131072, 1 Slot, MTP n=2, Turbo4/3,
-kein mmproj in dieser bestehenden Instanz). `/health` und ein echter kurzer
-Chat-Smoke-Test waren zunächst erfolgreich. Das ist eine bewusste Wahl des
-UB640-Peaks trotz kleinem Vorteil gegenüber UB512. Bei einem späteren Long-Context-
-Request nach Wiederverwendung eines Cache-Checkpoints endete der Prozess mit
-CUDA-Fehler; Root Cause nicht bestätigt. Der Server-Port ist beim letzten Check
-frei und wurde im lokalen-only-Arbeitsumfang nicht erneut gestartet. Das lokale
-Startskript verwendet UB640 als Default (über `UB` überschreibbar); der Remote-
-Checkout ist noch nicht synchronisiert.
+Profil P läuft auf zwei RTX 4060 Ti mit vollem CUDA-Layer-Offload (`-ngl 99`,
+`-fit off`), UB640, Turbo4/3, je einem Slot und F16-mmproj auf CPU. Swiftal
+Standard auf GPU0 nutzt ctx131072; Swiftunc Uncensored auf GPU1 nutzt ctx114688.
+Beide Dienste sind mit `--spec-type draft-mtp --spec-draft-n-max 2` gestartet;
+JEV/Decision-Sequenzen bleiben aus. Direkte Text-Smokes und gleichzeitige
+CPU-mmproj-Vision-Smokes auf beiden Endpoints lieferten echten Inhalt; der
+Screenshot-Button wurde als „Senden“ erkannt. Extremauflösungs- und Dauerlast-
+Vision sind nicht geprüft.
 
-Das zusätzliche Uranus-Profil P ist lokal vorbereitet, aber noch nicht
-bereitgestellt/aktiviert: Standard-Vision auf Port 18084 (ctx98304, ein Slot)
-und Swiftunc-Uncensored-Vision auf Port 18085 (ctx81920, ein Slot), jeweils
-UB640, F16-mmproj, MTP aus. Beide Kontextpunkte bestanden einen Chart-Smoke;
-größere Bildformate und Dauerlast bleiben zu validieren. Die Qwen-Endpunkte
-verwenden keinen JEV-/parallel-decision-Modus.
+Swiftunc ctx114688 ist der höchste vollständig getestete MTP-on-Kontext mit
+Text- und Vision-Generation. Die Reserve auf GPU1 ist knapp (ca. 0.2 GiB nach
+dem gleichzeitigen Vision-Smoke). ctx122880 lud mit Batch 4096, crashte aber bei
+der ersten Generation durch CUDA-OOM in `cudaGraphInstantiate`; ctx131072
+scheiterte bereits beim Anlegen des MTP-Draft-Kontexts. Ein ctx122880/Batch-2048
+Load mit nur 32 MiB frei wurde nicht als stabiler Kandidat akzeptiert. UB640
+blieb unverändert.
+
+Ein früherer text-only-Standardserver mit MTP n=2 endete nach Cache-Checkpoint-
+Reuse mit CUDA-Fehler; die Ursache ist unbestätigt. Bei geladenem mmproj wird der
+separate `--cache-reuse`-Pfad deaktiviert, daher ist dieser alte Fehler durch die
+multimodalen Profil-Smokes nicht abschließend eingegrenzt. Seit dem getesteten
+Fork-Build wurden keine C++-Inferenzquellen geändert.
+
+## Kontext-/MTP-Crossover 2026-09-30 (Swiftal, Ada RTX 4060 Ti)
+
+Vergleich: derselbe Swiftal-GGUF, `-b 8192 -ngl 99 -ub 640 -fit off`, Turbo4/3,
+F16-mmproj geladen, ein Slot, keine JEV-Sequenzen. Kontext (98304/131072) und
+MTP (aus bzw. `--spec-type draft-mtp --spec-draft-n-max 2`) waren die einzigen
+Konfigurationsvariablen. Für den 25.7k-Textprompt liefen zwei gepaarte Crossover-
+Durchläufe; GPU0/GPU1 tauschten die Kontext- und MTP-Varianten.
+
+| Prompt | Kontext | MTP | n | Prefill t/s | Decode t/s | Wallzeit |
+|---:|---:|---|---:|---:|---:|---:|
+| 25.7k | 98k | aus | 2 | 734.3 | 14.00 | 128.6 s |
+| 25.7k | 128k | aus | 2 | 739.9 | 13.99 | 128.4 s |
+| 25.7k | 98k | n=2 | 2 | 697.8 | 31.66 | 81.0 s |
+| 25.7k | 128k | n=2 | 2 | 698.3 | 31.64 | 81.0 s |
+| 65.6k | 98k | n=2 | 2 | 570.4 | 24.22 | 192.5 s |
+| 65.6k | 128k | n=2 | 2 | 572.3 | 24.21 | 192.2 s |
+
+Der 32k größere reservierte Kontext verursachte bei gleicher Last keinen
+messbaren Throughput-Verlust (<1 %). MTP n=2 erhöhte Decode um 2.26× beim
+25.7k-Prompt; Prefill sank rund 5 %. 65.6k-Prompts liefen bei ctx128k + MTP n=2
+auf beiden Karten bis zur Completion ohne CUDA-Fehler. Die 65.6k-MTP-aus-Zeile
+ist nur eine Einzelmessung pro Kontext ohne Karten-Crossover und dient nicht als
+isolierter Kontextvergleich.
+
+### 100k-Kontextfrontier
+
+Mit `ctx131072` wurden identische ~100.1k-Prompts plus Completion auf GPU0 und
+GPU1 ausgeführt. Beide MTP-Modi lieferten vollständigen Inhalt, `finish_reason`
+`stop`, ohne Truncation oder CUDA-Fehler:
+
+| Kontext | MTP | n | Prefill t/s | Decode t/s | Wallzeit | MTP-Akzeptanz |
+|---:|---|---:|---:|---:|---:|---:|
+| 128k | aus | 2 | 513.6 | 7.52 | 387.3 s | — |
+| 128k | n=2 | 2 | 485.2 | 19.40 | 268.7 s | 83.7 % |
+
+Bei 100k Input kostete MTP n=2 rund 5.5 % Prefill, erhöhte Decode um 2.58× und
+verkürzte die Gesamtdauer um rund 31 %. Im Idle-Speichersnapshot belegte
+ctx128k/MTP aus etwa 14.2–14.5 GiB VRAM (1.5–1.7 GiB frei); MTP n=2 etwa
+15.3–15.6 GiB (0.4–0.65 GiB frei). MTP n=2 ist damit bei 128k funktionsfähig,
+aber VRAM-seitig deutlich knapper.
+
+### Checkpoint-Reuse unter MTP n=2
+
+Bei ctx131072/MTP n=2 wurde ein identischer 100k-Prompt zweimal auf beiden
+Karten verarbeitet. Der zweite Lauf meldete `cache_n=100094`, lieferte HTTP 200
+und beendete sich ohne CUDA-Fehler (ca. 37 s, überwiegend Decode). Ein
+65.6k-Prompt wiederverwendete ebenfalls 65,626 Tokens erfolgreich. Mit geladenem
+mmproj loggt llama-server, dass der spezielle `--cache-reuse`-Pfad deaktiviert
+wird; diese Messung prüft den Prompt-/Checkpoint-Cache im multimodalen Profil,
+nicht den früheren text-only Serverpfad ohne mmproj, bei dem der CUDA-Fehler
+auftrat.
+
+### Swiftunc MTP-on Kontextfrontier (RTX 4060 Ti GPU1)
+
+Konfiguration: Swiftunc Dynamic-MTP UD-Q3_K_XL, `-b 8192 -ngl 99 -ub 640
+-fit off`, Turbo4/3, ein Slot, F16-mmproj auf CPU, `draft-mtp n=2`; Sampler
+explizit mit temperature 0.7, top_p 0.95, min_p 0, seed 4242, reasoning medium.
+
+| Kontext | Last | Prompt / Completion | Prefill t/s | Decode t/s | Wallzeit | Draft-Akzeptanz | Ergebnis |
+|---:|---|---:|---:|---:|---:|---:|---|
+| 81920 | kurz | 1132 / 1714 | 610.4 | 38.02 | 46.96 s | 1090/1250 (87.2 %) | HTTP 200, echter Inhalt |
+| 98304 | kurz | 1132 / 1043 | 591.0 | 37.95 | 29.42 s | 661/762 (86.7 %) | HTTP 200, echter Inhalt |
+| 98304 | 65.6k | 65639 / 1428 | 589.0 | 23.49 | 172.65 s | 908/1042 (87.1 %) | HTTP 200, Completion |
+| 114688 | 100.1k | 100108 / 879 | 501.0 | 19.45 | 245.24 s | 558/644 (86.6 %) | HTTP 200, Completion |
+
+Bei ctx81920/98304 erkannte der CPU-mmproj-Smoke den UI-Text „Senden“. Auch
+ctx114688 lieferte „Senden“ und eine vollständige Completion; die dort gemessene
+Client-Wallzeit wich stark von den Backend-Timings ab und ist keine belastbare
+Vision-Latenz. Die Idle-Reserve auf GPU1 sank von etwa 1.0 GiB (ctx81920) über
+0.6 GiB (ctx98304) auf rund 0.23 GiB (ctx114688).
+
+**Frontier-Grenzen:** ctx122880 mit MTP n=2 und Batch 4096 lud, crashte aber bei
+der ersten Generation mit CUDA-OOM in `cudaGraphInstantiate`. ctx131072 mit
+Batch 4096 scheiterte bereits beim Allozieren des MTP-Draft-Kontexts. Ein
+ctx122880/Batch-2048-Start ließ nur 32 MiB frei und wurde nicht generation-
+getestet; er zählt daher nicht als stabil. ctx114688 ist die höchste
+vollständig getestete Text-und-Vision-Konfiguration, allerdings mit knapper
+VRAM-Reserve.
+
+### Persistente Profil-P-Units: direkte Alias- und Concurrent-Vision-Smokes
+
+Nach Installation der dauerhaften Units liefen kurze direkte Alias-Requests mit
+MTP n=2 erfolgreich:
+
+| Variante | Kontext | Prompt / Completion | Prefill t/s | Decode t/s | Wallzeit | Draft-Akzeptanz |
+|---|---:|---:|---:|---:|---:|---:|
+| Swiftal Standard | 131072 | 1134 / 1477 | 545.5 | 39.59 | 39.4 s | 940/1076 (87.4 %) |
+| Swiftunc Uncensored | 114688 | 1133 / 1228 | 570.8 | 37.15 | 35.1 s | 771/912 (84.5 %) |
+
+Beide finalen Vision-Endpunkte verarbeiteten danach gleichzeitig dieselbe
+UI-Aufnahme auf ihren CPU-F16-mmproj-Pfaden; beide erkannten „Senden“ und
+endeten mit `finish_reason=stop`. Unter dieser gemeinsamen CPU-Last lagen die
+Client-Wallzeiten bei 86.2/86.5 s (63/69 Completion-Tokens); dies ist ein
+Funktions-/Contestion-Smoke, kein allgemeiner Latenzbenchmark. Der Snapshot nach
+den Requests zeigte auf GPU0 15551 MiB belegt/399 MiB frei und auf GPU1 15761
+MiB/190 MiB frei.
+
+**Produktive Entscheidung:** Profil P nutzt Swiftal ctx131072 und Swiftunc
+ctx114688, beide mit MTP n=2, CPU-F16-mmproj, UB640 und vollem CUDA-Offload.
+Der Kontext/MTP-Crossover weiter oben bleibt ein historischer A/B-Benchmark;
+UB640 wurde in dieser Kampagne nicht verändert.
