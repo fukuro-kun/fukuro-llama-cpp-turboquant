@@ -6,6 +6,17 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-09-30
+
+### ops: Qwen3.8 CUDA-Prefill auf UB640; JEV bleibt deaktiviert
+
+Der Qwen3.8-Startskript-Default ist jetzt `-ub 640` (`UB` bleibt
+überschreibbar). Der CUDA-Produktivprozess wurde mit unverändertem Kontext,
+MTP n=2 und Turbo4/3 neu gestartet; Health- und Chat-Smoke waren erfolgreich.
+Parallel-Decision/JEV wird für Qwen3.8 nicht angeboten: der Qwen-Hybridpfad
+hat reproduzierte recurrent Co-Batching-State-Korruption. Gemma-4-Konfigurationen
+bleiben davon unberührt.
+
 ## 2026-09-29
 
 ### fix: Qwen3.8-Startskript kann Decision-Sequenzen optional reservieren

@@ -237,3 +237,20 @@ RTX3080-Laptop `aa1976da9` / llama.cpp 9549 (GCC 15.2), Ada-RTX4060Ti `d5b96935a
 llama.cpp 9559 (GCC 13.3). Innerhalb jedes Hosts ist der ub-Trend vergleichbar;
 die absolute RTX3080-Laptop-vs-Ada-RTX4060Ti-Speeddifferenz ist daher kein isolierter Hardware-
 Beweis. Ein streng kontrollierter Hardwarevergleich erfordert denselben Build.
+
+## Produktionsupdate 2026-09-30
+
+Auf Wunsch wurde der laufende Qwen3.8-Standardserver auf der CUDA-GPU mit
+`-ub 640` neu gestartet (ctx131072, 1 Slot, MTP n=2, Turbo4/3,
+kein mmproj in dieser bestehenden Instanz). `/health` und ein echter kurzer
+Chat-Smoke-Test waren erfolgreich. Das ist eine bewusste Wahl des gemessenen
+UB640-Peaks trotz kleinem Vorteil gegenüber UB512; der aktive Prozess wurde
+verifiziert. Das lokale Startskript verwendet UB640 als Default (über
+`UB` überschreibbar); der Remote-Checkout ist noch nicht synchronisiert.
+
+Das zusätzliche Uranus-Profil P ist lokal vorbereitet, aber noch nicht
+bereitgestellt/aktiviert: Standard-Vision auf Port 18084 (ctx98304, ein Slot)
+und Swiftunc-Uncensored-Vision auf Port 18085 (ctx81920, ein Slot), jeweils
+UB640, F16-mmproj, MTP aus. Beide Kontextpunkte bestanden einen Chart-Smoke;
+größere Bildformate und Dauerlast bleiben zu validieren. Die Qwen-Endpunkte
+verwenden keinen JEV-/parallel-decision-Modus.

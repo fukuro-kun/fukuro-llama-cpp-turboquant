@@ -50,7 +50,7 @@
 | `start-styx-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Pascal). turbo4/3 KV, 196k Ctx. |
 | `start-uranus-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Ada, GPU 0, Port 18080). MoE-Offload, MTP. |
 | `start-uranus-26b-gpu1-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Ada, GPU 1, Port 18082). 2. Instanz, Prefetch deaktiviert. |
-| `start-uranus-qwen38-server.sh` | Qwen3.8-27B Swift-1.5 CUDA/MTP-Server (GPU 0, Port 18080); `DECISION_SEQS` optional, leer = unveränderter Start, Werte >=3 aktivieren `/v1/decision`. |
+| `start-uranus-qwen38-server.sh` | Qwen3.8-27B Swift-1.5 CUDA/MTP-Server (GPU 0, Port 18080); UB-Default 640 (`UB` überschreibbar), ohne parallel-decision/JEV. |
 
 - Anpassen vor Verwendung: Kontextlaenge, GPU-Layer, Modellpfad, Port.
 - **Vision (mmproj):** Siehe `docs/fork/2026-08-14_GEMMA4_VISION_MMPROX.md` für
