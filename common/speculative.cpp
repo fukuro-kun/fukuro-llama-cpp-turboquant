@@ -280,7 +280,7 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
             drafting[seq_id] = true;
             common_sampler_reset(smpls[seq_id].get());
 
-            common_batch_add(batch, dp.id_last, dp.n_past, { seq_id }, true);
+            common_batch_add(batch, dp.id_last, dp.pos0, { seq_id }, true);
         }
 
         int ret = llama_decode(ctx_dft, batch);
@@ -339,7 +339,7 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
                     continue;
                 }
 
-                common_batch_add(batch, id, dp.n_past + i + 1, { seq_id }, true);
+                common_batch_add(batch, id, dp.pos0 + i + 1, { seq_id }, true);
             }
 
             if (batch.n_tokens == 0) {
@@ -1180,7 +1180,7 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
             drafting[seq_id] = true;
             common_sampler_reset(smpls[seq_id].get());
 
-            common_batch_add(batch, dp.id_last, dp.n_past, { seq_id }, true);
+            common_batch_add(batch, dp.id_last, dp.pos0, { seq_id }, true);
 
             h_row = pending_h[seq_id].data();
             std::memcpy(batch.embd + n_embd*(batch.n_tokens - 1), h_row, row_bytes);
@@ -1253,9 +1253,9 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
                 if (is_mem_shared) {
                     // note: with shared memory (e.g. Gemma4 assistants) we use the same position for all draft tokens
                     // ref: https://github.com/huggingface/transformers/blob/effde20942e3f82a1b97449f60b3a48c5ff96145/docs/source/en/model_doc/gemma4_assistant.md?plain=1#L36-L37
-                    common_batch_add(batch, id, dp.n_past, { seq_id }, true);
+                    common_batch_add(batch, id, dp.pos0, { seq_id }, true);
                 } else {
-                    common_batch_add(batch, id, dp.n_past + i + 1, { seq_id }, true);
+                    common_batch_add(batch, id, dp.pos0 + i + 1, { seq_id }, true);
                 }
                 std::memcpy(batch.embd + n_embd*(batch.n_tokens - 1), h_row, row_bytes);
             }
