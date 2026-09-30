@@ -19,6 +19,20 @@ Parallel-Decision/JEV wird für Qwen3.8 nicht angeboten: der Qwen-Hybridpfad
 hat reproduzierte recurrent Co-Batching-State-Korruption. Gemma-4-Konfigurationen
 bleiben davon unberührt.
 
+### fix: Upstream-Restore-Cleanup portiert (Hybrid/iSWA-State nach Crash)
+
+Der obige CUDA-Absturz nach Cache-Checkpoint-Reuse entspricht dem offenen
+Upstream-Issue #23210 (Hybrid-Modell + draft-mtp + Checkpoint-Restore).
+Portiert wurden `08618ff8e` (Cleanup nach fehlgeschlagenen Restores:
+`io.discard()` + `state_clear` für K/V und Recurrent, #27530),
+`866322481` (non-fused GDN deaktiviert, #27877) und `b0dcb8192`
+(Draft-Position nach Bild-Chunk, #28715). Zusätzlich schließt `523d8108d`
+dieselbe Lücke für iSWA-Composites (Gemma-4) — upstream unadressiert.
+Nicht portiert: `5d806aa25` (Ziel-Code fehlt im Fork), `36b101543`
+(qwen4exp-Linie divergiert → atomicbot-Sync). Verifikation:
+`test-save-load-state` PASS auf Qwen3.8-27B-Hybrid (CPU). Greift erst
+nach Service-Restart.
+
 ## 2026-09-29
 
 ### fix: Qwen3.8-Startskript kann Decision-Sequenzen optional reservieren
