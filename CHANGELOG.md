@@ -13,6 +13,8 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 Der Qwen3.8-Startskript-Default ist jetzt `-ub 640` (`UB` bleibt
 überschreibbar). Der CUDA-Produktivprozess wurde mit unverändertem Kontext,
 MTP n=2 und Turbo4/3 neu gestartet; Health- und Chat-Smoke waren erfolgreich.
+Ein späterer Long-Context-Request nach Cache-Checkpoint-Reuse endete mit einem
+CUDA-Fehler; Ursache nicht bestätigt, Prozess beim letzten Check beendet.
 Parallel-Decision/JEV wird für Qwen3.8 nicht angeboten: der Qwen-Hybridpfad
 hat reproduzierte recurrent Co-Batching-State-Korruption. Gemma-4-Konfigurationen
 bleiben davon unberührt.
