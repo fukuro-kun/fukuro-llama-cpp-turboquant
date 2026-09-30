@@ -2916,6 +2916,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
 }
 
 void llama_kv_cache::state_clear(llama_seq_id seq_id) {
+    if (other) {
+        // do not clear the state of shared cells (see state_read)
+        return;
+    }
+
     if (seq_id == -1) {
         clear(true);
         return;

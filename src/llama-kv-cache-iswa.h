@@ -69,6 +69,10 @@ public:
     // llama_kv_cache_iswa specific API
     //
 
+    // clear the K/V data of seq_id in both base and SWA caches (used after a failed state_read)
+    // PARTIAL_ONLY clears only the SWA part, mirroring what state_read() touches
+    void state_clear(llama_seq_id seq_id, llama_state_seq_flags flags = 0);
+
     llama_kv_cache * get_base() const;
     llama_kv_cache * get_swa () const;
 
