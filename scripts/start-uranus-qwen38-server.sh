@@ -2,7 +2,7 @@
 # Uranus llama-server für InferenzQuelle Router.
 # Qwen3.8-27B Swift-1.5 — zwei Varianten via VARIANT env var:
 #   VARIANT=al  (Default): ukisai Swift-1.5 aligned   GSQ-RCO-IQ3_S-mtp  (12,1 GB)
-#   VARIANT=unc            ajgazin Swift-1.5 uncensored UD-Q3_K_XL-MTP   (13,1 GB)
+#   VARIANT=unc            mradermacher Swift-1.5 uncensored i1-IQ3_S-MTP (11,7 GB)
 # 1 Instanz auf GPU 0, Port 18080. Beide Modelle sind dense (kein MoE-Offload)
 # und passen komplett in 16 GiB VRAM — MTP-Head ist eingebettet.
 #
@@ -41,8 +41,8 @@ case "$VARIANT" in
     PROFILE_NAME="swiftal (aligned)"
     ;;
   unc)
-    MAIN="${MAIN_GGUF:-${MODEL_DIR}/Swift-1.5-Qwen3.8-27B-Uncensored-Dynamic-MTP-UD-Q3_K_XL.gguf}"
-    PROFILE_NAME="swiftunc (uncensored)"
+    MAIN="${MAIN_GGUF:-${MODEL_DIR}/mradermacher-i1/Swift-1.5-Qwen3.8-27B-Uncensored-MTP.i1-IQ3_S.gguf}"
+    PROFILE_NAME="swiftunc (uncensored, i1-IQ3_S)"
     ;;
   *)
     echo "error: VARIANT muss 'al' oder 'unc' sein (war: '$VARIANT')" >&2

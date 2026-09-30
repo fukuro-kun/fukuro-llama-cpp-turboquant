@@ -364,3 +364,44 @@ MiB/190 MiB frei.
 ctx114688, beide mit MTP n=2, CPU-F16-mmproj, UB640 und vollem CUDA-Offload.
 Der Kontext/MTP-Crossover weiter oben bleibt ein historischer A/B-Benchmark;
 UB640 wurde in dieser Kampagne nicht verändert.
+
+## i1-IQ3_S-Kandidat auf GPU1 (2026-09-30, Abend)
+
+Motivation: Die UD-Q3_K_XL-Datei ist ~0.95 GiB schwerer als die
+Standard-IQ3_S und limitierte Swiftunc auf ctx114688. Kandidat:
+`mradermacher/Swift-1.5-Qwen3.8-27B-Uncensored-MTP.i1-IQ3_S.gguf`
+(12.602.608.384 B = 11.74 GiB, `nextn`-MTP-Tensoren im Header verifiziert).
+Gleiche Konditionen wie zuvor: GPU1, `-b 8192 -ngl 99 -ub 640 -fit off`,
+Turbo4/3, F16-mmproj CPU, `draft-mtp n=2`, ein Slot.
+
+**Stabilität ctx131072** — alle Prüfungen bestanden, die der UD-Quant
+nicht schaffte:
+
+| Prüfung | Ergebnis |
+|---|---|
+| Laden + MTP-Draft-ctx | ok, Idle-Reserve ~346 MiB |
+| 103.750-Tokens-Prompt + Completion | HTTP 200, `stop`, PP 489 t/s, TG 17.2 t/s, Draft 380/518 (73 %) |
+| Identischer Prompt erneut (Cache-Reuse) | `cache_n=103788`, HTTP 200 in 38 s, kein CUDA-Fehler |
+| CPU-mmproj-Vision-Smoke | „Senden" erkannt, `stop` |
+| Reserve nach Lasten | ~310 MiB (GPU0-Vergleichswert: ~349 MiB) |
+
+**Qualitäts-A/B vs. UD-Q3_K_XL** — 5 Tasks × 2 Seeds (4242/7), identische
+Sampler (temp 0.7, top_p 0.95, min_p 0, reasoning medium, max_tokens 8192):
+
+| Task | UD Delivery | i1 Delivery | Notiz |
+|---|---|---|---|
+| p1_plan | 2/2 (8,9k/13,3k ch) | 2/2 (14,5k/20,0k ch) | i1 liefert mehr Content |
+| p2_code | 0/2 | 0/2 | beide verbrennen 8192 in Reasoning — kein Diskriminator |
+| p3_json | 2/2 korrekt | 2/2 korrekt | identisch |
+| p4_sec | 2/2 | 0/2 @8192 | Budget-Erschöpfung in Reasoning; @16384 liefert i1 11,3k-ch-Vollantwort |
+| p5_de | 2/2 | 2/2 | i1-Prosa mindestens ebenbürtig, technisch präziser |
+
+Decode i1 28–37 t/s vs. UD 29–38 t/s; Draft-Akzeptanz 55–84 % vs. 58–86 % —
+beides innerhalb der Seed-/Task-Varianz, keine Loops (tail_rep=1 überall).
+Kein merklicher Qualitätsverlust; der Unterschied liegt in längerem
+Reasoning-Verhalten (Budget-sensitive Tasks brauchen etwas mehr max_tokens).
+
+**Ergebnis:** i1-IQ3_S ermöglicht ctx131072 auf GPU1 mit ~0.3 GiB Reserve —
+symmetrisch zu GPU0. Datei liegt auf ganymed
+(`/titan/topas/modelle/Qwen/Qwen3.8-27B/mradermacher-i1/`) und uranus.
+Produktiv-Umstellung (Unit-Pfad + `n_ctx`-Metadaten + hosts.json) ausstehend.
