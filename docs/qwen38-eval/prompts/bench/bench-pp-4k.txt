@@ -1,0 +1,172 @@
+Der Benchmark Abschnitt 0: Queue feedforward position activation context sparse probability transformer distribution memory engine inference cache expert context position tensor. Analysis expert router gradient compression quantization layer softmax compression memory context sparse matrix window. Warp prefill distribution feedforward router warp bandwidth gate memory.
+
+
+```python
+def measure_0(batch, ctx):
+    t0 = time.perf_counter()
+    logits = model.forward(batch['input_ids'], kv_cache=ctx.cache)
+    dt = time.perf_counter() - t0
+    return {'tps': batch.size / dt, 'ttft': ctx.ttft}
+```
+
+| Spalte A | Spalte B | Wert | Kommentar |
+|---|---|---|---|
+| register | expert | 51.78 | dense |
+| prefill | scheduler | 70.24 | nucleus |
+| storage | throughput | 70.25 | model |
+| inference | hybrid | 9.53 | expert |
+
+- Punkt 0: decode transformer
+- Punkt 1: storage gate
+- Punkt 2: embedding prefill
+- Punkt 3: sigmoid entropy
+- Punkt 4: window router
+- Punkt 5: memory attention
+
+Die Messung Abschnitt 1: Position distribution transformer vector recurrent sigmoid cache compute latency analysis gate weight context warp hybrid throughput. Inference buffer recurrent softmax activation residual vector embedding distribution shard nucleus layer kernel throughput scheduler throughput. Tensor analysis sequence network pipeline temperature model inference buffer decode model allocation allocation embedding sampling. Recurrent normalization expert throughput recurrent throughput window entropy embedding sampling attention warp entropy dispatch thread distribution.
+
+
+Die Auswertung Abschnitt 2: Storage hybrid rotary model shard thread compression thread token expert. Kernel inference register dispatch warp recurrent rotary expert latency compression kernel compression buffer benchmark. Layer buffer model projection storage throughput layer distribution storage latency quantization latency storage thread residual thread hybrid. Compression feedforward probability weight nucleus nucleus buffer matrix rotary nucleus allocation embedding thread normalization.
+
+
+Der Workload Abschnitt 3: Buffer sparse probability embedding inference latency sigmoid gate residual gate memory router. Engine residual thread position router gradient residual benchmark analysis latency quantization storage weight analysis feedforward activation rotary analysis. Recurrent buffer layer matrix cache transformer temperature memory dispatch activation benchmark expert position. Position sampling allocation hybrid matrix residual sampling register network bandwidth.
+
+
+Der Benchmark Abschnitt 4: Sequence context scheduler engine warp decode attention transformer expert dense dispatch sparse benchmark cache recurrent. Latency pipeline residual position matrix decode rotary buffer gate latency hybrid latency. Nucleus probability weight context hybrid gate embedding position expert prefill queue buffer latency latency.
+
+
+Die Architektur Abschnitt 5: Warp network throughput router inference softmax attention attention dense model normalization vector residual. Model sampling embedding analysis softmax memory distribution transformer scheduler register sigmoid tensor register expert. Engine network dispatch hybrid position buffer storage router router attention context sequence position. Token kernel residual gradient throughput bandwidth pipeline expert analysis. Buffer model inference decode engine dispatch matrix feedforward decode decode gradient token feedforward token normalization. Buffer matrix latency bandwidth kernel embedding kernel allocation position bandwidth dispatch token network token nucleus.
+
+
+```python
+def measure_5(batch, ctx):
+    t0 = time.perf_counter()
+    logits = model.forward(batch['input_ids'], kv_cache=ctx.cache)
+    dt = time.perf_counter() - t0
+    return {'tps': batch.size / dt, 'ttft': ctx.ttft}
+```
+
+Die Implementierung Abschnitt 6: Activation latency quantization buffer token transformer recurrent register engine transformer thread engine pipeline router feedforward layer projection sigmoid. Benchmark probability token sequence window register dispatch tensor router recurrent router kernel shard residual entropy layer layer. Dispatch normalization engine analysis activation model vector compute normalization embedding router transformer. Shard dispatch queue buffer tensor vector weight layer memory token residual matrix recurrent. Latency throughput entropy scheduler residual dense normalization weight matrix warp model dispatch normalization feedforward distribution embedding projection window. Dispatch cache gradient position throughput sequence scheduler feedforward warp prefill distribution benchmark buffer kernel normalization hybrid.
+
+
+Das Profil Abschnitt 7: Probability hybrid thread matrix expert throughput activation analysis router engine network layer pipeline quantization sequence dense sigmoid network. Dense probability token sequence embedding activation layer expert latency position context sparse hybrid gradient prefill entropy allocation engine. Transformer storage dense decode latency activation router gradient benchmark kernel gradient latency vector warp compute. Weight embedding hybrid normalization engine engine compression temperature buffer recurrent window nucleus vector.
+
+
+| Spalte A | Spalte B | Wert | Kommentar |
+|---|---|---|---|
+| expert | inference | 72.10 | model |
+| buffer | storage | 19.32 | compression |
+| register | context | 17.54 | kernel |
+| softmax | normalization | 23.74 | rotary |
+
+Die Auswertung Abschnitt 8: Attention gradient benchmark residual quantization vector allocation temperature rotary latency sigmoid bandwidth bandwidth. Network throughput quantization weight feedforward expert temperature compute window. Network gradient decode buffer prefill compute storage embedding compression dispatch sparse gate.
+
+
+Die Architektur Abschnitt 9: Sampling embedding normalization position residual allocation rotary model projection softmax feedforward distribution storage cache rotary. Window expert embedding network latency vector hybrid temperature token entropy position context context cache router. Transformer token kernel softmax embedding nucleus latency entropy model feedforward. Projection warp buffer cache weight softmax activation sequence entropy engine sequence rotary expert sequence embedding dispatch distribution. Probability throughput expert embedding scheduler sigmoid pipeline expert weight router token hybrid feedforward attention distribution context vector.
+
+
+- Punkt 0: residual throughput
+- Punkt 1: quantization expert
+- Punkt 2: compression router
+- Punkt 3: embedding latency
+
+Die Konfiguration Abschnitt 10: Normalization benchmark pipeline compression pipeline storage activation register bandwidth sigmoid buffer queue latency latency residual temperature entropy bandwidth. Allocation benchmark sequence transformer prefill allocation activation attention kernel temperature. Window router network distribution hybrid gate activation shard vector. Gradient nucleus nucleus sparse transformer inference token dense analysis sparse sampling gate nucleus cache network temperature analysis. Shard scheduler cache residual benchmark queue allocation temperature attention temperature transformer sigmoid expert compute.
+
+
+```python
+def measure_10(batch, ctx):
+    t0 = time.perf_counter()
+    logits = model.forward(batch['input_ids'], kv_cache=ctx.cache)
+    dt = time.perf_counter() - t0
+    return {'tps': batch.size / dt, 'ttft': ctx.ttft}
+```
+
+Die Messung Abschnitt 11: Entropy rotary kernel projection entropy sigmoid model gradient prefill storage dispatch vector temperature compression pipeline throughput nucleus feedforward. Compute attention thread matrix projection projection temperature sampling expert network queue. Transformer bandwidth memory compute activation inference window router matrix. Temperature transformer buffer register compute scheduler entropy memory sampling cache cache matrix distribution entropy storage normalization recurrent. Recurrent inference sigmoid sequence position shard attention hybrid residual tensor router prefill buffer. Window rotary buffer matrix vector hybrid vector engine embedding memory window prefill recurrent.
+
+
+Der Workload Abschnitt 12: Gate compute compression inference vector network entropy sigmoid router kernel latency gradient warp dispatch kernel sparse router feedforward. Distribution vector token transformer expert token allocation softmax window. Engine quantization hybrid probability kernel projection buffer activation vector shard position. Pipeline dispatch distribution tensor buffer embedding allocation benchmark sigmoid analysis window nucleus attention queue. Hybrid memory scheduler cache sparse buffer compression compute compute dense sequence matrix. Context analysis memory latency gate softmax warp expert temperature shard network.
+
+
+Der Workload Abschnitt 13: Shard rotary distribution feedforward queue temperature sparse sigmoid shard. Dispatch register feedforward entropy dense quantization probability temperature pipeline benchmark vector network sigmoid entropy compute. Gradient entropy storage warp router queue distribution embedding engine gradient dense gradient layer queue. Token transformer tensor network recurrent benchmark quantization compute analysis kernel embedding sigmoid temperature temperature compute sequence scheduler. Dense inference sigmoid thread thread sampling router throughput kernel thread gradient analysis feedforward distribution. Sparse tensor latency transformer compute vector expert warp latency matrix.
+
+
+Der Benchmark Abschnitt 14: Thread analysis pipeline window layer sampling queue prefill prefill residual feedforward token attention. Weight queue window window matrix matrix entropy feedforward distribution position dense. Thread bandwidth scheduler probability quantization scheduler projection pipeline model pipeline vector layer sampling kernel distribution queue. Decode shard storage inference benchmark latency probability latency context weight engine pipeline matrix dense. Shard inference shard sequence compression nucleus latency kernel.
+
+
+| Spalte A | Spalte B | Wert | Kommentar |
+|---|---|---|---|
+| gate | expert | 76.44 | expert |
+| latency | probability | 83.49 | router |
+| decode | queue | 54.06 | analysis |
+| nucleus | prefill | 48.13 | network |
+
+Die Implementierung Abschnitt 15: Nucleus queue compression compression engine feedforward probability storage analysis network latency buffer weight throughput temperature latency compute feedforward. Gate softmax inference allocation dense activation layer decode register. Dense gradient gate transformer latency window sampling engine memory context shard.
+
+
+```python
+def measure_15(batch, ctx):
+    t0 = time.perf_counter()
+    logits = model.forward(batch['input_ids'], kv_cache=ctx.cache)
+    dt = time.perf_counter() - t0
+    return {'tps': batch.size / dt, 'ttft': ctx.ttft}
+```
+
+Die Architektur Abschnitt 16: Allocation latency pipeline pipeline position cache pipeline softmax throughput temperature. Allocation queue allocation network engine activation sparse router benchmark token decode. Temperature softmax buffer benchmark thread queue inference sampling gate. Cache dispatch router queue attention entropy token token.
+
+
+Die Messung Abschnitt 17: Analysis buffer expert analysis buffer engine distribution analysis cache gradient register sigmoid. Hybrid softmax sigmoid sparse distribution temperature engine vector residual pipeline quantization projection. Feedforward model tensor softmax kernel memory sigmoid sequence window layer hybrid throughput embedding nucleus attention weight vector analysis. Throughput register feedforward scheduler attention kernel sequence layer inference dispatch window register pipeline model throughput dispatch allocation sequence. Pipeline feedforward tensor scheduler window window bandwidth activation normalization context.
+
+
+Die Konfiguration Abschnitt 18: Router shard sigmoid recurrent hybrid sampling recurrent queue matrix buffer. Pipeline vector rotary sigmoid embedding network transformer attention latency window softmax projection thread queue activation distribution router. Projection recurrent thread projection normalization prefill memory gradient prefill context embedding latency. Activation sampling residual nucleus dispatch sigmoid token expert probability temperature recurrent window token context. Distribution vector tensor kernel sampling router model embedding.
+
+
+- Punkt 0: thread weight
+- Punkt 1: projection hybrid
+- Punkt 2: context model
+- Punkt 3: compute temperature
+- Punkt 4: pipeline distribution
+
+Die Auswertung Abschnitt 19: Quantization engine normalization shard gate compression window token dispatch. Attention entropy hybrid sparse weight kernel sparse engine softmax. Distribution hybrid memory vector throughput layer softmax weight position probability buffer entropy sampling hybrid pipeline. Embedding memory warp projection context router inference recurrent kernel throughput nucleus inference nucleus queue entropy. Warp attention queue weight projection transformer engine inference latency.
+
+
+Der Benchmark Abschnitt 20: Projection sequence weight dispatch network storage register weight window inference position compute. Sampling gradient shard shard position attention gate sampling register queue dispatch vector compression router expert bandwidth. Storage compute benchmark rotary bandwidth bandwidth cache layer dense softmax weight attention context. Compression model residual compute recurrent latency weight embedding sequence gate softmax softmax engine kernel compute. Queue embedding rotary sigmoid sparse embedding kernel entropy. Analysis quantization sampling softmax latency token dispatch router allocation allocation dispatch nucleus queue rotary network.
+
+
+```python
+def measure_20(batch, ctx):
+    t0 = time.perf_counter()
+    logits = model.forward(batch['input_ids'], kv_cache=ctx.cache)
+    dt = time.perf_counter() - t0
+    return {'tps': batch.size / dt, 'ttft': ctx.ttft}
+```
+
+Der Durchlauf Abschnitt 21: Kernel network sparse scheduler inference buffer normalization compression vector tensor embedding cache register gate memory entropy. Attention projection attention latency temperature warp bandwidth layer bandwidth projection window kernel network allocation network layer benchmark. Latency latency allocation tensor model sparse shard inference vector engine quantization latency hybrid latency. Prefill softmax compute dispatch inference sigmoid expert analysis thread pipeline probability distribution compression prefill context. Gradient allocation entropy buffer expert token residual entropy sparse throughput activation vector transformer softmax compression.
+
+
+| Spalte A | Spalte B | Wert | Kommentar |
+|---|---|---|---|
+| warp | scheduler | 99.40 | scheduler |
+| bandwidth | nucleus | 10.99 | tensor |
+| sequence | window | 80.13 | kernel |
+| weight | feedforward | 79.96 | compression |
+
+Die Messung Abschnitt 22: Kernel decode latency attention engine layer pipeline window rotary projection shard shard embedding. Gradient throughput vector probability nucleus tensor token network window bandwidth quantization rotary rotary buffer dense warp. Gradient cache queue probability latency hybrid decode residual probability hybrid softmax decode. Pipeline storage gate latency throughput token sigmoid position pipeline analysis tensor gate sampling.
+
+
+Die Messung Abschnitt 23: Rotary register activation gate router scheduler tensor weight pipeline temperature compute position activation scheduler decode context. Model prefill attention token kernel router scheduler decode inference feedforward memory embedding window entropy. Sparse storage dispatch matrix layer allocation gradient thread layer dispatch feedforward dense context analysis transformer latency.
+
+
+Der Workload Abschnitt 24: Latency temperature context feedforward weight dense bandwidth quantization queue dispatch embedding attention quantization buffer thread temperature allocation engine. Recurrent residual buffer router router buffer bandwidth buffer sparse softmax dispatch compute queue tensor latency weight vector dispatch. Residual sparse shard engine rotary sequence layer softmax benchmark cache sigmoid temperature window. Warp kernel inference throughput kernel gate compression recurrent embedding prefill softmax probability bandwidth residual. Kernel bandwidth engine router expert sequence embedding buffer activation thread dispatch context window gradient quantization gradient embedding probability.
+
+
+Der Workload Abschnitt 25: Matrix residual throughput model queue residual inference softmax kernel. Projection layer residual storage attention dispatch thread sequence rotary scheduler cache throughput compression position. Inference residual memory pipeline sigmoid benchmark feedforward bandwidth buffer prefill dispatch scheduler window transformer.
+
+
+```python
+def measure_25(batch, ctx):
+    t0 = time.perf_counter()
+    logits = model.forward(batch['input_ids'], kv_cache=ctx.cache)
+    dt = time.perf_counter() - t0
+    return {'tps': batch.size / dt, 'ttft': ctx.ttft}
+```
+

@@ -31,19 +31,38 @@
 
 ### Phase A — Vorbereitung (offline moeglich)
 
-- [x] IQ3_XXS-Download auf ganymed (laeuft seit 2026-10-06)
-- [ ] Strata-Build-Anforderungen aus Repo-Doku entnehmen (CMake-Flags, Abhaengigkeiten, Install-Skript)
+- [x] IQ3_XXS-Download auf ganymed ✅ abgeschlossen 2026-10-06 23:41 (2 Shards, exakte Groessen verifiziert; + mmproj-BF16)
+- [x] Benchmark-Prompts generiert: `docs/qwen38-eval/prompts/bench/bench-pp-{1k,4k,8k,32k}.txt` (deterministisch, gemischter Inhalt — Prosa/Code/Tabellen, kein naives Repeat-Pattern). **Messmethodik:** exaktes Token-Trimming unnoetig — `usage.prompt_tokens` aus der Response ist die x-Achse; alle Engines bekommen identische Dateien.
+- [x] Strata-Build-/Betriebs-Anforderungen recherchiert (siehe Phase B — Setup via `setup.sh` ohne Source-Build moeglich)
 - [ ] OptLlama-Build: Standard-CMake `-DGGML_CUDA=ON`
-- [ ] Benchmark-Prompts vorbereiten: feste Prompt-Dateien mit 1k/4k/8k/32k Tokens — **identisch fuer alle drei Engines** (aus `docs/qwen38-eval/prompts/` ableiten/erweitern)
 - [ ] Identische Sampling-Parameter definieren (temp 0.7, top_p 0.95 — Qwen3.8-Eval-Standard)
+- [ ] memlock-Limit auf Uranus pruefen/setzen (`ulimit -l unlimited` bzw. `/etc/security/limits.conf`) — Strata pinned 35–55 GB
+
+### Phase-A-Befund: Referenzwerte fuer identische Hardware existieren bereits
+
+Strata Issue **#1062** misst exakt unsere Hardware-Klasse (2× RTX 4060 Ti 16 GB, 128 GB RAM, UD-IQ4_XS @131K):
+**~900 / 1.930 / 2.230 tok/s Prefill @ 4K/32K/128K; ~52–57 tok/s Decode; TTFT @128K ~58 s; VRAM ~15,7 GB je Karte.**
+→ Diese Zahlen sind die Sanity-Check-Latte: Liegt unsere Strata-Messung darunter, stimmt das Setup nicht; darueber waere ueberraschend.
+
+**Strata-Betrieb (verifiziert gegen Repo-Doku/Issues):**
+
+- **Kein Source-Build noetig:** `./setup.sh --family unsloth --model UD-IQ4_XS --context 131072 --gpus 0,1 --yes` laedt fertige Engine (pip, ~0,4 GB) + Modell. Source-Fallback: `cmake -B build -DSTRATA_ENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89` (Default waere sm_120 — explizit setzen!). Eigene GGUFs: `./setup.sh --gguf-dir <dir>` (Shard-Originalnamen beibehalten).
+- **Server:** Python `serve/` auf :8080, OpenAI `/v1/chat/completions` + `/v1/responses`, Anthropic `/v1/messages`; llama.cpp-kompatible `timings` in Response + `/metrics`, `/slots`. Config = `strata-<model>.json`.
+- **PLE/ngram-Tabelle (~29 GB):** Pflicht-Asset auf SSD (`--ple-io direct` Default; auf HDD → Stall #605 → `--ple-io ram` nutzen, RAM reicht). `--no-ple` nur als A/B-Schalter (Qualitaetsverlust).
+- **Multi-GPU:** Pipeline-/Layer-Split (kein TP, kein P2P noetig): `"gpu":[0,1]`, `"layer_split":"auto"` → typisch 0–22/23–47.
+- **Determinismus (opt-in):** `--prompt-cache 0 --adapt-swaps 0 --pcie-frac 0 --adapt-every 0` + `STRATA_IQ_MT_MIN=1` (~1–3% langsamer). Default-Pfad ist absichtlich nicht byte-stabil.
+- **Fallstricke:** `--kv k8v4`+`--kv-resident` kaputt auf 0.1.40 (#1188 → `int8` KV nehmen); Issue #1250 Host-OOM bei <64 GB RAM (bei 128 GB unkritisch); `--vram-reserve-mib 2048` falls Desktop auf einer GPU; `--parallel 2` macht alles langsamer → bei 1 Request bleiben; UD-IQ4_XS braucht Engine >=0.1.38.
+- **Fertige Bench-Skripte:** `benchmark.py` + `monitor.py` in `bench/results/2026-09-30-community-rtx-5090/` (Community-Methodik: 3 Runs, 256 greedy Tokens, 4K/32K/128K-Sweep); `tools/needle_bench.py` fuer Needle-Tests.
+- **llama-swap:** Referenz-Config in offenem PR #1132 (`docs/LLAMA_SWAP.md`); `allowed_hosts`/`STRATA_ALLOWED_HOSTS` setzen (403-Falle); Load ~80–105 s → `healthCheckTimeout: 300`.
 
 ### Phase B — Strata originaer (Referenz-Latte)
 
-- Build: `git clone`, CMake mit `-DCMAKE_CUDA_ARCHITECTURES=89`
-- Setup: Modellpfad UD-IQ4_XS oder IQ3_XXS; RAM-Pinning 35–55 GB pruefen; ngram-Tabelle optional
-- Messpunkte: **pp t/s @ 1k/4k/8k/32k**, **tg t/s Decode** (>=200 Tokens), **TTFT**, RAM-/VRAM-Belegung, 3 Wiederholungen, Loadzeit
-- Offen: nutzt Strata beide GPUs oder Single-GPU-Design? (Issue #1239 zeigt Multi-GPU-Nutzung — Doku pruefen)
-- Qualitaet: Needle-Test + KL vs FP16-Referenz falls vorhanden (Strata ist nicht-deterministisch; opt-in Determinismus-Flags existieren)
+- Install: `git clone https://github.com/Niko1221/Strata && cd Strata && ./setup.sh --family unsloth --model UD-IQ4_XS --context 131072 --gpus 0,1 --yes` (Modell-Download ueberspringen/umbiegen auf lokale Shards — UD-IQ4_XS liegt bereits auf Uranus-RAID5; `--gguf-dir` nutzen). Disk-Bedarf ~80–120 GB frei halten (PLE-Tabelle ~29 GB kommt dazu).
+- Optional zweiter Lauf mit GSQ-RCO IQ3_XXS von ganymed (rsync) — schnellerer Pfad laut Strata-Doku.
+- Messpunkte: **pp t/s @ bench-pp-{1k,4k,8k,32k}.txt**, **tg t/s Decode** (>=200 Tokens), **TTFT**, RAM-/VRAM-Belegung, 3 Wiederholungen, Loadzeit. Via API (OpenAI-kompatible `timings`-Felder) — Community-Skripte `benchmark.py`/`monitor.py` aus `bench/results/` nutzen oder eigenes Skript.
+- Sanity-Check gegen Issue-#1062-Werte (~900/1930/2230 tok/s pp @4K/32K/128K, 52–57 t/s tg).
+- Determinismus-Modus separat (langsamer, nur fuer Qualitaetsvergleich).
+- Qualitaet: `tools/needle_bench.py` @32k + Output-Sichtpruefung.
 
 ### Phase C — OptLlama `moe-cache`
 
