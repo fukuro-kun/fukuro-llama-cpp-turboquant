@@ -293,11 +293,15 @@ bei nachgewiesenem Restengpass sind gezielte Layout-/Kernel-Ports im Plan.
 
 ## 5. Gefundene Bugs / Limitierungen (Fork)
 
-1. **GGUF-Offset-Fehler (P1, Ursache offen):** ISTA-DASLab `GSQ-RCO IQ3_XXS` lädt nicht:
+1. **GGUF-Offset-Fehler (P1, RCA gefunden 2026-10-07):** ISTA-DASLab
+   `GSQ-RCO IQ3_XXS` lädt nicht:
    `tensor 'blk.1.ffn_down_shexp.weight' has offset 2004206976, expected 1991099776`.
-   OptLlama/Strata laden den getesteten GGUF. Reader-Vertrag, Quant-Blockgroesse,
-   voriger Tensor, Dateigroesse und Shard-/Writer-Layout muessen verglichen werden;
-   "Reader zu strikt" ist noch keine gesicherte RCA.
+   **Ursache: Typnummer-Kollision** — die Datei nutzt upstream `GGML_TYPE_Q2_0=42`
+   (block 64, 18 B) fuer die `ffn_down_exps`/`shexp`-Tensoren; der Fork belegt
+   42 mit eigenem `TURBO2_0` (block 128, 34 B) → systematische Offset-Drift
+   (`n_el/64` pro Q2_0-Tensor). Datei ist wohlgeformt (alle Offsets sequentiell,
+   Slack 0). Fix = Enum-Renumbering + upstream-Q2_0-Support portieren, siehe
+   Plan §10.2.
 2. **Prefetch-Crash (P1):** `GGML_SCHED_PREFETCH_EXPERTS=1` → `CUDA error: requested
    functionality is not supported` in `ggml_cuda_op_mul_mat_cublas` (ggml-cuda.cu:1792)
    beim ersten Request — Qwen4Exp-Pfad inkompatibel mit Expert-Prefetch-Staging.

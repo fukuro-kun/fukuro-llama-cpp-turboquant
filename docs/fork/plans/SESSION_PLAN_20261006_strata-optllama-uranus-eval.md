@@ -170,11 +170,41 @@ Implementierungs-Gates. Keine Produktions-Checkouts fuer Entwicklung aendern.
 
 ### 10.2 Phase P1a: IQ3_XXS-GGUF-Offset sicher diagnostizieren und beheben
 
-**Reproduktion:** denselben Zweiteiler mit *exakt* dem bisherigen Fork-Commit
-gegen OptLlama/gguf-py testen; Fehlstelle in `ggml/src/gguf.cpp:761-782`:
-`blk.1.ffn_down_shexp.weight`, offset 2004206976 statt 1991099776.
-Eine Offset-Differenz kann von falscher Blockgroesse eines *vorigen* Tensors,
-Schreiberversion, Padding, Shard-Metadaten oder einer beschaedigten Datei kommen.
+**STATUS 2026-10-07 — Diagnose abgeschlossen, Ursache bewiesen:**
+
+Der Fehler ist **keine** Reader-Striktheit und **keine** defekte Datei,
+sondern eine **Typnummer-Kollision** im ggml-Enum:
+
+- Die Datei verwendet **upstream `GGML_TYPE_Q2_0 = 42`** (block 64, 18 B
+  → 0.28125 B/Element) fuer alle `ffn_down_exps`- und `ffn_down_shexp`-
+  Tensoren (38 Stueck in Shard 1).
+- Der Fork belegt Typ 42 mit **`GGML_TYPE_TURBO2_0`** (block 128, 34 B
+  → 0.265625 B/Element) und kennt `Q2_0` gar nicht.
+- Rechnung bestaetigt: Drift pro Q2_0-Tensor = `n_el/64` Byte; beim ersten
+  betroffenen Tensor genau +12.5 MiB → der gemeldete Offset-Fehler.
+- Mit `42 = Q2_0 (64/18)` sind **alle 1223+1 Offsets perfekt sequentiell**
+  (Slack = 0, beide Shards wohlgeformt). Datei ist valide.
+
+**Konsequenz (deutlich groesser als eine Reader-Korrektur):**
+
+1. Fork-Typen TURBO2_0/3_0/4_0 (42-44) + TQ3_1S/TQ4_1S (45/46) kollidieren
+   mit dem aktuellen upstream-Nummernraum (COUNT=43) und muessen
+   umnummeriert werden (vorsorglich hoch, z.B. ≥ 64, gegen kuenftige
+   upstream-Belegungen).
+2. Um die Datei auszufuehren, muss **upstream-Q2_0 portiert** werden:
+   `block_q2_0`, dequant/quant, `vec_dot` (CPU, incl. scalar) und — fuer
+   GPU-Pfade — CUDA-Dequant/MMQ-Anbindung. Minimalziel: CPU-vec_dot
+   (Experten laufen via `--n-cpu-moe` eh hostseitig).
+3. Kompatibilitaet: keine fork-produzierten GGUFs mit Typ 42-46 in den
+   LAN-Modellverzeichnissen gefunden → Renumbering risikoarm, aber bei
+   spaeter gefundenen Altdateien Konfliktpruefung noetig.
+4. Regressionstest neu fassen: synthetisches GGUF mit Typ-42-Tensor muss
+   als Q2_0 gelesen werden (nicht TURBO2_0); Negativfaelle bleiben.
+
+**Reproduktion (historisch):** denselben Zweiteiler mit *exakt* dem
+bisherigen Fork-Commit gegen OptLlama/gguf-py testen; Fehlstelle in
+`ggml/src/gguf.cpp:761-782`: `blk.1.ffn_down_shexp.weight`, offset
+2004206976 statt 1991099776.
 
 1. Dateigroesse/Hash der Shards gegen die Quelle vergleichen; GGUF-Header ohne
    70-GB-Kopie inspizieren. Fuer die ersten abweichenden Tensoren Typ, Dimensionen,
