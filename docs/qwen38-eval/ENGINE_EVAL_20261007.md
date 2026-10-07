@@ -109,6 +109,23 @@ UD-IQ4_XS (4370 Expert-Slots, 9.8 GiB; 55.4 GiB Experten im RAM):
 - Sanity vs. Issue #1062 (gleiche GPU-Klasse, UD-IQ4_XS): Issue meldet ~1930 pp @32k, 52–57 Decode — unsere 23k-Messung 1227 pp / ~45 t/s plausibel konsistent (Issue nutzte 128k Kontext und vermutlich warme KV-Pfade).
 - Nicht-deterministische Elemente: adaptive Tiers, spec-decode acceptance; Messvarianz gering (<3 % pp, ~10 % decode).
 
+**Single-GPU-Variante (nur CUDA0, GPU1 produktiv belegt, IQ3_XXS, sonst identisch):**
+
+| ~Prompt tokens | TTFT (ms) | pp t/s | Decode t/s |
+|---|---|---|---|
+| 854 | ~4300 | 191–200 | 37–45 |
+| 2997 | ~6260 | ~478 | 45–53 |
+| 5863 | ~6700 | ~874 | 47–52 |
+| 23184 | ~19950 | **1158** | 47–52 |
+
+→ ~65–67 % der 2-GPU-Prefill-Rate @23k, Decode ~72 % — die zweite Karte kostet
+nur ~1/3 der Leistung. **Auch auf einer einzigen 16-GB-Karte ist Strata ~4.3× pp /
+~4× tg schneller als der beste Fork-Stand auf zwei Karten.** 5661 residente
+Expert-Slots (vs. 7483+2205 auf 2 GPUs), 438 MiB frei — knapp, aber stabil.
+Anmerkung: `--spec` ist fuer IQ-Packs Pflicht (T>=2); ein MTP-Abschalttest zur
+Kernel/Spec-Isolation ist nicht moeglich — der MTP-Anteil (~2× Decode) bleibt
+Schaetzung aus den publizierten Akzeptanzraten.
+
 ### 3.2 OptLlama (moe-cache)
 
 | Config | pp @0.8k | pp @3k | pp @5.8k | pp @23k | Decode |
@@ -164,8 +181,11 @@ Faktoren, aus Log + Messung separierbar:
    Unser Pfad: mmap + per-Layer On-Demand → ~250 t/s-Plateau = PCIe-gebunden.
 2. **MTP spec 4** (Decode ~2× auf 60+ t/s-Klasse beitragend): bei uns nicht nutzbar —
    das GGUF trägt keine `n_layer_nextn`-Layer, Strata lädt den MTP-Sidecar separat.
-3. **Fused-Kernel** (GDN/QSA/HC): in der Time zusätzlich enthalten, nicht isoliert messbar;
-   absehbar eher in der PP-Rate als im Decoder-Vorsprung.
+3. **Fused-Kernel** (GDN/QSA/HC): in der Time zusätzlich enthalten, nicht isoliert messbar.
+   Wichtig: die sm_90+-Cluster-Pfade (QSA-Decode-Top-K, `qsa_select.cu`) sind
+   **runtime-gated** (`ptxVersion >= 90`-Check, sonst `block_topk_reg_kernel`-Fallback)
+   — unsere gesamte Messung lief auf sm_89-Fallbacks, d.h. der 4×-Vorsprung entsteht
+   nachweislich *ohne* Hopper-Cluster-Features.
 4. **Expert-Cache-Abdeckung:** Strata ~98 % der gerouteten Masse (13023/24576 Paare)
    vs. unsere ~10 % — aber selbst unsere 4 GiB konnten ≥keinen Gewinn bringen,
    weil die fehlenden ~70 GiB der Engpass sind, nicht die letzten Slots.
