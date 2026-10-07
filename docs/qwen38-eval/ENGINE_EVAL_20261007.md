@@ -300,11 +300,14 @@ bei nachgewiesenem Restengpass sind gezielte Layout-/Kernel-Ports im Plan.
    (block 64, 18 B) fuer die `ffn_down_exps`/`shexp`-Tensoren; der Fork belegt
    42 mit eigenem `TURBO2_0` (block 128, 34 B) → systematische Offset-Drift
    (`n_el/64` pro Q2_0-Tensor). Datei ist wohlgeformt (alle Offsets sequentiell,
-   Slack 0). Fix = Enum-Renumbering + upstream-Q2_0-Support portieren, siehe
-   Plan §10.2.
+   Slack 0; Quell-Checksummen bestaetigt). Q2_0-Support fuer CPU/CUDA und
+   Python implementiert; nur TURBO2 wird von 42 auf 47 verschoben, TQ3/TQ4
+   bleiben kompatibel. Lokale Regressionen/Builds und zwei Reviews
+   bestanden; echte Modell-Inferenz steht noch aus, siehe Plan §10.2.
 2. **Prefetch-Crash (P1):** `GGML_SCHED_PREFETCH_EXPERTS=1` → `CUDA error: requested
    functionality is not supported` in `ggml_cuda_op_mul_mat_cublas` (ggml-cuda.cu:1792)
-   beim ersten Request — Qwen4Exp-Pfad inkompatibel mit Expert-Prefetch-Staging.
+   beim ersten Request mit Expert-Prefetch. Die genaue CUDA-/Scheduler-
+   Ursache ist noch nicht nachgewiesen; kontrollierte Reproduktion folgt.
 3. **`-moe-cache`-Flag-Ordering (P2):** `--moe-cache 0` hinter `-ngl` greift zu spät —
    Backend-Registrierung läuft schon im `-ngl`-Parser (llama_supports_gpu_offload) und
    liest `GGML_CUDA_MOE_CACHE` bevor das Flag es setzt. Workaround: Env direkt.

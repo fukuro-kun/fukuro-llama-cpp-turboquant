@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 #include <string>
 #include <vector>
 
@@ -107,6 +108,92 @@ static float dot_product_error(const ggml_type_traits * qfns, const ggml_type_tr
     return fabsf(result - dot_ref) / test_size;
 }
 
+static int test_q2_0_deterministic(bool verbose) {
+    int num_failed = 0;
+
+    const auto * qfns = ggml_get_type_traits(GGML_TYPE_Q2_0);
+    const auto * qfns_cpu = ggml_get_type_traits_cpu(GGML_TYPE_Q2_0);
+    const auto * vdot = ggml_get_type_traits_cpu(qfns_cpu->vec_dot_type);
+
+    const int qk = 64;
+    const int nb = 2;
+    const int n = qk * nb;
+    const int block_bytes = 2 + qk/4;
+
+    if (qfns->to_float == NULL || qfns->from_float_ref == NULL || qfns_cpu->from_float == NULL ||
+        qfns_cpu->vec_dot == NULL || vdot == NULL || vdot->from_float == NULL) {
+        printf("%5s deterministic parity:              %s (missing q2_0 functions)\n", ggml_type_name(GGML_TYPE_Q2_0), RESULT_STR[1]);
+        return 1;
+    }
+
+    const float scales[nb] = {0.5f, 1.25f};
+    std::vector<uint8_t> packed(nb * block_bytes, 0);
+    std::vector<float> expected(n);
+    for (int i = 0; i < nb; i++) {
+        ggml_fp16_t d16;
+        ggml_fp32_to_fp16_row(&scales[i], &d16, 1);
+        memcpy(packed.data() + i*block_bytes, &d16, sizeof(d16));
+        for (int j = 0; j < qk; j++) {
+            const int c = (j + 3*i) % 4;
+            packed[i*block_bytes + 2 + j/4] |= (uint8_t)(c << (2*(j % 4)));
+            expected[i*qk + j] = (c - 1) * scales[i];
+        }
+    }
+
+    std::vector<float> out(n);
+    qfns->to_float(packed.data(), out.data(), n);
+    bool failed = false;
+    for (int i = 0; i < n; i++) {
+        if (out[i] != expected[i]) {
+            failed = true;
+        }
+    }
+    num_failed += failed;
+    if (failed || verbose) {
+        printf("%5s dequant codes c=0..3 (2 blocks):   %s\n", ggml_type_name(GGML_TYPE_Q2_0), RESULT_STR[failed]);
+    }
+
+    const float roundtrip_patterns[nb][4] = {{-1.0f, 0.0f, 1.0f, 0.0f}, {2.0f, -2.0f, 0.0f, 2.0f}};
+    std::vector<float> rt_in(n);
+    for (int i = 0; i < nb; i++) {
+        for (int j = 0; j < qk; j++) {
+            rt_in[i*qk + j] = roundtrip_patterns[i][j % 4];
+        }
+    }
+    std::vector<uint8_t> rt_packed(nb * block_bytes, 0);
+    qfns->from_float_ref(rt_in.data(), rt_packed.data(), n);
+    qfns->to_float(rt_packed.data(), out.data(), n);
+    failed = false;
+    for (int i = 0; i < n; i++) {
+        if (out[i] != rt_in[i]) {
+            failed = true;
+        }
+    }
+    num_failed += failed;
+    if (failed || verbose) {
+        printf("%5s quant roundtrip (2 blocks):        %s\n", ggml_type_name(GGML_TYPE_Q2_0), RESULT_STR[failed]);
+    }
+
+    const size_t dot_bytes = ggml_row_size(qfns_cpu->vec_dot_type, n);
+    std::vector<uint8_t> packed_dot(dot_bytes, 0);
+    std::vector<float> activations(n), dequantized_dot(n);
+    for (int i = 0; i < n; ++i) {
+        activations[i] = float((i * 17) % 31 - 15) * (1 + i / 32) / 16.0f;
+    }
+    vdot->from_float(activations.data(), packed_dot.data(), n);
+    ggml_get_type_traits(qfns_cpu->vec_dot_type)->to_float(packed_dot.data(), dequantized_dot.data(), n);
+    float result = INFINITY;
+    qfns_cpu->vec_dot(n, &result, 0, packed.data(), 0, packed_dot.data(), 0, 1);
+    const float dot_ref = dot_product(expected.data(), dequantized_dot.data(), n);
+    failed = !(fabsf(result - dot_ref) < 1e-4f);
+    num_failed += failed;
+    if (failed || verbose) {
+        printf("%5s vec_dot packed codes vs Q8 blocks: %s (ref=%f got=%f)\n", ggml_type_name(GGML_TYPE_Q2_0), RESULT_STR[failed], dot_ref, result);
+    }
+
+    return num_failed;
+}
+
 int main(int argc, char * argv[]) {
     bool verbose = false;
     const size_t test_size = 32 * 128;
@@ -165,6 +252,7 @@ int main(int argc, char * argv[]) {
                 type == GGML_TYPE_Q1_0    ? MAX_QUANTIZATION_TOTAL_ERROR_BINARY :
                 type == GGML_TYPE_TQ1_0   ? MAX_QUANTIZATION_TOTAL_ERROR_TERNARY :
                 type == GGML_TYPE_TQ2_0   ? MAX_QUANTIZATION_TOTAL_ERROR_TERNARY :
+                type == GGML_TYPE_Q2_0    ? MAX_QUANTIZATION_TOTAL_ERROR_TERNARY :
                 type == GGML_TYPE_Q2_K    ? MAX_QUANTIZATION_TOTAL_ERROR_2BITS :
                 type == GGML_TYPE_IQ2_S   ? MAX_QUANTIZATION_TOTAL_ERROR_2BITS :
                 type == GGML_TYPE_Q3_K    ? MAX_QUANTIZATION_TOTAL_ERROR_3BITS :
@@ -192,7 +280,7 @@ int main(int argc, char * argv[]) {
                                           ? MAX_DOT_PRODUCT_ERROR_LOWBIT
                                           : type == GGML_TYPE_Q1_0
                                           ? MAX_DOT_PRODUCT_ERROR_BINARY
-                                          : type == GGML_TYPE_TQ1_0 || type == GGML_TYPE_TQ2_0
+                                          : type == GGML_TYPE_TQ1_0 || type == GGML_TYPE_TQ2_0 || type == GGML_TYPE_Q2_0
                                           ? MAX_DOT_PRODUCT_ERROR_TERNARY
                                           : type == GGML_TYPE_NVFP4
                                           ? MAX_DOT_PRODUCT_ERROR_FP4
@@ -204,6 +292,8 @@ int main(int argc, char * argv[]) {
             }
         }
     }
+
+    num_failed += test_q2_0_deterministic(verbose);
 
     if (num_failed || verbose) {
         printf("%d tests failed\n", num_failed);

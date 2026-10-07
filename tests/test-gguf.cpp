@@ -1383,6 +1383,42 @@ static std::pair<int, int> test_gguf_set_kv(ggml_backend_dev_t dev, const unsign
     return std::make_pair(npass, ntest);
 }
 
+static std::pair<int, int> test_upstream_q2_0() {
+    FILE * file = tmpfile();
+    GGML_ASSERT(file != nullptr);
+    helper_write(file, GGUF_MAGIC, 4);
+    helper_write(file, uint32_t(GGUF_VERSION));
+    helper_write(file, uint64_t(2));
+    helper_write(file, uint64_t(0));
+    for (const std::string & name : {std::string("blk.1.ffn_down_exps.weight"), std::string("blk.1.ffn_down_shexp.weight")}) {
+        helper_write(file, uint64_t(name.size()));
+        helper_write(file, name.data(), name.size());
+        helper_write(file, uint32_t(2));
+        helper_write(file, uint64_t(4096));
+        helper_write(file, uint64_t(1));
+        helper_write(file, uint32_t(42));
+        helper_write(file, uint64_t(name.find("shexp") == std::string::npos ? 0 : 1152));
+    }
+    const size_t padding = GGML_PAD(ftell(file), GGUF_DEFAULT_ALIGNMENT) - ftell(file);
+    std::vector<uint8_t> data(padding + 2304, 0);
+    helper_write(file, data.data(), data.size());
+    rewind(file);
+
+    ggml_context * ctx = nullptr;
+    gguf_context * gguf = gguf_init_from_file_ptr(file, {false, &ctx});
+    const bool ok = gguf != nullptr &&
+        gguf_get_n_tensors(gguf) == 2 &&
+        strcmp(ggml_type_name(gguf_get_tensor_type(gguf, 0)), "q2_0") == 0 &&
+        ggml_blck_size(gguf_get_tensor_type(gguf, 0)) == 64 &&
+        ggml_type_size(gguf_get_tensor_type(gguf, 0)) == 18 &&
+        gguf_get_tensor_offset(gguf, 1) == 1152;
+    printf("upstream Q2_0 wire type 42: %s\n", ok ? "OK" : "FAIL");
+    gguf_free(gguf);
+    ggml_free(ctx);
+    fclose(file);
+    return {ok ? 1 : 0, 1};
+}
+
 static void print_usage() {
     printf("usage: test-gguf [seed]\n");
     printf("  if no seed is unspecified then a random seed is used\n");
@@ -1403,6 +1439,11 @@ int main(int argc, char ** argv) {
 
     int npass = 0;
     int ntest = 0;
+    {
+        std::pair<int, int> result = test_upstream_q2_0();
+        npass += result.first;
+        ntest += result.second;
+    }
     {
         std::pair<int, int> result = test_handcrafted_file(seed);
         npass += result.first;

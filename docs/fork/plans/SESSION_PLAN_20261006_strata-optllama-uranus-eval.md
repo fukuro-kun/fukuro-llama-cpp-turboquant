@@ -140,7 +140,7 @@ Resident-RAM-Experten-Arena → MTP-Sidecar → n-cpu-moe-Auto-Fit.
 Prefetch-Crash auf Qwen4Exp (`ggml_cuda_op_mul_mat_cublas`), `--moe-cache`-Flag-Ordering,
 n-cpu-moe-40-OOM @23k, TurboQuant-Decode-Einbruch @23k (~4 t/s).
 
-## 10. Folgeprojekt: reproduzierbare Fork-Optimierung (Plan, nicht implementiert)
+## 10. Folgeprojekt: reproduzierbare Fork-Optimierung (Umsetzung begonnen)
 
 **Auftrag:** P1-Blocker zuerst; danach Prefill-Streaming, RAM-adaptive Expert-Residenz
 und Flash-Next-MTP. Ziel ist *messbar bessere* Leistung des generischen Forks auf
@@ -164,9 +164,9 @@ Implementierungs-Gates. Keine Produktions-Checkouts fuer Entwicklung aendern.
 - Ein separater Draft-Head ist **vortrainiert und wird beim Strata-Setup
   extrahiert/konvertiert**, nicht bei Inferenz neu erfunden oder trainiert.
   Die bisherigen ~2x-MTP-Beitraege sind nicht mit einem echten A/B isoliert.
-- Die bisherige Vermutung "GGUF-Reader zu strikt" und die Diagnose
-  "Prefetch-Staging inkompatibel" sind Hypothesen, keine RCA. Kein globales
-  Deaktivieren der Offset-Pruefung und kein umgehender Graph-Disable als Fix.
+- "GGUF-Reader zu strikt" ist durch die nachgewiesene Typkollision
+  widerlegt (§10.2). Die genaue Prefetch-Crash-Ursache bleibt offen.
+  Kein Deaktivieren der Offset-Pruefung und kein globaler Graph-Disable als Fix.
 
 ### 10.2 Phase P1a: IQ3_XXS-GGUF-Offset sicher diagnostizieren und beheben
 
@@ -176,8 +176,8 @@ Der Fehler ist **keine** Reader-Striktheit und **keine** defekte Datei,
 sondern eine **Typnummer-Kollision** im ggml-Enum:
 
 - Die Datei verwendet **upstream `GGML_TYPE_Q2_0 = 42`** (block 64, 18 B
-  → 0.28125 B/Element) fuer alle `ffn_down_exps`- und `ffn_down_shexp`-
-  Tensoren (38 Stueck in Shard 1).
+  → 0.28125 B/Element) fuer 38 einzelne `ffn_down_exps`-/`ffn_down_shexp`-
+  Tensoren in Shard 1.
 - Der Fork belegt Typ 42 mit **`GGML_TYPE_TURBO2_0`** (block 128, 34 B
   → 0.265625 B/Element) und kennt `Q2_0` gar nicht.
 - Rechnung bestaetigt: Drift pro Q2_0-Tensor = `n_el/64` Byte; beim ersten
@@ -185,21 +185,45 @@ sondern eine **Typnummer-Kollision** im ggml-Enum:
 - Mit `42 = Q2_0 (64/18)` sind **alle 1223+1 Offsets perfekt sequentiell**
   (Slack = 0, beide Shards wohlgeformt). Datei ist valide.
 
-**Konsequenz (deutlich groesser als eine Reader-Korrektur):**
+**Implementierung 2026-10-07 — lokale Tests bestanden, Modell-Gate noch offen:**
 
-1. Fork-Typen TURBO2_0/3_0/4_0 (42-44) + TQ3_1S/TQ4_1S (45/46) kollidieren
-   mit dem aktuellen upstream-Nummernraum (COUNT=43) und muessen
-   umnummeriert werden (vorsorglich hoch, z.B. ≥ 64, gegen kuenftige
-   upstream-Belegungen).
-2. Um die Datei auszufuehren, muss **upstream-Q2_0 portiert** werden:
-   `block_q2_0`, dequant/quant, `vec_dot` (CPU, incl. scalar) und — fuer
-   GPU-Pfade — CUDA-Dequant/MMQ-Anbindung. Minimalziel: CPU-vec_dot
-   (Experten laufen via `--n-cpu-moe` eh hostseitig).
-3. Kompatibilitaet: keine fork-produzierten GGUFs mit Typ 42-46 in den
-   LAN-Modellverzeichnissen gefunden → Renumbering risikoarm, aber bei
-   spaeter gefundenen Altdateien Konfliktpruefung noetig.
-4. Regressionstest neu fassen: synthetisches GGUF mit Typ-42-Tensor muss
-   als Q2_0 gelesen werden (nicht TURBO2_0); Negativfaelle bleiben.
+1. Nur die tatsaechlich kollidierende Nummer aendern: `Q2_0=42`,
+   `TURBO2_0=47`, `GGML_TYPE_COUNT=48`. TURBO3/4 und die serialisierten
+   TQ3_1S/TQ4_1S bleiben bei 43/44/45/46. Keine pauschale Migration auf
+   >=64 und keine Garantie gegen kuenftige Upstream-Kollisionen.
+2. Q2_0-Block/Traits, Quant-/Dequant-Referenz und CPU-Q2/Q8-Dot-Product
+   nach Upstream `18b5f8b186` portiert; CUDA-Dequant, GET_ROWS, MMVQ und
+   MMQ an die bestehende Backend-API angepasst. Python-Reader und
+   Python-Quantisierung ergaenzt. Vulkan-TURBO2-Typkonstante synchronisiert;
+   Weitere native Q2_0-Backend-Pfade sind nicht portiert oder validiert.
+3. Typnummern sind Bestandteil von GGUF, KV-Session-State und RPC.
+   Alle Bibliotheken/Clients gemeinsam neu bauen. Alte TURBO2-KV-Sessions
+   werden vom bestehenden Typvergleich abgewiesen; TQ3-/TQ4-GGUFs behalten
+   ihre Nummern. Alte manuell erzeugte TURBO2-GGUFs mit Wire-Typ 42 sind
+   ohne Formatmarker nicht eindeutig von Q2_0 unterscheidbar und nicht
+   automatisch migrierbar. Eine Dateinamensuche beweist keine Abwesenheit.
+4. Regression: unabhaengig gepacktes Typ-42-GGUF mit zwei Tensoren scheitert
+   vorher mit `offset 1152, expected 1088`; nachher `test-gguf` 88/88.
+   Bestehende Negativfaelle unveraendert. CPU-Backend-Q2-Tests 160/160
+   inklusive direkt gepacktem `+2d` fuer MMVQ-/MMQ- und Expert-ID-Faelle;
+   Quant-Funktionen ohne Fehler; TurboQuant-Roundtrips 17/17; Python/C
+   bitgleiche Quantisierung/Dequantisierung plus manuell gepackte Codes
+   0..3. CPU-, CUDA-sm_89- und Vulkan-Build erfolgreich.
+5. Echte IQ3-Shards und mmproj per `hf cache verify` gegen die Quelle
+   geprueft (3 passende Checksummen; andere Quantisierungen lokal bewusst
+   nicht vorhanden). Quellrepo `ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF`,
+   Revision `ed59f92082b1e93c0e96d60a8b11aab089b52f09`.
+6. Review-Runde 1: CPU/GGUF/Python bestaetigt; fehlender Quantize-CLI-
+   Eintrag ergaenzt. Verdacht auf CUDA-`__byte_perm`-Fehlentpackung mit
+   unabhaengigem sm_89-Probe ueber alle 65536 Zwei-Byte-Muster widerlegt:
+   Original und zusaetzlich maskierte Version jeweils null Abweichungen.
+   KV-Restore-Typvergleich vor Payload-Interpretation im Code bestaetigt.
+   Runde 2 bestaetigt CLI und vier neue direkt gepackte Backend-Faelle:
+   keine P0/P1, fuer den lokalen Implementierungs-Scope freigegeben.
+7. Noch offen: Laden beider echter Shards und
+   CUDA-Inferenz-/Logit-Sanity. Vorher keine Same-Quant-Performancezahl und
+   keine P1a-Freigabe. Nach Entwicklungsrechner-Neustart Tests erneut
+   ausfuehren; Logs dauerhaft im gitignorierten Build-Verzeichnis halten.
 
 **Reproduktion (historisch):** denselben Zweiteiler mit *exakt* dem
 bisherigen Fork-Commit gegen OptLlama/gguf-py testen; Fehlstelle in
@@ -408,11 +432,35 @@ Pipeline. Das UD-IQ4_XS-Target hat *keinen eingebetteten* NextN-Head;
 im GGUF, korrekte Architektur-Anbindung und ggf. ein Ziel-Hidden-State-
 Hook. Stratas `--mtp`-Dateien sind kein automatisch ladbares GGUF.
 
+**Vertragsanalyse 2026-10-07 (Strata `82f46a8c8`, noch kein MTP-Port):**
+
+- Head: 31 `mtp.*`-Tensoren, vortrainierter einzelner Attention/MoE-Layer.
+  `fc_embedding` und `fc_hidden` jeweils 2560x2560; Hidden-Norm 10240,
+  HC=4, Mix-Low-Rank=320; 512 Experten, Gate/Up 512x1280x2560 und Down
+  512x2560x640. Basis-Embedding/Output teilen, keine PLE-Tensoren duplizieren.
+- Strata paart `R_i` (10240 rohe HC-Werte vor dem finalen Mixer) mit Token
+  `i+1`, RoPE-Position `i`; der Head sagt Token `i+2` voraus. K2s
+  RoPE-Position `i+1` nicht ungeprueft uebernehmen.
+- Hidden-Norm ist ein eigener Paritaetspunkt: Strata normalisiert standard-
+  maessig ueber 10240 Werte, bietet alternativ vier 2560er-Stream-Normen.
+  Die HC-Mixer normalisieren je Stream. Gemma-Normgewichte werden als
+  `1+w` aufbereitet; diese Transformation beim Export exakt einmal anwenden.
+- Stratas Draft nutzt dichte Attention ohne Indexer-Zustand; oberhalb
+  2051 Zellen ist das eine Draft-Approximation, kein exakter QSA-Graph.
+  Zuerst exakte Ein-Schritt-Referenz, Approximation erst separat messen.
+- Fork-Blocker: kein Qwen4Exp-MTP-Graph/`t_h_nextn`-Export; generischer Draft-
+  Treiber prueft skalare `n_embd` statt HC-Breite. Qwen4Exp ist nicht fuer
+  den vorhandenen partiellen Recurrent-State-Rollback freigegeben.
+  Target-Checkpoint-Restore und separaten Draft-QSA-State gemeinsam testen;
+  kein blosses Hinzufuegen des Arch-Namens zur Rollback-Whitelist.
+
 1. **Asset-/Format-Gate:** identische Flash-Next-Checkpoint-Revision
    fuer Target und Head beschaffen/verifizieren, Strata-Setup-Extraktion
-   und Original-HF-Tensorinventar/Shapes dokumentieren. `conversion/
-   qwen4exp.py` und `convert_hf_to_gguf.py` exportieren derzeit kein
-   Qwen4Exp-MTP (`--mtp` nur fuer Qwen3.5/3.6/Step3.5).
+   und Original-HF-Tensorinventar/Shapes dokumentieren. Ein `conversion/
+   qwen4exp.py`-Modul ist im aktuellen Checkout nicht vorhanden, obwohl
+   die Architektur-Registry darauf verweist; Konverter zuerst pruefen.
+   Qwen4Exp-MTP-Export ist nicht implementiert (`--mtp` bisher nur fuer
+   Qwen3.5/3.6/Step3.5).
    Definieren, ob kompakte Head-only-GGUF wie K2 oder konvertierter
    kleiner Draft als separate `--spec-draft-model`-Quelle taugt.
    Keine Train-/"synthetischer Drafter"-Behauptung.

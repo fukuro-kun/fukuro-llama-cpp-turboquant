@@ -2396,13 +2396,16 @@ struct test_set_rows : public test_case {
     }
 
     double max_nmse_err() override {
-        if (type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q4_1 || type == GGML_TYPE_IQ4_NL ||
+        if (type == GGML_TYPE_Q2_0 || type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q4_1 || type == GGML_TYPE_IQ4_NL ||
             type == GGML_TYPE_Q5_0 || type == GGML_TYPE_Q5_1 || type == GGML_TYPE_Q8_0) {
             // estimate what the max nmse error would be if one quantized value is
             // off by one. The test values are distributed in [-1,1], so it'll be
             // roughly (2.0 / 2^bits)^2, divided by the mean square value of the reference,
             // which is roughly 0.25 times the number of elements.
             double err_estimate = 1.0f/8.0f;
+            if (type == GGML_TYPE_Q2_0) {
+                err_estimate *= 4.0f;
+            }
             if (type == GGML_TYPE_Q5_0 || type == GGML_TYPE_Q5_1) {
                 err_estimate /= 2.0f;
             }
@@ -2915,13 +2918,16 @@ struct test_cpy : public test_case {
         if (type_src == type_dst) {
             return 0.0;
         }
-        if (type_dst == GGML_TYPE_Q4_0 || type_dst == GGML_TYPE_Q4_1 || type_dst == GGML_TYPE_IQ4_NL ||
+        if (type_dst == GGML_TYPE_Q2_0 || type_dst == GGML_TYPE_Q4_0 || type_dst == GGML_TYPE_Q4_1 || type_dst == GGML_TYPE_IQ4_NL ||
             type_dst == GGML_TYPE_Q5_0 || type_dst == GGML_TYPE_Q5_1 || type_dst == GGML_TYPE_Q8_0) {
             // estimate what the max nmse error would be if one quantized value is
             // off by one. The test values are distributed in [-150,150], so it'll be
             // roughly (150*2.0 / 2^bits)^2, divided by the mean square value of the reference,
             // which is roughly 0.25*150^2 times the number of elements.
             double err_estimate = 1.0f/8.0f * 150.0f;
+            if (type_dst == GGML_TYPE_Q2_0) {
+                err_estimate *= 4.0f;
+            }
             if (type_dst == GGML_TYPE_IQ4_NL) {
                 // iq4_nl values are a bit more spread out
                 err_estimate *= 2.0f;
@@ -4245,6 +4251,38 @@ struct test_mul_mat_id : public test_case {
 
     void initialize_tensors(ggml_context * ctx) override {
         init_mul_mat_id_tensors(ctx, n_mats);
+    }
+};
+
+template <typename Base>
+struct test_q2_0_packed : public Base {
+    using Base::Base;
+
+    std::string vars() override {
+        return Base::vars() + ",packed_codes=0..3";
+    }
+
+    void initialize_tensors(ggml_context * ctx) override {
+        Base::initialize_tensors(ctx);
+        for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != nullptr; t = ggml_get_next_tensor(ctx, t)) {
+            if (t->type != GGML_TYPE_Q2_0 || t->view_src != nullptr) {
+                continue;
+            }
+            GGML_ASSERT(ggml_is_contiguous(t));
+            GGML_ASSERT(ggml_blck_size(t->type) == 64 && ggml_type_size(t->type) == 18);
+            std::vector<uint8_t> packed(ggml_nbytes(t), 0);
+            for (size_t block = 0; block < packed.size() / 18; ++block) {
+                const float scale = float(1 + block % 7) / 8.0f;
+                ggml_fp16_t d;
+                ggml_fp32_to_fp16_row(&scale, &d, 1);
+                memcpy(packed.data() + block*18, &d, sizeof(d));
+                for (size_t j = 0; j < 64; ++j) {
+                    const uint8_t code = (j + j/4 + block*3) % 4;
+                    packed[block*18 + 2 + j/4] |= code << (2*(j % 4));
+                }
+            }
+            ggml_backend_tensor_set(t, packed.data(), 0, packed.size());
+        }
     }
 };
 
@@ -7791,6 +7829,7 @@ static const ggml_type all_types[] = {
     GGML_TYPE_Q5_0, GGML_TYPE_Q5_1,
     GGML_TYPE_Q8_0,
     GGML_TYPE_Q1_0,
+    GGML_TYPE_Q2_0,
     GGML_TYPE_MXFP4, GGML_TYPE_NVFP4,
     GGML_TYPE_Q2_K, GGML_TYPE_Q3_K,
     GGML_TYPE_Q4_K, GGML_TYPE_Q5_K,
@@ -7806,6 +7845,7 @@ static const ggml_type base_types[] = {
     GGML_TYPE_F32, GGML_TYPE_F16,
     GGML_TYPE_Q8_0, // for I8MM tests
     GGML_TYPE_Q1_0,
+    GGML_TYPE_Q2_0,
     GGML_TYPE_Q4_0,
     GGML_TYPE_Q4_1, // for I8MM tests
     GGML_TYPE_Q4_K,
@@ -7818,6 +7858,7 @@ static const ggml_type other_types[] = {
     GGML_TYPE_Q5_0, GGML_TYPE_Q5_1,
     GGML_TYPE_Q8_0,
     GGML_TYPE_Q1_0,
+    GGML_TYPE_Q2_0,
     GGML_TYPE_Q2_K, GGML_TYPE_Q3_K,
     GGML_TYPE_Q5_K,
     GGML_TYPE_Q6_K,
@@ -8738,6 +8779,11 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
 
     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q4_0, GGML_TYPE_F32, 576, 512, 576, {1,1}, {1,1}));
     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q4_0, GGML_TYPE_F32, 1, 2048, 8192, {1,  1}, {1, 1}));
+    test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q2_0, GGML_TYPE_F32,  80,   3,  192, {1,  1}, {1, 1}));
+    test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q2_0, GGML_TYPE_F32, 144,   5,   64, {2,  1}, {1, 1}));
+    test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q2_0, GGML_TYPE_F32,   1,  64,  128, {1,  1}, {1, 1}));
+    test_cases.emplace_back(new test_q2_0_packed<test_mul_mat>(GGML_TYPE_Q2_0, GGML_TYPE_F32, 80, 1, 192, std::array<int64_t, 2>{1, 1}, std::array<int64_t, 2>{1, 1}));
+    test_cases.emplace_back(new test_q2_0_packed<test_mul_mat>(GGML_TYPE_Q2_0, GGML_TYPE_F32, 80, 65, 192, std::array<int64_t, 2>{1, 1}, std::array<int64_t, 2>{1, 1}));
     for (ggml_type type_a : all_types) {
         test_cases.emplace_back(new test_mul_mat(type_a, GGML_TYPE_F32, 1, 64, 256, {1,  1}, {1, 1}));
     }
@@ -8789,6 +8835,10 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     }
 
     test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_F16, GGML_TYPE_F32, 1, 1, false, 8, 16, 1));
+    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q2_0, GGML_TYPE_F32, 8, 4, false, 64, 256, 128));
+    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q2_0, GGML_TYPE_F32, 4, 2, true, 192, 64, 64));
+    test_cases.emplace_back(new test_q2_0_packed<test_mul_mat_id>(GGML_TYPE_Q2_0, GGML_TYPE_F32, 4, 2, false, 80, 1, 192));
+    test_cases.emplace_back(new test_q2_0_packed<test_mul_mat_id>(GGML_TYPE_Q2_0, GGML_TYPE_F32, 4, 2, true, 80, 129, 192));
     test_cases.emplace_back(new test_mul_mat_id_fusion(GGML_TYPE_F16, GGML_TYPE_F32, 16, 16, false, 32, 32, 32, 3));
 
     // gpt-oss issue with Vulkan mmq_id
@@ -9541,6 +9591,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
     test_cases.emplace_back(new test_cpy(GGML_TYPE_F32,  GGML_TYPE_F32,  {3072, 512, 2, 1}, {-1,-1,-1,-1}, {0, 2, 1, 3}));
     test_cases.emplace_back(new test_cpy(GGML_TYPE_F32,  GGML_TYPE_Q4_0, {8192, 512, 2, 1}));
     test_cases.emplace_back(new test_cpy(GGML_TYPE_Q4_0, GGML_TYPE_F32,  {8192, 512, 2, 1}));
+    test_cases.emplace_back(new test_cpy(GGML_TYPE_F32,  GGML_TYPE_Q2_0, {8192, 512, 2, 1}));
+    test_cases.emplace_back(new test_cpy(GGML_TYPE_Q2_0, GGML_TYPE_F32,  {8192, 512, 2, 1}));
 
     test_cases.emplace_back(new test_cpy(GGML_TYPE_F32, GGML_TYPE_F32, {768*1024, 256, 1, 1}, {-1,-1,-1,-1}, {1, 0, 2, 3}, {0, 0, 0, 0}));
     test_cases.emplace_back(new test_cpy(GGML_TYPE_F16, GGML_TYPE_F16, {768*1024, 256, 1, 1}, {-1,-1,-1,-1}, {1, 0, 2, 3}, {0, 0, 0, 0}));

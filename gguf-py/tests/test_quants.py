@@ -65,6 +65,7 @@ class GGMLQuants:
 
         for t in (
             "q4_0", "q4_1", "q5_0", "q5_1", "q8_0",
+            "q2_0",
             "q2_K", "q3_K", "q4_K", "q5_K", "q6_K",
             "tq1_0", "tq2_0",
             "mxfp4",
@@ -235,6 +236,29 @@ def do_test(libggml_path: Path, quick: bool = False, user_type: GGMLQuantization
                 logger.info(f"Dequantization from random f16 data as {qtype.name} matches exactly ✅")
 
 
+def check_q2_0_golden(ggml_quants: GGMLQuants) -> None:
+    qtype = GGMLQuantizationType.Q2_0
+    assert qtype.value == 42
+    block_size, type_size = gguf.GGML_QUANT_SIZES[qtype]
+    assert (block_size, type_size) == (64, 18)
+
+    scales = np.array([0.5, 1.25], dtype=np.float16)
+    codes = (np.arange(block_size).reshape(1, -1) + np.array([[0], [3]])) % 4
+
+    qs = np.zeros((2, block_size // 4), dtype=np.uint8)
+    for j in range(block_size):
+        qs[:, j // 4] |= (codes[:, j] << (2 * (j % 4))).astype(np.uint8)
+
+    packed = np.concatenate([scales.view(np.uint8).reshape(2, 2), qs], axis=-1).reshape(2, type_size)
+    expected = (codes.astype(np.int32) - 1) * scales.astype(np.float32)[:, None]
+
+    result = ggml_quants.dequantize(packed, qtype)
+
+    np.testing.assert_array_equal(result, expected)
+    np.testing.assert_array_equal(gguf.dequantize(packed, qtype), expected)
+    logger.info("Q2_0 C/Python dequantization matches manually-packed golden (c-1)*d values")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Python (de)quantization against the reference C implementation")
     parser.add_argument("--libggml", type=Path, default=Path(__file__).parent.parent.parent / "build" / "bin" / "libggml.so", help="The path to libggml.so")
@@ -244,5 +268,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG)
+
+    ggml_quants = GGMLQuants(args.libggml)
+    check_q2_0_golden(ggml_quants)
 
     do_test(args.libggml, args.quick, GGMLQuantizationType[args.type.upper()] if args.type is not None else None)

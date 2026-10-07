@@ -15,6 +15,7 @@
 - Implementierung in `src/ggml-turbo-quant.c`
 - Aenderungen nur in Absprache mit `src/llama-quant.cpp` und `src/llama.cpp` (KV-Cache-Integration)
 - Neue Quantisierungstypen muessen in `ggml-quants.c`, `ggml-common.h` und `ggml.h` registriert werden
+- Typnummern sind auch GGUF-/RPC-/KV-State-Vertraege: `Q2_0=42`, `TURBO2_0=47`; TURBO3/4 und TQ3_1S/TQ4_1S behalten 43/44/45/46. C-Enum, Python-Enum und Vulkan-Shader-Konstanten synchron halten; bei Enum-Aenderungen alle Bibliotheken und RPC-Teilnehmer gemeinsam neu bauen. Alte TURBO2-KV-Sessions sind nicht kompatibel; Wire-Typ 42 nicht heuristisch als TURBO2 interpretieren.
 
 ### Backend-Regeln
 
