@@ -190,6 +190,52 @@ Faktoren, aus Log + Messung separierbar:
    vs. unsere ~10 % — aber selbst unsere 4 GiB konnten ≥keinen Gewinn bringen,
    weil die fehlenden ~70 GiB der Engpass sind, nicht die letzten Slots.
 
+### 4.1b Mechanismen-Matrix (OptLlama vs. Strata vs. Fork)
+
+| Mechanismus | OptLlama | Strata | Fork |
+|---|---|---|---|
+| VRAM-Slot-Cache (Decode-Experten) | ✅ +35 % tg | ✅ 13023/24576 Paare adaptiv | ✅ `--moe-cache`, aber nur 2560/24576 Slots → **±0 %** |
+| Early-Router-Prefetch | ✅ | ✅ implizit | ⚠️ `GGML_SCHED_PREFETCH_EXPERTS` (2-Slot) — **Crash auf Qwen4Exp** |
+| Resident-RAM-Experten + async Streaming | ❌ | ✅ Kernmechanismus | ❌ mmap on-demand |
+| Transfer/Compute-Overlap (Ring + 8192-Chunks) | ❌ | ✅ | ❌ (GPU-Graph-Pipelining ja, Expert-Transfer-Overlap nein) |
+| Hybrid-Miss (CPU rechnet während GPU streamed) | ❌ | ✅ pcie_frac | ⚠️ nur statisch `--n-cpu-moe`/`--cpu-moe` (ganze Layer), kein per-Miss-Hybrid |
+| Prefill-Streaming (Stream-All statt Cache-Hit) | ❌ | ✅ | ❌ (moe-cache ist decode-designt) |
+| MTP | ❌ | ✅ Sidecar + spec 4 | ⚠️ `draft-mtp` braucht eingebettete NextN — UD-IQ4_XS hat keine |
+| Fused GDN/HC/QSA-Kernel | ❌ | ✅ (sm_89-Fallbackpfade) | ❌ generische Ops |
+
+### 4.1c Strata-Ablation (1 GPU, IQ3_XXS, eingebaute A/B-Arme)
+
+Strata bringt eigene Ablation-Flags mit — jede Zeile = Engine-Neustart + Bench
+(3 Runs, Median; `strata-ablate.jsonl`):
+
+| Variante | Was entfällt | pp @0.8k | pp @5.8k | pp @23k | tg |
+|---|---|---:|---:|---:|---:|
+| v0 baseline | — | 200 | 877 | 1154 | ~47 |
+| v1 `--mmap-experts` | Resident-Arena → OS-Paging | 164 (−18 %) | 645 (−26 %) | 797 (−31 %) | ~28 (**−43 %**) |
+| v2 `--expert-cache 0` | VRAM-Expert-Cache | 199 (−1 %) | 873 (−0 %) | 1162 (+1 %) | ~47 (±0 %) |
+| v4 `--prefill 512` | grosse Chunks 8192→512 | 139 (−30 %) | 163 (**−81 %**) | 153 (**−87 %**) | ~48 (±0 %) |
+| v7 ohne `--remote-expert-opt` | Remote-Expert-Decode-Opt | 199 (−0 %) | 875 (−0 %) | 1165 (+1 %) | ~50 (±0 %) |
+
+Nicht über die Serve-API ablatierbar (Engine-Bisect-Tools für `strata generate`,
+kein HTTP-Pfad): `--no-token-graph`, `--no-capture` (Serve braucht Token-Graph),
+`--no-pool` (verify braucht VRAM-Expert-Tier, bei `auto` kein Platz),
+`--no-fused-gr` (Session kam hoch, Modell registrierte sich aber nicht rechtzeitig).
+
+**Attribution — die 4–5× zerlegt:**
+
+1. **Prefill ≈ zu 80–87 % Chunk-Streaming.** `--prefill 512` kollabiert Strata auf
+   153–163 t/s — **unter dem Fork-Niveau** (267). Ohne grosse Chunks helfen auch
+   Arena + Cache + MTP nicht: die 8192er-Pipeline mit Ring-Buffer ist DER
+   Prefill-Mechanismus.
+2. **Decode ≈ Resident-Arena (−43 %) × MTP (~2× geschätzt) × Rest.** Arena aus →
+   28 t/s, immer noch 2.4× über dem Fork — das Residuum ist MTP + Overlap +
+   generische Kernel, nicht isolierbar (`--spec` ist Pflicht im IQ-Pack-Pfad).
+3. **VRAM-Expert-Cache trägt ~nichts bei** (±0 % bei 5661 Slots) — deckt sich mit
+   dem Fork-Befund (±0 %). Bei 24.576 Expert-Instanzen ist Cache-Hit-Mathe
+   wirkungslos; **das Modell ist zu gross zum Cachen — man muss es streamen.**
+   Wichtige Konsequenz: moe-cache-Arbeit für diese Modellklasse einstellen.
+4. `--remote-expert-opt`: auf 1 GPU ohne messbaren Effekt (Multi-GPU-Feature).
+
 ### 4.2 Obergrenze der Adaptions-Verbesserung
 
 - **Decode:** Strata ~45–65 t/s vs. Fork ~11.5 → Faktor ~4–5×. Davon grob:
@@ -206,19 +252,27 @@ Faktoren, aus Log + Messung separierbar:
 |---|---|---|
 | ≥2× | **erfüllt**: 4.3–4.6× pp, ~4× tg | Selektive Adaption lohnt sich |
 
-Priorisierte Quick-Wins (steigender Aufwand):
+Priorisierte Quick-Wins — neu sortiert nach den Ablation-Messungen (§4.1c):
 
-1. **llama-swap-Integration:** Strata als Zweit-Engine für Flash-Next — null Fork-Arbeit,
-   voller Gewinn. Sofort umsetzbar (Setup existiert jetzt auf uranus).
-2. **Prefetch-Fix + Ring-Buffer-Prefetch:** unser Prefetch crasht derzeit; danach
-   von Slot-Prefetch (2–3 Experten) auf kontinuierliches N+1-Layer-Streaming heben.
-3. **Resident-RAM-Experten + Pinned-Pool-Budgetierung** (`--cpu-moe`-Pfad hebt mmap-
-   Page-Faults → explizites Arena-Loading): mittlerer Aufwand, großer Hebel für pp.
-4. **Stream-all-Experts-Prefill-Modus** für moe-cache (bei ≫ Expert-Instanzen zählt
-   Cache-Hit-Mathe nicht mehr → Streaming-Policy statt LRU).
-5. **MTP-Sidecar-Laden** (separate MTP-GGUF) — Architektur-Mehraufwand, ~2× Decode.
-6. **n-cpu-moe-Auto-Fit-Fix:** `--n-cpu-moe N` + `-fit` sollte GPU-Expert-Lagen
-   automatisch dosieren statt OOM (F6 zeigte den Gewinn, aber auch den Absturz).
+1. **Chunk-Streaming-Prefill (GROẞTER Hebel, ~4–6× pp-Potenzial):** Prefill in
+   ~8192-Token-Chunks mit Expert-Streaming + Transfer/Compute-Overlap-Ring —
+   statt per-Layer synchroner Expert-Fetches. Ablations-geprüft der dominante
+   Mechanismus (512er-Chunks → Strata fällt auf 153 t/s < Fork).
+2. **Residente Experten-Arena statt mmap** (~+40 % tg / +25–30 % pp):
+   `--cpu-moe`-Pfad auf explizites Bulk-Loading aller Experten in pinned RAM
+   umstellen (Strata: 71.97 → 34.78 ms/tok warm dokumentiert; wir messen
+   denselben Hebel).
+3. **llama-swap-Integration:** Strata als Zweit-Engine für Flash-Next — null
+   Fork-Arbeit, voller Gewinn. Sofort umsetzbar (Setup existiert auf uranus,
+   inkl. 1-GPU-Config `strata-iq3_xxs-1gpu.json` für Co-Existenz mit dem
+   Fork-Produktivservice).
+4. **MTP-Sidecar-Laden** (~2× Decode): separate MTP-GGUF wie Strata — unsere
+   `draft-mtp` braucht eingebettete NextN-Layer die UD-IQ4_XS nicht hat.
+5. **Prefetch-Fix** (Crash auf Qwen4Exp) + **n-cpu-moe-Auto-Fit** (F6-OOM).
+6. **STOP: moe-cache-Policy-Arbeit für 24k-Expert-Modelle.** Ablations-Befund:
+   Stratas eigener 5661-Slot-Cache trägt ±0 % bei (v2) — unser ±0 % ist also
+   kein Implementierungsfehler, sondern Modellklassen-Eigenschaft. Cache bleibt
+   für kleinere MoEs sinnvoll (Styx-Evals), nicht für Flash-Next.
 
 Nicht empfohlen: OptLlama-Merge (Code-Divergenz, Instabilität auf diesem Modell,
 geringerer Gewinn), Strata-Kernel-Übernahme (hart an dessen Engine gebunden).
