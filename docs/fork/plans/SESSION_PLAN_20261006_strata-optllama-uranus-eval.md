@@ -115,3 +115,27 @@ Abgeschlossen wenn: pp/tg-Matrix fuer >= 2 der 3 Engines gefuellt, Obergrenze qu
 - Ergebnisse → Trilium Benchmark-Note (Wegweiser `8cIsjKEhz7Fd` beachten — nie in Modell-Info-Notes)
 - ROADMAP-Item je nach Ergebnis anlegen/aktualisieren
 - `docs/fork/ROADMAP.md` #99 Phase 9-Status verlinken
+
+---
+
+## 9. ERGEBNIS (2026-10-07, uranus) — ✅ durchgefuehrt
+
+**Vollstaendiger Bericht:** `docs/qwen38-eval/ENGINE_EVAL_20261007.md`
+(Rohdaten: `uranus:~/eval-flashnext/results/*.jsonl`, 134 Runs)
+
+**Messung, Median der besten Configs, Prompt ~23k Tokens:**
+
+| Engine | pp t/s | tg t/s | Gap vs. Fork-Best |
+|---|---|---|---|
+| Strata UD-IQ4_XS (gleiches Modell wie Fork) | 1227 | ~45 | **~4.6x pp / ~4x tg** |
+| Strata IQ3_XXS | 1728 | ~65 | ~6.5x pp / ~5.6x tg |
+| OptLlama IQ3_XXS Cache | 366 | ~15 | ~1.45x pp |
+| Fork UD-IQ4_XS best (F7: --n-cpu-moe 44 + cache) | 267 | ~11.5 | 1.0 |
+
+**Gate-Ergebnis: >= 2x erfuellt (4x+) → selektive Scheduling/Logistik-Adaption lohnt.**
+Empfohlene Reihenfolge: llama-swap-Sofortmassnahme → Prefetch-Fix + Streaming-Prefill →
+Resident-RAM-Experten-Arena → MTP-Sidecar → n-cpu-moe-Auto-Fit.
+
+**Neu gefundene Fork-Bugs:** IQ3_XXS-GGUF-Offset (`ffn_down_shexp`),
+Prefetch-Crash auf Qwen4Exp (`ggml_cuda_op_mul_mat_cublas`), `--moe-cache`-Flag-Ordering,
+n-cpu-moe-40-OOM @23k, TurboQuant-Decode-Einbruch @23k (~4 t/s).
