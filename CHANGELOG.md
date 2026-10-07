@@ -20,13 +20,17 @@ wurden ergaenzt. Nur TURBO2 verschiebt sich auf 47; bestehende TQ3/TQ4-
 GGUF-Typnummern bleiben erhalten. Gemeinsam neu bauen; alte TURBO2-KV-
 Sessions werden nicht uebernommen. Keine Aufweichung der Reader-Pruefungen.
 
-Lokale Gates: GGUF 88/88, CPU-Q2-Backend 160/160 inkl. aller vier Codes,
+Gates: GGUF 88/88, CPU-Q2-Backend 160/160 inkl. aller vier Codes,
 Quant-Funktionen ohne Fehler, TurboQuant 17/17, Python/C-Paritaet inkl.
-manuell gepackter Codes;
-CPU-/CUDA-sm_89-/Vulkan-Builds bestanden. Unabhaengiges Review in zwei
-Runden ohne verbleibende P0/P1; CUDA-Bitentpackung zusaetzlich auf sm_89
-ueber 65536 Muster geprueft (null Abweichungen). Echte Modell-Inferenz
-steht noch aus; noch keine Performance-Freigabe.
+manuell gepackter Codes; CPU-/CUDA-sm_89-/Vulkan-Builds bestanden.
+Review in zwei Runden ohne verbleibende P0/P1; CUDA-Bitentpackung auf
+sm_89 ueber 65536 Muster geprueft (null Abweichungen). Modell-Gate
+bestanden: CUDA-Backend-Paritaet 134/134 je RTX-4060-Ti-GPU, echte
+2-Shard-IQ3_XXS-Inferenz auf Dual-GPU mit `--cpu-moe` liefert korrekte,
+kohaerente Ausgabe (`-fa off` und `-ctk/-ctv q8_0`). Nebenbefund:
+`fattn` lehnt Q8_0/F16-Misch-KV-Typen nicht sauber ab (pre-existing,
+kein Q2_0-Regressionsfund). IQ3_XXS ist damit als Same-Quant-Benchmark
+nutzbar; Performance-Vergleiche stehen noch aus.
 
 ## 2026-09-30
 

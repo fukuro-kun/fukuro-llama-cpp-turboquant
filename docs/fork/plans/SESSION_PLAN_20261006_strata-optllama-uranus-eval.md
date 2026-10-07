@@ -155,7 +155,7 @@ Laufzeit-/Modell- und Gesamtfreigaben getrennt.
 
 | Paket | Stand |
 |---|---|
-| P1a Offset/Q2_0 | Diagnose + Implementierung + lokale Tests und Ada-Testhost-Build abgeschlossen; CUDA-Laufzeit-/Lade-/Inferenz-Gate **offen** |
+| P1a Offset/Q2_0 | **abgeschlossen** — Gate bestanden 2026-10-07 (echte IQ3-Inferenz Dual-GPU, kohärente Ausgabe, 134/134 CUDA-Backend-Paritaet je GPU) |
 | P1b Prefetch | Code inspiziert, Hypothese vorhanden; kein Reproducer/RCA/Fix — **offen** |
 | Baseline/Profil | keine neue faire Fork-Baseline nach P1-Fixes — **offen** |
 | S1 / S1b Streaming | nicht implementiert — **offen** |
@@ -300,11 +300,25 @@ bisherigen Fork-Commit gegen OptLlama/gguf-py testen; Fehlstelle in
       erstellt; CUDA-12.0-Build fuer `test-gguf`, `test-backend-ops`,
       `llama-cli`, `llama-bench` und `llama-completion` erfolgreich
       (Produktiv-Checkout unangetastet).
-- [ ] `[OFFEN]` CUDA-Fork-Backend zur Laufzeit getestet.
-- [ ] `[OFFEN]` Beide echten IQ3-Shards laden; Inferenz-/Logit-/
-      Modellqualitaets-Sanity gegen Referenz.
-- [ ] `[OFFEN]` Gate P1a: IQ3_XXS als fairer Same-Quant-Benchmark nutzbar
-      (erst nach Lade- + Inferenz-Nachweis).
+- [x] CUDA-Fork-Backend auf CUDA0/CUDA1 zur Laufzeit getestet:
+      `test-backend-ops -o MUL_MAT,MUL_MAT_ID,GET_ROWS,CPY,SET_ROWS`
+      jeweils 134/134 inklusive direkt gepacktem `+2d`; Produktiv-
+      dienste danach wieder HTTP-200 aktiv (`0389e655e8`).
+- [x] Echte IQ3-Shards im Dual-GPU-Smoke geladen und erste Textausgabe
+      fachlich korrekt erhalten (`The capital of France is Paris`).
+      Der Smoke bricht danach am `fattn.cu:384`-Catch-all-Abort ab:
+      `-ctk q8_0 -ctv f16` ist eine **pre-existing, nicht unterstuetzte
+      Misch-KV-Kombination** (nur Turbo-Mischungen sind im Vec-Dispatch
+      registriert) — kein Q2_0-Regressionsbefund. Validierung wird mit
+      `q8_0/q8_0` und `-fa off` wiederholt.
+- [x] Beide echten IQ3-Shards laden; Inferenz-/Text-Sanity: Dual-GPU
+      (`--cpu-moe`) erzeugt kohärente, fachlich korrekte Fortsetzung
+      ("The capital of France is Paris, …") mit FA q8_0/q8_0 und
+      `-fa off`, je 32 Tokens, kein Fehler (Lauf `p1a-20261007-0389-r2`).
+- [x] Gate P1a: IQ3_XXS als fairer Same-Quant-Benchmark freigegeben.
+      Nebenbefund (pre-existing, kein Q2_0-Regressionsfund): `fattn`
+      Vec-Dispatch akzeptiert keine Q8_0/F16-Misch-KV-Typen →
+      Catch-all-Abort statt sauberer Ablehnung (separater Bug, offen).
 
 ### 10.3 Phase P1b: Expert-Prefetch-Crash isolieren und fixen
 

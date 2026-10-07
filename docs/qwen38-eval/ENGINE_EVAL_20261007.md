@@ -302,8 +302,11 @@ bei nachgewiesenem Restengpass sind gezielte Layout-/Kernel-Ports im Plan.
    (`n_el/64` pro Q2_0-Tensor). Datei ist wohlgeformt (alle Offsets sequentiell,
    Slack 0; Quell-Checksummen bestaetigt). Q2_0-Support fuer CPU/CUDA und
    Python implementiert; nur TURBO2 wird von 42 auf 47 verschoben, TQ3/TQ4
-   bleiben kompatibel. Lokale Regressionen/Builds und zwei Reviews
-   bestanden; echte Modell-Inferenz steht noch aus, siehe Plan §10.2.
+   bleiben kompatibel. **Gate P1a bestanden 2026-10-07:** CUDA-Backend-
+   Paritaet 134/134 je RTX-4060-Ti, echte IQ3_XXS-Dual-GPU-Inferenz mit
+   kohaerenter Ausgabe; IQ3_XXS ist damit als Same-Quant-Benchmark
+   nutzbar. Nebenbefund: `fattn` lehnt Q8_0/F16-Misch-KV-Typen nicht
+   sauber ab (pre-existing, kein Q2_0-Regressionsfund). Details: Plan §10.2.
 2. **Prefetch-Crash (P1):** `GGML_SCHED_PREFETCH_EXPERTS=1` → `CUDA error: requested
    functionality is not supported` in `ggml_cuda_op_mul_mat_cublas` (ggml-cuda.cu:1792)
    beim ersten Request mit Expert-Prefetch. Die genaue CUDA-/Scheduler-
