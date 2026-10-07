@@ -8,6 +8,29 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-10-07
 
+### fix: MoE-Expert-Prefetch-Crash auf CUDA behoben
+
+`GGML_SCHED_PREFETCH_EXPERTS=1` stuerzte bei `--cpu-moe`-MoE-Modellen ab
+(illegal memory access, an spaeterem CUBLAS-Callsite sichtbar). compute-
+sanitizer memcheck wies den Fehler nach: `mul_mat_q` (MMQ) liest per
+Design einige Bytes ueber das Tensorende hinaus — der Selektivpfad
+kompensiert das mit bis zu 512 Extra-Bytes. galloc-Tensoren haben
+impliziten Slack, die Prefetch-Slots waren aber standalone-Buffer exakt
+in `ggml_nbytes`-Groesse → Overread traf unmapped Page bzw.
+uninitialisierte Bytes (potenziell NaN).
+
+Fix (`3f3d272f69`): Slots mit +512 B Padding allokieren und das
+Padding-Ende bei Allokation synchron nullen (H2D schreibt nur `nbytes`).
+Ausserdem scannt `prefetch_max_size` nun alle Split-Nodes auf
+`MUL_MAT_ID` statt nur `nodes[0]` (Trigger sucht ebenfalls alle Nodes).
+Verifiziert auf Ada: prefetch=0/1 auf Dual- und Single-GPU mit
+UD-IQ4_XS, `test-backend-ops` 15840/15840, 3/3 Backends.
+
+Nebenbefund (pre-existing, `819af39886`): `ggml_cuda_graph_check_
+compability` dereferenzierte `node->src[0]->type` auch fuer src-lose Ops
+(`ARANGE`) → Segfault in `test-backend-ops`; `is_tq_w` in den
+`MUL_MAT_ID`-Zweig verschoben. Identisch auf master reproduziert.
+
 ### fix: Q2_0-Typkollision beim Laden gemischter IQ3_XXS-GGUFs beheben
 
 GGUF-Typ 42 bezeichnet upstream Q2_0 (64 Elemente/18 Byte), wurde im Fork

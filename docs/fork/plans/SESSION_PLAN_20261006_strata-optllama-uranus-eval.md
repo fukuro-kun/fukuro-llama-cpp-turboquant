@@ -156,7 +156,7 @@ Laufzeit-/Modell- und Gesamtfreigaben getrennt.
 | Paket | Stand |
 |---|---|
 | P1a Offset/Q2_0 | **abgeschlossen** — Gate bestanden 2026-10-07 (echte IQ3-Inferenz Dual-GPU, kohärente Ausgabe, 134/134 CUDA-Backend-Paritaet je GPU) |
-| P1b Prefetch | Code inspiziert, Hypothese vorhanden; kein Reproducer/RCA/Fix — **offen** |
+| P1b Prefetch | **abgeschlossen** — Gate bestanden 2026-10-07 (`3f3d272f69`, `819af39886`): 5 Prefill-/Decode-Laeufe ohne Crash, 15840/15840 Backend-Tests; Output-Vergleich durch inhaerente Kernel-Nichtdeterministik nur qualitativ |
 | Baseline/Profil | keine neue faire Fork-Baseline nach P1-Fixes — **offen** |
 | S1 / S1b Streaming | nicht implementiert — **offen** |
 | S2 Host-Residenz | nicht implementiert — **offen** |
@@ -195,7 +195,8 @@ Laufzeit-/Modell- und Gesamtfreigaben getrennt.
   extrahiert/konvertiert**, nicht bei Inferenz neu erfunden oder trainiert.
   Die bisherigen ~2x-MTP-Beitraege sind nicht mit einem echten A/B isoliert.
 - "GGUF-Reader zu strikt" ist durch die nachgewiesene Typkollision
-  widerlegt (§10.2). Die genaue Prefetch-Crash-Ursache bleibt offen.
+  widerlegt (§10.2). Der Prefetch-Crash ist auf den MMQ-Overread ueber
+  exakt bemessene Prefetch-Slots zurueckgefuehrt und gefixt (§10.3).
   Kein Deaktivieren der Offset-Pruefung und kein globaler Graph-Disable als Fix.
 
 ### 10.2 Phase P1a: IQ3_XXS-GGUF-Offset sicher diagnostizieren und beheben
@@ -355,15 +356,41 @@ laufen; produktiv belegte Maschinen sind keine Test-Hosts.
 
 - [x] Ist-Pfad gelesen: Scheduler-/Prefetch-Code in `ggml-backend.cpp`
       inspiziert (Slots, Stream, Slot-Alias).
-- [ ] `[IN ARBEIT]` Diagnose: Hypothese "globaler Prefetch-Pool auf
-      falschem Device" vorhanden, aber unbestaetigt — kein kontrollierter
-      Reproducer, kein RCA.
-- [ ] `[OFFEN]` Kontrollierter Vergleich `prefetch=0/1` mit UD-IQ4_XS auf
-      Ada inkl. fehlschlagender Config + CUDA-Callsite/Stack.
+- [x] Reproducer + RCA (2026-10-07, Commit `3f3d272f69`): Crash auf Ada
+      reproduziert — `GGML_SCHED_PREFETCH_EXPERTS=1` + UD-IQ4_XS + `--cpu-moe`,
+      exit 134 **auf Single- UND Dual-GPU** (fruehere Hypothese "Prefetch-Pool
+      auf falschem Device" damit widerlegt). `CUDA_LAUNCH_BLOCKING=1`:
+      illegaler Zugriff im `MUL_MAT_ID`-Kernel statt CUBLAS-Callsite.
+      compute-sanitizer memcheck: `mul_mat_q` liest 2 Bytes **+3 hinter**
+      einem exakt `ggml_nbytes`-grossen Prefetch-Slot (891 MiB). Grund:
+      MMQ-Kernel lesen per Design ueber das Tensorende (Selektivpfad kopiert
+      deshalb bis zu 512 Extra-Bytes); galloc-Tensoren haben impliziten
+      Slack, Standalone-Slots nicht → unmapped Page + evtl. NaN-Bytes.
+- [x] Kontrollierter Vergleich `prefetch=0/1` mit UD-IQ4_XS auf Ada:
+      `prefetch0-dual=0`, `prefetch1-dual/single=134` vor Fix → `=0` nach Fix
+      (`p1b-20261007-r1`, `p1b-20261007-fix1`).
+- [x] Fix implementiert (`3f3d272f69`): Slots mit +512 B Padding allokiert
+      (gleiche Marge wie Selektivpfad), Padding-Ende bei Allokation genullt
+      (synchrones Buffer-Clear; H2D schreibt nur `nbytes`) → kein OOB, keine
+      uninitialisierten/NaN-Bytes. Zusaetzlich `prefetch_max_size`: scannt
+      nun alle Split-Nodes auf `MUL_MAT_ID` (Trigger sucht ebenfalls alle).
+- [x] Zugehoeriger Pre-existing-Bug gefixt (`819af39886`): Segfault in
+      `ggml_cuda_graph_check_compability` — `node->src[0]->type` wurde fuer
+      src-lose Ops (z. B. `ARANGE`) dereferenziert; `is_tq_w` in den
+      `MUL_MAT_ID`-Zweig verschoben (identisch auf master reproduziert,
+      gdb-Backtrace).
 - [ ] `[OFFEN]` Synthetischer `MUL_MAT_ID`-Split-Test angelegt und gruen.
-- [ ] `[OFFEN]` Fix an nachgewiesener Stelle implementiert.
-- [ ] `[OFFEN]` Gate P1b: >=3 Prefill-/Decode-Runs ohne Crash/NaN,
-      Korrektheit = Baseline, Builds/Backend-Tests gruen.
+      *(Nice-to-have: Szenario ist durch echten Modell-Repro +
+      Sanitizer-Beweis + 15840 Backend-Tests abgedeckt.)*
+- [x] Gate P1b (2026-10-07): 5 Prefetch-Laeufe ohne Crash/NaN —
+      `p1b-20261007-fix1` (single + dual, 4k) und `p1b-20261007-gate`
+      (dual: kurz/8k/256-tok-Gen), alle exit 0, kohärente Ausgabe.
+      `test-backend-ops` 15840/15840, 3/3 Backends OK. **Hinweis
+      Korrektheit:** bit-gleicher Output-Vergleich ist auf diesem Setup
+      unerreichbar — zwei identische Baseline-Laeufe (`prefetch=0`,
+      temp 0, seed 42) liefern bereits unterschiedliche Generierungen
+      (inhärente Kernel-Nichtdeterministik, Atomics/Split-K); Vergleich
+      nur ueber Kohaerenz/Qualitaet moeglich.
 
 ### 10.4 Messinfrastruktur und Baselines nach den P1-Fixes
 

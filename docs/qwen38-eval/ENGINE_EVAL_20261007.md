@@ -38,7 +38,8 @@ fragil (Batch >2048 → MUL_MAT_ID-Compute-Fehler, Issue-#120-Klasse).
 (3) MTD/Experten-Pipeline-Asynchronität (echtes Double-Buffering statt Slot-Prefetch),
 (4) Strata parallel via llama-swap als Sofortmaßnahme für Flash-Next-Workloads.
 Dazu zwei **Fork-Bugs** fixen: Prefetch-Crash auf Qwen4Exp, GGUF-Reader-Offset-Bug
-mit ISTA-DASLab GSQ-RCO IQ3_XXS.
+mit ISTA-DASLab GSQ-RCO IQ3_XXS. **Stand 2026-10-07: beide behoben und
+gegatet** (siehe §5; Commits `0389e655e8`, `3f3d272f69`, `819af39886`).
 
 ---
 
@@ -309,8 +310,16 @@ bei nachgewiesenem Restengpass sind gezielte Layout-/Kernel-Ports im Plan.
    sauber ab (pre-existing, kein Q2_0-Regressionsfund). Details: Plan §10.2.
 2. **Prefetch-Crash (P1):** `GGML_SCHED_PREFETCH_EXPERTS=1` → `CUDA error: requested
    functionality is not supported` in `ggml_cuda_op_mul_mat_cublas` (ggml-cuda.cu:1792)
-   beim ersten Request mit Expert-Prefetch. Die genaue CUDA-/Scheduler-
-   Ursache ist noch nicht nachgewiesen; kontrollierte Reproduktion folgt.
+   beim ersten Request mit Expert-Prefetch. **Behoben 2026-10-07:** compute-
+   sanitizer zeigte den eigentlichen Fehler — `mul_mat_q` (MMQ) liest wenige
+   Bytes ueber das Tensorende hinaus (der Selektivpfad kopiert deshalb bis zu
+   512 Extra-Bytes); die exakt `ggml_nbytes` grossen standalone Prefetch-Slots
+   boten keinen Slack → unmapped Page. Fix `3f3d272f69`: Slot-Padding +512 B,
+   Ende synchron genullt; `prefetch_max_size` scannt alle Split-Nodes.
+   Nebenbefund `819af39886`: Segfault in `ggml_cuda_graph_check_compability`
+   durch `node->src[0]->type`-Deref auf src-lose Ops (ARANGE). Gate bestanden:
+   5 Prefetch-Laeufe ohne Crash, `test-backend-ops` 15840/15840, 3/3 Backends.
+   Details: Plan §10.3.
 3. **`-moe-cache`-Flag-Ordering (P2):** `--moe-cache 0` hinter `-ngl` greift zu spät —
    Backend-Registrierung läuft schon im `-ngl`-Parser (llama_supports_gpu_offload) und
    liest `GGML_CUDA_MOE_CACHE` bevor das Flag es setzt. Workaround: Env direkt.
