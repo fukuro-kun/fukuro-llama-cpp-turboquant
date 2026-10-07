@@ -1,7 +1,7 @@
 # SESSION_PLAN: Strata + OptLlama A/B-Eval auf Uranus (Qwen3.8-Flash-Next)
 
 **Erstellt:** 2026-10-06
-**Status:** [x] Vergleich abgeschlossen (2026-10-07); Folgeplanung fuer Fork-Optimierungen in Abschnitt 10 (noch nicht implementiert)
+**Status:** [x] Vergleich abgeschlossen (2026-10-07); [ ] Fork-Optimierung in Umsetzung — P1a implementiert/lokal geprueft, Modell-Gate offen. [Aktueller Fortschritt und Checklisten](#100-statusuebersicht-und-aktualisierungsvertrag).
 **Bezug:** Trilium `TaWve7nWU3kF` (Strata-Notiz) + Subnote `5Ec9sW4aCN6S` (Eval-Bewertung); ROADMAP #99 Phase 9
 **Ziel:** Empirische Obergrenze der MoE-Offload-Performance fuer Qwen3.8-Flash-Next auf Uranus-Hardware bestimmen — als Entscheidungsgrundlage, ob/welche Strata- oder OptLlama-Techniken in den Fork portiert werden
 
@@ -148,6 +148,36 @@ Qwen4Exp und weiteren MoE-Modellen, nicht eine vorab zugesagte Strata-Paritaet.
 Die abgeschlossene Engine-Evaluation (§9) bleibt unveraendert; dies sind neue
 Implementierungs-Gates. Keine Produktions-Checkouts fuer Entwicklung aendern.
 
+### 10.0 Statusuebersicht und Aktualisierungsvertrag
+
+**Stand:** 2026-10-07. Abgeschlossene Teilaufgaben sind von noch offenen
+Laufzeit-/Modell- und Gesamtfreigaben getrennt.
+
+| Paket | Stand |
+|---|---|
+| P1a Offset/Q2_0 | Diagnose + Implementierung + lokale Tests und Ada-Testhost-Build abgeschlossen; CUDA-Laufzeit-/Lade-/Inferenz-Gate **offen** |
+| P1b Prefetch | Code inspiziert, Hypothese vorhanden; kein Reproducer/RCA/Fix — **offen** |
+| Baseline/Profil | keine neue faire Fork-Baseline nach P1-Fixes — **offen** |
+| S1 / S1b Streaming | nicht implementiert — **offen** |
+| S2 Host-Residenz | nicht implementiert — **offen** |
+| M MTP | nur Read-only-Vertragsanalyse; Assets/Code/Gates **offen** |
+| Integration | P1a-Branch verteilt; Gesamtgates **offen** |
+
+**Aktualisierungsvertrag fuer diese Checklisten:**
+
+- Checkbox `[x]` nur fuer *verifiziertes* Ergebnis (Commit, Testlauf mit Count,
+  Messung, Review-Freigabe) — niemals nur weil ein Schritt beschrieben ist.
+- Direkt nach verifiziertem Fortschritt/Test/Commit aktualisieren und kurze
+  Evidenz anhaengen (Commit-Hash, Testname + Zaehlerstand, Datum).
+- Fehlgeschlagene, teilweise oder unbestaetigte Experimente nicht abhaken;
+  Unbekanntes bleibt `[OFFEN]`.
+- Bei Regression Haken zuruecknehmen und Grund kurz dokumentieren.
+- Labels fuer nicht abgehakte Punkte: `[IN ARBEIT]`, `[OFFEN]`, `[BLOCKIERT]`.
+- Ein Parent-Gate wird erst abgehakt, wenn alle seiner Kriterien erfuellt sind.
+- ROADMAP und Ergebnisbericht bei Gate-Aenderungen synchronisieren;
+  CHANGELOG und DOX nach jeder bedeutsamen Code-/Vertragsaenderung
+  aktualisieren, auch wenn das gesamte Phasen-Gate noch offen ist.
+
 ### 10.1 Was die Ablation belegt — und was nicht
 
 - Strata, **eine** 16-GB-Ada-GPU, **IQ3_XXS**: `--prefill 512` statt auto
@@ -248,6 +278,34 @@ bisherigen Fork-Commit gegen OptLlama/gguf-py testen; Fehlstelle in
    GPU-Inferenz + Logit-/Text-Sanity gegen funktionierenden Referenz-Reader.
    Erst dann ist IQ3_XXS als fairer Same-Quant-Benchmark nutzbar.
 
+**Fortschritt P1a (Stand 2026-10-07, Commit `0389e655e8` auf
+`feat/flashnext-p1a-q2-compat`, gepusht):**
+
+- [x] Diagnose: Typnummer-Kollision bewiesen — Datei nutzt Q2_0=42,
+      Fork belegte 42 mit TURBO2_0; nur TURBO2_0 auf 47 verschoben,
+      43–46 unveraendert.
+- [x] Reproducer + Negativfaelle: rohes gepacktes Typ-42-GGUF scheiterte
+      vorher (87/88), nachher `test-gguf` 88/88.
+- [x] Implementierung: Core/CPU/CUDA/Python + Quantize-CLI portiert.
+- [x] Lokale Tests: CPU-Backend 160/160 (inkl. 4 neue gepackte Codec-
+      Faelle), Quant-Funktionen 0 Fehler, TurboQuant 17/17, Python/C
+      bitgleich + manuell gepackte Codes.
+- [x] Builds lokal: CPU, CUDA sm_89, Vulkan erfolgreich.
+- [x] Review: zwei unabhaengige Runden, keine offenen P0/P1.
+- [x] CUDA-`__byte_perm`-Verdacht widerlegt (unabhaengige
+      65536-Muster-Probe auf Ada sm_89: 0 Abweichungen).
+- [x] Echte IQ3-Shards + mmproj per `hf cache verify` gegen Quellrevision
+      `ed59f92082b1e93c0e96d60a8b11aab089b52f09` (3 Checksums passend).
+- [x] Isoliertes Remote-Worktree auf Commit `0389e655e8` auf Ada-Testhost
+      erstellt; CUDA-12.0-Build fuer `test-gguf`, `test-backend-ops`,
+      `llama-cli`, `llama-bench` und `llama-completion` erfolgreich
+      (Produktiv-Checkout unangetastet).
+- [ ] `[OFFEN]` CUDA-Fork-Backend zur Laufzeit getestet.
+- [ ] `[OFFEN]` Beide echten IQ3-Shards laden; Inferenz-/Logit-/
+      Modellqualitaets-Sanity gegen Referenz.
+- [ ] `[OFFEN]` Gate P1a: IQ3_XXS als fairer Same-Quant-Benchmark nutzbar
+      (erst nach Lade- + Inferenz-Nachweis).
+
 ### 10.3 Phase P1b: Expert-Prefetch-Crash isolieren und fixen
 
 **Ist-Pfad:** `ggml/src/ggml-backend.cpp:1585-1669,1705-1753,1924-1935,2045-2060`.
@@ -279,6 +337,20 @@ P1b braucht CUDA und grosses Modell (16-GB-Ada-Host fuer finalen Gate).
 Kleine CUDA-MoEs duerfen fuer schnelle Vorabtests auf freien Test-Hosts
 laufen; produktiv belegte Maschinen sind keine Test-Hosts.
 
+**Fortschritt P1b (Stand 2026-10-07):**
+
+- [x] Ist-Pfad gelesen: Scheduler-/Prefetch-Code in `ggml-backend.cpp`
+      inspiziert (Slots, Stream, Slot-Alias).
+- [ ] `[IN ARBEIT]` Diagnose: Hypothese "globaler Prefetch-Pool auf
+      falschem Device" vorhanden, aber unbestaetigt — kein kontrollierter
+      Reproducer, kein RCA.
+- [ ] `[OFFEN]` Kontrollierter Vergleich `prefetch=0/1` mit UD-IQ4_XS auf
+      Ada inkl. fehlschlagender Config + CUDA-Callsite/Stack.
+- [ ] `[OFFEN]` Synthetischer `MUL_MAT_ID`-Split-Test angelegt und gruen.
+- [ ] `[OFFEN]` Fix an nachgewiesener Stelle implementiert.
+- [ ] `[OFFEN]` Gate P1b: >=3 Prefill-/Decode-Runs ohne Crash/NaN,
+      Korrektheit = Baseline, Builds/Backend-Tests gruen.
+
 ### 10.4 Messinfrastruktur und Baselines nach den P1-Fixes
 
 - Gepinnte Builds/Modell-Hashes, gleiche Quantisierung und Modellrevision:
@@ -303,6 +375,17 @@ laufen; produktiv belegte Maschinen sind keine Test-Hosts.
 - Der grosse Ada-Testhost bleibt bis zur gebuendelten GPU-Validierung aus; Build/CPU-
   Tests auf Entwicklungsrechner, kleinere CUDA-MoEs nur auf freien
   Entwicklungs-/Test-Hosts. Produktivsysteme nicht beanspruchen.
+
+**Fortschritt Baseline/Profil (Stand 2026-10-07):**
+
+- [ ] `[OFFEN]` Gepinnte Fork-Baseline mit UD-IQ4_XS gemessen
+      (Promptlaengen, Wiederholungen, Warm/Kalt, Metriken wie oben).
+- [ ] `[OFFEN]` IQ3_XXS-Baseline beider Engines (setzt Gate P1a voraus).
+- [ ] `[OFFEN]` Vorhandene Alternativen fair geprueft (mmap/mlock/
+      no-mmap/REGISTER_HOST/Prefetch-nach-Fix/ub-Sweep).
+- [ ] `[OFFEN]` Messinfrastruktur-Protokoll (Config, Token-/Timing-
+      Paritaet, VRAM/RSS, H2D, Event-Zeiten) fuer Vergleichslaeufe
+      etabliert.
 
 ### 10.5 Phase S1: grosse Prefill-Chunks + echte Expert-Streaming-Pipeline
 
@@ -380,6 +463,21 @@ pauschales Kernel-Port-Verbot; Investition richtet sich nach gemessenen
 Time-Shares, nicht nach vermuteten Anteilen. Nicht blind einen groesseren
 Ring bauen und keine feste 4-6x-Zusage aus Stratas Ablation ableiten.
 
+**Fortschritt S1/S1b (Stand 2026-10-07):**
+
+- [ ] `[OFFEN]` Instrumentierung pro Layer/Expert-Tensor implementiert
+      (NVTX/CUDA-Events, kein Hot-Path-Logspam).
+- [ ] `[OFFEN]` Chunk-Sweep 256..8192 als Kontrollgruppe gemessen.
+- [ ] `[OFFEN]` Budgetierter Staging-/Copy-Stream-Pfad implementiert.
+- [ ] `[OFFEN]` VRAM-Budget-/Slot-Auswahl statt fester Ringzahl.
+- [ ] `[OFFEN]` Graph-/Multibackend-Vertrag eingehalten und getestet.
+- [ ] `[OFFEN]` Ablations-Gates: reproduzierbarer Netto-pp-Gewinn,
+      keine Output-/Kurzprompt-Regression.
+- [ ] `[OFFEN]` S1b Expert-Tile-Streaming (nur falls Tensor-Slots nicht
+      ausreichen; eigene MMID-/grouped-GEMM-Pfade ggf. erforderlich).
+- [ ] `[OFFEN]` Kostenmodell/Heuristik fuer weitere MoEs; Auto-Modus
+      erst nach Cross-Model-Gate.
+
 ### 10.6 Phase S2: RAM-adaptive residente Experten
 
 **Zielbild:** Wahl zwischen `mmap` (Default), resident-pageable und
@@ -420,6 +518,17 @@ Strata-Ablation trennt *Residenz, Pinning und I/O* nicht sauber.
    OOM-/Cancel-Pfad, ASan/Backend-Tests; RAM-, Swap- und Major-
    Fault-Zaehler vergleichen. Nur weitermachen, wenn abgeloester
    Page-Fault-/H2D-Engpass auch nach Warm-Cache-Messung besteht.
+
+**Fortschritt S2 (Stand 2026-10-07):**
+
+- [ ] `[OFFEN]` Inventar-/Budget-Rechnung vor Allokation implementiert.
+- [ ] `[OFFEN]` Host-Buffer-Vertrag (opt-in Residenz, korrekte Bindung,
+      Lifetime) umgesetzt und gegen `--no-mmap` getestet.
+- [ ] `[OFFEN]` Pinning-Tiers mit transparentem Rueckfall (kein
+      Startup-Crash, kein stiller Swap-OOM).
+- [ ] `[OFFEN]` Backend-Portabilitaet (Vulkan/CPU/UMA unveraendert).
+- [ ] `[OFFEN]` Gate S2: Byte-/Quant-Paritaet, Grenzfaelle, nachgewiesener
+      Zusatznutzen gegen warmes mmap/no-mmap.
 
 ### 10.7 Phase M: Flash-Next-MTP-Sidecar korrekt und maximal nutzbar machen
 
@@ -503,6 +612,35 @@ Hook. Stratas `--mtp`-Dateien sind kein automatisch ladbares GGUF.
    Regressionstests fuer bestehende K2-, Gemma- und NextN-Drafts.
    Erst danach Default oder Integration in Produktivprofile erwaegen.
 
+**Fortschritt M (Stand 2026-10-07 — nur Read-only-Vertragsanalyse, kein
+MTP-Port):**
+
+- [x] Vertragsanalyse Strata `82f46a8c8`: 31 `mtp.*`-Tensoren/Shapes
+      bekannt (HC 4x2560=10240, `fc_embedding`/`fc_hidden` 2560x2560,
+      512 Experten, Gate/Up 512x1280x2560, Down 512x2560x640).
+- [x] RoPE-Paarung dokumentiert: Strata nutzt Zelle `i` fuer Token `i+1`,
+      Head sagt `i+2` voraus — K2s `i+1` nicht ungeprueft uebernehmen.
+- [x] Fork-Blocker identifiziert: kein Qwen4Exp-MTP-Graph/`t_h_nextn`,
+      skalare `n_embd`-Pruefung statt HC-Breite, kein Recurrent-Rollback
+      fuer Qwen4Exp freigegeben, `conversion/qwen4exp.py` fehlt trotz
+      Registry-Verweis; Strata-Manifest/Referenz-Inventare gesichtet.
+- [ ] `[OFFEN]` Hidden-Norm-Paritaet entschieden (full-10240 vs.
+      vier 2560er-Stream-Normen; Gemma-`1+w`-Aufbereitung).
+- [ ] `[OFFEN]` Head-Checksum/Checkpoint-Match mit Target-Revision und
+      Ein-Schritt-Orakel validiert (Inventare allein reichen nicht).
+- [ ] `[OFFEN]` Asset-/Format-Gate: ladbares Head-GGUF (Head-only wie K2
+      oder separater Draft) beschafft/konvertiert.
+- [ ] `[OFFEN]` Vertrags-Gate vor Code-Port (Tokenizer, Hidden-State-
+      Breite, Norm/Projektion, RoPE, PLE/QSA, MoE-Gewichte).
+- [ ] `[OFFEN]` Qwen4Exp-MTP-Code (Graph, Hparams, Tensor-Mapping,
+      `ctx_dft`-Anbindung) implementiert; dichte Draft-Attention als
+      Approximation >2051 Zellen separat gemessen.
+- [ ] `[OFFEN]` Korrektheit/Grenzfaelle: Rollbacks nach Rejection,
+      Mismatched-Checkpoint-Ablehnung, Greedy-/Sampling-Tests.
+- [ ] `[OFFEN]` Performance-Stufen + Gate M: reproduzierbare Akzeptanz,
+      netto tg-Gewinn gegen dieselbe Target-Quant, keine Draft-
+      Regressionen.
+
 ### 10.8 Integration, Fairness und Entscheidungspunkte
 
 **Arbeits-Pakete (alle noch offen):**
@@ -562,3 +700,21 @@ ist ein gepruefter Rueckfallgrund, kein Anlass fuer System-Limit-Aenderungen.
   Akzeptanz/VRAM nicht reicht, Draft-Phase aussetzen statt
   Modellgewichte zu erfinden. Ein Strata-Gesamtfaktor ist eine
   Vergleichslatte, kein zugesicherter Port-Ertrag.
+
+**Fortschritt Integration (Stand 2026-10-07):**
+
+- [x] P1a auf eigenem Feature-Branch commitiert und ueber `origin`
+      verteilt (`0389e655e8`, `feat/flashnext-p1a-q2-compat`);
+      Produktiv-Checkout unangetastet, Remote-Worktree isoliert.
+- [ ] `[OFFEN]` Getrennte Commits/Branches fuer P1b, S1, S2, M gemaess
+      Sequenz (P1-Fixes → Baseline → S1 → S2 → M).
+- [ ] `[OFFEN]` Messziele pro Phase: reproduzierbarer Netto-Gain
+      ausserhalb Streuung, korrekte Logits, keine Regresse.
+- [ ] `[OFFEN]` Stufenmatrix inkl. Streaming×Arena und Streaming×MTP
+      gemessen (gleiche Quant, Abbruch bei OOM/NaN/Regress).
+- [ ] `[OFFEN]` Qualitaets-/Stabilitaets-Gate: 1/2 GPU, Slots, Kontexte,
+      Serverstarts/Soak, Test-Suiten gruen; Abschlussstatus mit ROADMAP
+      #99 und Benchmark-Note synchronisieren (inkrementelle DOX-/
+      CHANGELOG-Pflege erfolgt bereits waehrend der Umsetzung).
+- [ ] `[OFFEN]` Stop-Kriterien geprueft und Investitionsentscheidung
+      bei Restgap dokumentiert.

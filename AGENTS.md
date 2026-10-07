@@ -259,6 +259,7 @@ Trilium `B3dfpx01pApY`
 - Bei Blockaden: ROADMAP.md Status auf ❌ mit Begruendung, Solo-Plan dokumentiert die Blockade.
 - Monatliche Recherche via `fork-speed-research` Skill (`.devin/skills/fork-speed-research/`) — neue Ansaetze in ROADMAP.md aufnehmen.
 - Meta-Entscheidungen (welche Meilensteine, welche Items zuerst) werden hier in AGENTS.md festgehalten, nicht in der ROADMAP selbst.
+- Aktive Umsetzungsplaene enthalten `[x]`-/`[ ]`-Checklisten fuer Diagnose, Implementierung, Tests und Freigabe. Nach jedem verifizierten Fortschritt den Status sofort mit Commit-/Testbeleg aktualisieren; Teilfortschritt, laufende Tests und Blockaden bleiben ungehaekt und werden benannt. Ein Phasen-Gate erst bei vollstaendig bestandenen Kriterien abhaken; bei Regression wieder oeffnen. ROADMAP und Ergebnisbericht bei Gate-Aenderungen synchron halten.
 
 **Solo-Session-Ablauf fuer ROADMAP-Items:**
 1. Agent liest `docs/fork/ROADMAP.md` → waehlt naechstes offenes Item im aktuellen Meilenstein
