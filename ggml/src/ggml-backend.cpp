@@ -1595,13 +1595,31 @@ static void ggml_backend_sched_prefetch_disable(ggml_backend_sched_t sched, ggml
     }
 }
 
+// CUDA MMQ kernels read a few bytes past the end of the weight tensor (the
+// selective expert copy below uploads up to 512 extra bytes for the same
+// reason). Tensors allocated by galloc have implicit slack from per-tensor
+// padding and neighboring tensors, but prefetch slots are standalone
+// exact-size buffers: the overread hits an unmapped page (illegal memory
+// access) or uninitialized bytes that could decode as NaN. Slots are
+// over-allocated by this amount and the padding is zeroed on allocation.
+constexpr size_t GGML_SCHED_PREFETCH_SLOT_PAD = 512;
+
 // slots are sized once for the largest offloaded expert tensor in the current graph so
 // that they never need to grow mid-eval
 static size_t ggml_backend_sched_prefetch_max_size(ggml_backend_sched_t sched) {
     size_t max_size = 0;
     for (int split_id = 0; split_id < sched->n_splits; split_id++) {
         struct ggml_backend_sched_split * split = &sched->splits[split_id];
-        if (split->graph.n_nodes == 0 || split->graph.nodes[0]->op != GGML_OP_MUL_MAT_ID) {
+        // the MUL_MAT_ID is not necessarily nodes[0] (e.g. SCALE may precede
+        // it), same as in the prefetch trigger below
+        bool has_mul_mat_id = false;
+        for (int j = 0; j < split->graph.n_nodes; j++) {
+            if (split->graph.nodes[j]->op == GGML_OP_MUL_MAT_ID) {
+                has_mul_mat_id = true;
+                break;
+            }
+        }
+        if (!has_mul_mat_id) {
             continue;
         }
         for (int input_id = 0; input_id < split->n_inputs; input_id++) {
@@ -1646,7 +1664,12 @@ static bool ggml_backend_sched_prefetch_init(ggml_backend_sched_t sched, ggml_ba
     for (int i = 0; i < sched->prefetch_n_slots; i++) {
         if (sched->prefetch_slots[i] == NULL || ggml_backend_buffer_get_size(sched->prefetch_slots[i]) < size) {
             // allocate before freeing so a failure leaves the old slot intact
-            ggml_backend_buffer_t new_buf = ggml_backend_buft_alloc_buffer(buft, size);
+            ggml_backend_buffer_t new_buf = ggml_backend_buft_alloc_buffer(buft, size + GGML_SCHED_PREFETCH_SLOT_PAD);
+            if (new_buf != NULL && new_buf->iface.clear != NULL) {
+                // zero the padding tail: it stays untouched by the H2D copies
+                // and uninitialized bytes could decode as NaN if read by MMQ
+                ggml_backend_buffer_clear(new_buf, 0);
+            }
             if (new_buf == NULL) {
                 // overlap needs at least 2 slots, otherwise run with what fits
                 if (i >= 2 && sched->prefetch_slots[0] != NULL &&
