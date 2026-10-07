@@ -143,8 +143,9 @@ def compare_tensors(t1: np.ndarray, t2: np.ndarray, qtype: GGMLQuantizationType)
         return False
 
 
-def do_test(libggml_path: Path, quick: bool = False, user_type: GGMLQuantizationType | None = None):
+def do_test(libggml_path: Path, quick: bool = False, user_type: GGMLQuantizationType | None = None) -> list[str]:
     ggml_quants = GGMLQuants(libggml_path)
+    failures: list[str] = []
 
     np.set_printoptions(precision=None, threshold=(4 * 256) + 1, formatter={"int": lambda n: "0x%02X" % n})
 
@@ -199,6 +200,7 @@ def do_test(libggml_path: Path, quick: bool = False, user_type: GGMLQuantization
 
             if not quant_equal:
                 logger.error(f"Quantization to {qtype.name} does not match ❌")
+                failures.append(f"quantize {qtype.name}")
             else:
                 logger.info(f"Quantization to {qtype.name} matches exactly ✅")
 
@@ -217,6 +219,7 @@ def do_test(libggml_path: Path, quick: bool = False, user_type: GGMLQuantization
 
                 if not dequant_equal:
                     logger.error(f"Dequantization from {qtype.name} does not match ❌")
+                    failures.append(f"dequantize {qtype.name}")
                 else:
                     logger.info(f"Dequantization from {qtype.name} matches exactly ✅")
 
@@ -232,8 +235,11 @@ def do_test(libggml_path: Path, quick: bool = False, user_type: GGMLQuantization
 
             if not dequant_equal:
                 logger.error(f"Dequantization from random f16 data as {qtype.name} does not match ❌")
+                failures.append(f"dequantize-random {qtype.name}")
             else:
                 logger.info(f"Dequantization from random f16 data as {qtype.name} matches exactly ✅")
+
+    return failures
 
 
 def check_q2_0_golden(ggml_quants: GGMLQuants) -> None:
@@ -272,4 +278,7 @@ if __name__ == "__main__":
     ggml_quants = GGMLQuants(args.libggml)
     check_q2_0_golden(ggml_quants)
 
-    do_test(args.libggml, args.quick, GGMLQuantizationType[args.type.upper()] if args.type is not None else None)
+    failures = do_test(args.libggml, args.quick, GGMLQuantizationType[args.type.upper()] if args.type is not None else None)
+    if failures:
+        logger.error(f"{len(failures)} comparison(s) failed: {', '.join(failures)}")
+        sys.exit(1)
