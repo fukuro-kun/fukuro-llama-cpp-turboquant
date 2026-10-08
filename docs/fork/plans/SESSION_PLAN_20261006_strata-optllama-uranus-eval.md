@@ -1149,3 +1149,23 @@ und Offload-Spread (`OFFLOAD_SPREAD`, beide default-off nach
 Messbefund), Chunk-Tuning (`PREFETCH_CHUNK_MB`, wirkungslos),
 kontext-korrekte Staging-Events. Nettogewinn vs. Baseline:
 ~+8 % (470 -> 508), vs. Prefetch-aus: ~+27 %.
+
+#### 10.5b S2-Zwischenstand: partielle VRAM-Expertenresidenz
+
+Erster Residenz-Befund (`-ncmoe N` = erste N Layer Experten auf CPU;
+GPU-resident sind die letzten 48-N Layer, layer-kohaerent auf dem
+jeweiligen Layer-Device):
+
+| ncmoe | residente Layer | Slots | t/s |
+|---|---|---|---|
+| 48 (=99) | 0 | 8 | ~508 |
+| 46 | 2 (L46+L47, symm. 1,3 GB/GPU) | 4 | **514.6** |
+| 45 | 3 (GPU1 traegt 2,6 GB) | 3 | OOM |
+| 44 | 4 (2,6 GB/GPU) | 0-2 | OOM |
+
+Befund: Residenz hilft (~+1,3 % pro Layerpaar), ist aber VRAM-
+gedeckelt auf ~2 Layer -> Decke ~515 t/s. Basisbelegung (dense
+~12 GB/GPU + KV q8_0 + ub8192-Aktivierungen + Graphs) laesst nur
+~2,6 GB/GPU frei. TurboQuant-KV (`turbo4_0`) als Headroom-Hebel in
+Pruefung. Erwartete S2-Decke damit ~520-525 — das Plateau bleibt
+die serielle Split-Dependency-Kette (§10.5a).
