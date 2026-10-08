@@ -859,6 +859,10 @@ struct ggml_backend_sched {
     bool prefetch_experts;
     bool prefetch_all;
     int prefetch_n_slots;
+    // staged uploads are issued in chunks of this many bytes (0 = one copy):
+    // a single ~440 MiB copy monopolizes the copy engine for ~70 ms and starves
+    // small latency-critical copies on the compute streams
+    size_t prefetch_chunk;
     struct ggml_backend_sched_prefetch_dev {
         ggml_backend_t        backend;
         int                   n_slots;
@@ -1639,6 +1643,21 @@ static void ggml_backend_sched_prefetch_disable(ggml_backend_sched_t sched) {
 // over-allocated by this amount and the padding is zeroed on allocation.
 constexpr size_t GGML_SCHED_PREFETCH_SLOT_PAD = 512;
 
+// issue one staged upload in bounded chunks: the copy engine processes one op
+// at a time regardless of stream, so unchunked expert uploads stall the small
+// latency-critical input copies of running splits behind ~70 ms of transfer
+static void ggml_backend_sched_prefetch_copy(ggml_backend_sched_t sched, ggml_backend_t backend,
+        ggml_tensor * dst, const void * src, size_t nbytes) {
+    const size_t chunk = sched->prefetch_chunk;
+    if (chunk == 0) {
+        ggml_backend_tensor_set_async(backend, dst, src, 0, nbytes);
+        return;
+    }
+    for (size_t off = 0; off < nbytes; off += chunk) {
+        ggml_backend_tensor_set_async(backend, dst, (const char *) src + off, off, std::min(chunk, nbytes - off));
+    }
+}
+
 // slots are sized once for the largest offloaded expert tensor in the current graph so
 // that they never need to grow mid-eval
 static size_t ggml_backend_sched_prefetch_max_size(ggml_backend_sched_t sched) {
@@ -1853,7 +1872,7 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                         prefetch_rebinds.push_back({input_cpy, input_cpy->buffer, input_cpy->data, slot});
                         input_cpy->buffer = pf->slots[slot];
                         input_cpy->data   = ggml_backend_buffer_get_base(pf->slots[slot]);
-                        ggml_backend_tensor_set_async(pf->backend, input_cpy, input->data, 0, ggml_nbytes(input));
+                        ggml_backend_sched_prefetch_copy(sched, pf->backend, input_cpy, input->data, ggml_nbytes(input));
                         ggml_backend_event_record(pf->ready[slot], pf->backend);
                         continue;
                     }
@@ -2077,7 +2096,7 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     staged_ahead.emplace(fcpy, prefetch_rebind{fcpy, fcpy->buffer, fcpy->data, slot});
                     fcpy->buffer = fpf->slots[slot];
                     fcpy->data   = ggml_backend_buffer_get_base(fpf->slots[slot]);
-                    ggml_backend_tensor_set_async(fpf->backend, fcpy, finput->data, 0, ggml_nbytes(finput));
+                    ggml_backend_sched_prefetch_copy(sched, fpf->backend, fcpy, finput->data, ggml_nbytes(finput));
                     ggml_backend_event_record(fpf->ready[slot], fpf->backend);
                 }
             }
@@ -2248,6 +2267,11 @@ ggml_backend_sched_t ggml_backend_sched_new(
     sched->offload_spread = getenv("GGML_SCHED_OFFLOAD_SPREAD") == NULL ||
         atoi(getenv("GGML_SCHED_OFFLOAD_SPREAD")) != 0;
     sched->n_offload_spread = 0;
+
+    // GGML_SCHED_PREFETCH_CHUNK_MB: staged upload segment size, 0 = unchunked
+    const char * GGML_SCHED_PREFETCH_CHUNK_MB = getenv("GGML_SCHED_PREFETCH_CHUNK_MB");
+    sched->prefetch_chunk = GGML_SCHED_PREFETCH_CHUNK_MB ?
+        size_t(std::max(0, atoi(GGML_SCHED_PREFETCH_CHUNK_MB))) << 20 : size_t(64) << 20;
 
     ggml_backend_sched_reset(sched);
 
