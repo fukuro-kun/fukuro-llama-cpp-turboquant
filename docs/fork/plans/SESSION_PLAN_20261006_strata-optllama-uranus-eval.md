@@ -158,7 +158,7 @@ Laufzeit-/Modell- und Gesamtfreigaben getrennt.
 | P1a Offset/Q2_0 | **abgeschlossen** — Gate bestanden 2026-10-07 (echte IQ3-Inferenz Dual-GPU, kohärente Ausgabe, 134/134 CUDA-Backend-Paritaet je GPU) |
 | P1b Prefetch | **abgeschlossen** — Gate bestanden 2026-10-07 (`3f3d272f69`, `819af39886`): 5 Prefill-/Decode-Laeufe ohne Crash, 15840/15840 Backend-Tests; Output-Vergleich durch inhaerente Kernel-Nichtdeterministik nur qualitativ |
 | Baseline/Profil | B0–B5 jeweils 3 Reps vorhanden; Konsolidierung, no-mmap-Kontrollen und Zeitanteil-Profilierung **offen** (§10.4) |
-| S1 / S1b Streaming | nicht implementiert — **offen**; vorhandener Full-Tensor-Prefetch ist kein abgeschlossenes Streaming-Gate |
+| S1 / S1b Streaming | Scheduler-Ebene implementiert/ausgemessen (Branch `feat/flashnext-s1-lookahead`, `389011007b`): ~508 t/s pp8192; Plateau = Split-Dependency-Grenze (§10.5a). S1b Expert-Tile-Streaming **offen** |
 | S2 Host-Residenz | RAM-adaptive Expert-Arena nicht implementiert — **offen**; vorhandene no-mmap-/Hostregister-Pfade zuerst kontrollieren |
 | M MTP | Graph/Sidecar laufen; kurze f16-Smokes bestanden, q8_0-Spec-Fehler eingegrenzt, Ursachen- und kontrolliertes Performance-/Korrektheits-Gate **offen** (§10.7); separater Multistream-Fullstate-Restore-Bug **behoben** (f16-Fix/Test abgeschlossen vor Commit `ab6e9dfcea`, §10.9); q8_0-Paritaet und Gesamt-M-Gate **offen** |
 | Integration | P1a-Branch verteilt (Remote-Stand seitdem nicht erneut verifiziert); P1b besitzt eigene Commits `3f3d272f69`/`819af39886` auf noch offenen Folge-Branches; Gesamtgates **offen** |
@@ -1085,13 +1085,67 @@ Main-Agent):**
       der Routing-IDs-Rücklese-Sync (`ggml_backend_synchronize`)
       entfällt bei grossen Batches. CPU-Backend-Splits bleiben beim
       selektiven Pfad. Default ohne Env unveraendert.
-- [ ] Lokale Scheduler-Regressionspruefung laeuft
-      (`test-backend-ops` CPU, bisher alle Checks OK); danach
-      CUDA-Paritaet und kontrolliertes Prefill-A/B auf dem
-      Testsystem: PREFETCH_EXPERTS=1 vs. +PREFETCH_ALL=1 (3 und 8
-      Slots) vs. PREFETCH_ALL allein, pp8192, 3 Reps, Median.
+- [x] Lokale Scheduler-Regressionspruefung (`test-backend-ops` CPU,
+      alle Checks OK) und kontrolliertes Prefill-A/B auf Uranus
+      durchgefuehrt; Ergebnis-Matrix siehe §10.5a unten.
 - [ ] S2 bleibt zweite Hauptsaeule: Warm-mmap/no-mmap/Hostregister
       fair vergleichen; Residenz/Pinning nur bei belegtem Zusatznutzen
       adaptieren, keine Arena als Selbstzweck.
-- [ ] SSH-/Netzwerkfreigabe fuer die weitere CUDA-Gegenprobe
-      angefragt; bis dahin nur lokale Arbeiten ohne GPU-Inferenz.
+- [x] SSH-/Netzwerkfreigabe fuer die CUDA-Gegenprobe erteilt; alle
+      Messungen im Worktree `/home/fukuro/git/flashnext-p1a-test`
+      (detached HEAD) auf Uranus.
+
+#### 10.5a S1-Messergebnisse und Struktur-Befund (Stand `389011007b`)
+
+Kontrollierte pp8192-Matrix auf Uranus (dual 4060Ti, UD-IQ4_XS,
+`-ngl 99 -ncmoe 99 -fa -ctk/-ctv q8_0`, layer-split, `-b/-ub 8192`,
+3 Reps, Median; alle Werte t/s):
+
+| Konfiguration | t/s |
+|---|---|
+| Baseline vor S1 (kein Prefetch-Env) | ~470 (Referenz 469.7) |
+| PF=1 (3 Slots, Depth-1) | 478-480 |
+| PF=1 + ALL=1 + 8 Slots + REGISTER_HOST=1 | **507.7-508.1** |
+| ohne Prefetch (Kontrolle) | ~399-409 |
+| +LOOKAHEAD=1 (8 Slots, kein Spread) | 473-475 |
+| +SPREAD=1 allein (kein Prefetch) | ~408-417 |
+| +SPREAD=1 + LOOKAHEAD=1 + 3 Slots | ~501 (4+ Slots OOM) |
+| MoE-Cache an vs. aus | kein Effekt (~501/~473/~409 identisch) |
+| Chunk-Uploads 64 MiB vs. aus | kein Effekt |
+| Async-Staging (Events statt Sync) | **Regression auf ~480, revertiert** |
+
+Mechanische Befunde (nsys, pp4096-Fenster):
+- H2D-Gesamtvolumen ~63 GB/Pass (~128 GB inkl. Laden), effektiv
+  ~6.2 GB/s pro Link = PCIe-Gen3-x8-Hardwarelimit.
+- Kernel-Busy ~4.2 s/GPU, Copy-Busy ~9-10 s/GPU, aber ~6-12 s Idle
+  pro GPU: der Pass (~16-17 s) ist dependency-serialisiert, nicht
+  bandbreiten- oder compute-limitiert.
+- Ursache der Idle-Fenster: ~150 ms lange Stall-Kadenzen zwischen
+  Copy-Ende und Consumer-Launch; Host-seitige `cudaStreamSynchronize`
+  (~1800 Calls, ~16-21 s kumuliert) u.a. in der Cross-Device-Staging-
+  Kopie (kein P2P auf GeForce ohne NVLink -> Staging via Host-Puffer).
+- Versuchter Fix (Event-Kette statt Host-Syncs) entfernte die
+  Host-Bloecke, fuegte aber einen Wait des src-Compute-Streams auf
+  die H2D der vorherigen Staging-Kopie ein -> Cross-Device-Lockstep,
+  ~5 % langsamer -> revertiert (`389011007b`).
+- `REGISTER_HOST=1` pinnt ~89 GiB Model-mmap korrekt (~13 min
+  Page-Fault-in von RAID5), bringt aber nur ~+2 %: Bandbreite ist
+  nicht der limitierende Faktor.
+
+Interpretation: Das ~500-508-t/s-Plateau ist die Scheduler-Grenze.
+Der Layer-seriale Abhaengigkeitsgraph (Attention -> Router -> ids ->
+MoE x3 -> naechster Layer) laesst die Copy-Engine nie mehr als
+~1-2 Expert-Tensoren vorauslaufen; tiefere Slot-Ringe kaufen nichts,
+weil die Dependency-Kette, nicht die Staging-Tiefe, bindet. Strata-
+Niveau (~1100+) erfordert S1b: Expert-Tile-Streaming mit
+Compute/Copy-Overlap **innerhalb** des MoE-Kernels
+(grouped-GEMM/MMID-Pfad), nicht auf Split-Ebene. Das ist ein
+deutlich groesserer Eingriff und steht als separates Item an.
+
+Shipped auf `feat/flashnext-s1-lookahead` (push `389011007b`):
+per-Device-Prefetch-Slot-Ring (korrekt fuer Dual-GPU), Multi-Input-
+Staging (`PREFETCH_ALL`), opt-in Lookahead (`PREFETCH_LOOKAHEAD`)
+und Offload-Spread (`OFFLOAD_SPREAD`, beide default-off nach
+Messbefund), Chunk-Tuning (`PREFETCH_CHUNK_MB`, wirkungslos),
+kontext-korrekte Staging-Events. Nettogewinn vs. Baseline:
+~+8 % (470 -> 508), vs. Prefetch-aus: ~+27 %.
