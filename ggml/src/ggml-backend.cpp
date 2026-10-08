@@ -864,6 +864,10 @@ struct ggml_backend_sched {
     // a single ~440 MiB copy monopolizes the copy engine for ~70 ms and starves
     // small latency-critical copies on the compute streams
     size_t prefetch_chunk;
+    // GGML_SCHED_MOE_ZCOPY=1 (+ GGML_CUDA_REGISTER_HOST=1): host expert weights
+    // stay in place; the kernel streams them over PCIe via the UVA device
+    // mapping of the registered range instead of an explicit input copy
+    bool moe_zcopy;
     struct ggml_backend_sched_prefetch_dev {
         ggml_backend_t        backend;
         int                   n_slots;
@@ -1846,6 +1850,16 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                 // of the previous split. CPU backend splits never stage: a failed
                 // prefetch_init there would disable prefetch for all devices
                 const bool split_is_cpu = split_backend_id == sched->n_backends - 1;
+                // zero-copy: with the host range registered+mapped the kernel reads
+                // the expert weights over PCIe straight from the host pointer -
+                // under UVA host_ptr == dev_ptr, so a plain rebind suffices and no
+                // slot, copy or event is needed at all
+                if (sched->moe_zcopy && moe_weights && !split_is_cpu) {
+                    prefetch_rebinds.push_back({input_cpy, input_cpy->buffer, input_cpy->data, -1});
+                    input_cpy->buffer = input->buffer;
+                    input_cpy->data   = input->data;
+                    continue;
+                }
                 if (sched->prefetch_experts && !sched->callback_eval && moe_full_upload &&
                     !split_is_cpu && (sched->prefetch_all || prefetch_rebinds.empty()) &&
                     ggml_backend_sched_prefetch_init(sched, split_backend_id, split_backend, ggml_nbytes(input))) {
@@ -2069,6 +2083,10 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     const bool f_moe_weights = moe_node &&
                         ggml_backend_buffer_get_usage(finput->buffer) == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
                         ggml_backend_buffer_is_host(finput->buffer);
+                    // with zero-copy these inputs never need a staging slot
+                    if (sched->moe_zcopy && f_moe_weights) {
+                        continue;
+                    }
                     const bool f_full_upload = f_moe_weights &&
                         moe_node->src[2]->ne[1] * moe_node->src[2]->ne[0] >= 2*finput->ne[2];
                     if (!f_full_upload) {
@@ -2108,13 +2126,17 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
             // waiting here instead of per input lets the plain full-tensor copies of the
             // same split overlap the prefetch stream
             for (auto & r : prefetch_rebinds) {
-                ggml_backend_event_wait(split_backend, pf->ready[r.slot]);
+                if (r.slot >= 0) { // zero-copy rebinds carry no slot
+                    ggml_backend_event_wait(split_backend, pf->ready[r.slot]);
+                }
             }
             enum ggml_status ec = ggml_backend_graph_compute_async(split_backend, &split->graph);
             for (auto & r : prefetch_rebinds) {
                 // the kernels have captured the slot address at launch, safe to restore
-                ggml_backend_event_record(pf->free_ev[r.slot], split_backend);
-                pf->used[r.slot] = true;
+                if (r.slot >= 0) {
+                    ggml_backend_event_record(pf->free_ev[r.slot], split_backend);
+                    pf->used[r.slot] = true;
+                }
                 r.cpy->buffer = r.buffer;
                 r.cpy->data   = r.data;
             }
@@ -2278,6 +2300,15 @@ ggml_backend_sched_t ggml_backend_sched_new(
     const char * GGML_SCHED_PREFETCH_CHUNK_MB = getenv("GGML_SCHED_PREFETCH_CHUNK_MB");
     sched->prefetch_chunk = GGML_SCHED_PREFETCH_CHUNK_MB ?
         size_t(std::max(0, atoi(GGML_SCHED_PREFETCH_CHUNK_MB))) << 20 : size_t(64) << 20;
+
+    // GGML_SCHED_MOE_ZCOPY=1: skip the input copy for host MoE weights; the
+    // kernel streams them over PCIe from the registered+mapped range instead.
+    // Requires GGML_CUDA_REGISTER_HOST=1 (the flag that maps the model mmap)
+    // and mmap-backed weights (the default; --no-mmap buffers are not mapped)
+    const char * GGML_SCHED_MOE_ZCOPY = getenv("GGML_SCHED_MOE_ZCOPY");
+    const char * GGML_CUDA_REGISTER_HOST = getenv("GGML_CUDA_REGISTER_HOST");
+    sched->moe_zcopy = GGML_SCHED_MOE_ZCOPY != NULL && atoi(GGML_SCHED_MOE_ZCOPY) > 0 &&
+        GGML_CUDA_REGISTER_HOST != NULL && atoi(GGML_CUDA_REGISTER_HOST) > 0;
 
     ggml_backend_sched_reset(sched);
 
