@@ -1128,6 +1128,17 @@ Mechanische Befunde (nsys, pp4096-Fenster):
   Host-Bloecke, fuegte aber einen Wait des src-Compute-Streams auf
   die H2D der vorherigen Staging-Kopie ein -> Cross-Device-Lockstep,
   ~5 % langsamer -> revertiert (`389011007b`).
+- Async-Staging, Runde 2 (Commits `b8fe0129e0`..`c0d6026530`,
+  revertiert in `109bc3bce6`): dedizierter Staging-Stream pro Device
+  (src_ready_ev/staged_ev/done_ev, kein Compute-Stream-Wait, kein
+  Host-Block) -> 479.6/487.6; +4-Buffer-Ping-Pong gegen die
+  Single-Buffer-H2D-Serialisierung -> 479.9/487.6, unveraendert.
+  Alle drei Async-Varianten regressieren konsistent ~5.5 % ggue.
+  Sync-Staging. Interpretation: der Host-Block wirkt als
+  Flow-Control, die die Issue-Rate an den Pipeline-Drain bindet;
+  ohne ihn enqueued der Host ~300 Split-Launches burstartig voraus
+  und verschlechtert die Transfer-/Event-Timing-Landschaft. Der
+  ~150-ms-Stall ist damit kein rein vermeidbarer Overhead.
 - `REGISTER_HOST=1` pinnt ~89 GiB Model-mmap korrekt (~13 min
   Page-Fault-in von RAID5), bringt aber nur ~+2 %: Bandbreite ist
   nicht der limitierende Faktor.
@@ -1159,13 +1170,16 @@ jeweiligen Layer-Device):
 | ncmoe | residente Layer | Slots | t/s |
 |---|---|---|---|
 | 48 (=99) | 0 | 8 | ~508 |
-| 46 | 2 (L46+L47, symm. 1,3 GB/GPU) | 4 | **514.6** |
+| 46 | 2 (L46+L47, symm. 1,3 GB/GPU) | 4 | **514.9 ± 0.1** |
 | 45 | 3 (GPU1 traegt 2,6 GB) | 3 | OOM |
 | 44 | 4 (2,6 GB/GPU) | 0-2 | OOM |
+| 46 + turbo4-KV | 2 | 4 | OOM (TQ-Workspace frisst Ersparnis) |
 
 Befund: Residenz hilft (~+1,3 % pro Layerpaar), ist aber VRAM-
-gedeckelt auf ~2 Layer -> Decke ~515 t/s. Basisbelegung (dense
+gedeckelt auf ~2 Layer -> **S2-Decke bestaetigt: 514.9 ± 0.1 t/s**
+(`-ncmoe 46` + `SLOTS=4`, 3 Reps). Basisbelegung (dense
 ~12 GB/GPU + KV q8_0 + ub8192-Aktivierungen + Graphs) laesst nur
-~2,6 GB/GPU frei. TurboQuant-KV (`turbo4_0`) als Headroom-Hebel in
-Pruefung. Erwartete S2-Decke damit ~520-525 — das Plateau bleibt
-die serielle Split-Dependency-Kette (§10.5a).
+~2,6 GB/GPU frei. TurboQuant-KV (`-ctk turbo4`) schafft keinen
+nutzbaren Headroom — der TQ-Workspace frisst die KV-Ersparnis,
+`ncmoe=46` OOM't damit sogar. S2-Gate damit erreicht: weiterer
+Fortschritt nur via S1b (Kernel-Ebene), nicht via Residenz.
