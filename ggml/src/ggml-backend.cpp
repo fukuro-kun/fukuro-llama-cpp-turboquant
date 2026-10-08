@@ -872,6 +872,11 @@ struct ggml_backend_sched {
         int                   cur;
     } prefetch[GGML_SCHED_MAX_BACKENDS];
 
+    // spread host-weight offloaded ops (MUL_MAT_ID experts) across devices,
+    // layer-coherent so one layer's expert chain stays on one GPU
+    bool offload_spread;
+    int  n_offload_spread;
+
     int debug;
 
     // used for debugging graph reallocations [GGML_SCHED_DEBUG_REALLOC]
@@ -971,11 +976,28 @@ static int ggml_backend_sched_backend_id_from_cur(ggml_backend_sched_t sched, st
             int src_backend_id = ggml_backend_sched_backend_from_buffer(sched, src, tensor);
             // check if a backend with higher prio wants to offload the op
             if (sched->op_offload && src_backend_id == sched->n_backends - 1 && ggml_backend_buffer_is_host(src->buffer)) {
+                int eligible[GGML_SCHED_MAX_BACKENDS];
+                int n_eligible = 0;
                 for (int b = 0; b < src_backend_id; b++) {
                     if (ggml_backend_supports_op(sched->backends[b], tensor) && ggml_backend_offload_op(sched->backends[b], tensor)) {
-                        SET_CAUSE(tensor, "1.off");
-                        return b;
+                        eligible[n_eligible++] = b;
                     }
+                }
+                if (n_eligible > 0) {
+                    int dev_idx = 0;
+                    // with several GPUs, always picking the first concentrates the whole
+                    // expert stream on one PCIe link; spread it instead, coherently per
+                    // layer so a layer's gate/up/down chain stays on one device
+                    if (n_eligible > 1 && sched->offload_spread) {
+                        int layer = -1;
+                        if (sscanf(src->name, "blk.%d.", &layer) == 1 && layer >= 0) {
+                            dev_idx = layer % n_eligible;
+                        } else {
+                            dev_idx = (sched->n_offload_spread++) % n_eligible;
+                        }
+                    }
+                    SET_CAUSE(tensor, "1.off%d", eligible[dev_idx]);
+                    return eligible[dev_idx];
                 }
             }
             SET_CAUSE(tensor, "1.wgt%d", i);
@@ -2219,6 +2241,13 @@ ggml_backend_sched_t ggml_backend_sched_new(
     } else {
         sched->prefetch_n_slots = prefetch_n_slots <= 1 ? 3 : std::min(prefetch_n_slots, GGML_SCHED_MAX_PREFETCH_SLOTS);
     }
+
+    // multi-GPU: spread host-weight offloaded ops across devices so the expert
+    // stream uses every PCIe link; GGML_SCHED_OFFLOAD_SPREAD=0 restores the
+    // first-fit choice (all MoE on device 0)
+    sched->offload_spread = getenv("GGML_SCHED_OFFLOAD_SPREAD") == NULL ||
+        atoi(getenv("GGML_SCHED_OFFLOAD_SPREAD")) != 0;
+    sched->n_offload_spread = 0;
 
     ggml_backend_sched_reset(sched);
 
