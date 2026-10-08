@@ -1071,12 +1071,25 @@ Main-Agent):**
       beim verbrauchenden Split; dessen Compute-Stream wartet
       unmittelbar auf das Ready-Event. Zusaetzliche Slots allein
       garantieren kein vorauseilendes Kopieren.
-- [ ] S1-Prototyp: nach Start des aktuellen Expert-Splits einen
-      zukuenftigen unveraenderlichen Expert-Tensor vorbereiten.
-      Nur gleiche Device-Zuordnung, mindestens zwei sichere Slots,
-      kein dauerhafter Graph-Pointer-Umbau; Default unveraendert.
-- [ ] Lokale Scheduler-Regressionspruefung, danach CUDA-Paritaet
-      und kontrolliertes Prefill-A/B auf dem Testsystem.
+- [x] S1-Prototyp implementiert (`cdb42d8471`, Branch
+      `feat/flashnext-s1-lookahead`), `ggml/src/ggml-backend.cpp`:
+      Prefetch-State jetzt pro Backend/Device statt global einmalig;
+      opt-in `GGML_SCHED_PREFETCH_ALL=1` staget jeden eligible
+      Host-Weights-MUL_MAT_ID-Input eines Splits (Slot-Ring,
+      Holder-Tracking gegen zirkulaere Event-Waits, 512B-MMQ-Padding
+      unveraendert). Ready-Event-Waits gebundelt unmittelbar vor
+      `ggml_backend_graph_compute_async`, damit generische Kopien
+      späterer Inputs nicht hinter früheren Prefetch-Waits hängen.
+      Eligible Inputs ohne freien Slot fallen unter PREFETCH_ALL auf
+      generischen Async-Vollupload statt in den selektiven Pfad —
+      der Routing-IDs-Rücklese-Sync (`ggml_backend_synchronize`)
+      entfällt bei grossen Batches. CPU-Backend-Splits bleiben beim
+      selektiven Pfad. Default ohne Env unveraendert.
+- [ ] Lokale Scheduler-Regressionspruefung laeuft
+      (`test-backend-ops` CPU, bisher alle Checks OK); danach
+      CUDA-Paritaet und kontrolliertes Prefill-A/B auf dem
+      Testsystem: PREFETCH_EXPERTS=1 vs. +PREFETCH_ALL=1 (3 und 8
+      Slots) vs. PREFETCH_ALL allein, pp8192, 3 Reps, Median.
 - [ ] S2 bleibt zweite Hauptsaeule: Warm-mmap/no-mmap/Hostregister
       fair vergleichen; Residenz/Pinning nur bei belegtem Zusatznutzen
       adaptieren, keine Arena als Selbstzweck.
