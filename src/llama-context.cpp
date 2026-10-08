@@ -2198,8 +2198,8 @@ int llama_context::decode(const llama_batch & batch_inp) {
 
                 GGML_ASSERT((offset + n_rows)*n_embd <= (int64_t) embd_nextn.size);
                 ggml_backend_tensor_get_async(backend_h, t_h_nextn, embd_nextn_out, 0, n_rows*n_embd*sizeof(float));
-            } else if (embd_nextn.data && cparams.pooling_type == LLAMA_POOLING_TYPE_NONE) {
-                LLAMA_LOG_ERROR("P1MTPDBG nextn extract skipped: t_h_nextn=%p n_rows=%d\n", (const void *) t_h_nextn, (int) n_rows);
+            } else if (embd_nextn.data && t_h_nextn == nullptr && n_rows > 0 && cparams.pooling_type == LLAMA_POOLING_TYPE_NONE) {
+                LLAMA_LOG_ERROR("nextn extract skipped: t_h_nextn is null but n_rows=%d outputs expected\n", (int) n_rows);
             }
         }
 

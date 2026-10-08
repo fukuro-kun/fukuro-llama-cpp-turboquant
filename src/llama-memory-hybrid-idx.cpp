@@ -49,8 +49,16 @@ llama_memory_hybrid_idx::llama_memory_hybrid_idx(
 
         LLAMA_LOG_INFO("%s: creating indexer KV cache, size = %u cells\n", __func__, kv_size);
 
+        // P1MTPDBG: dtype override to isolate whether stale-cell dequant in the
+        //           indexer K cache is what poisons the QSA score path
+        const char * idx_t = getenv("P1MTPDBG_IDX_TYPE");
+        const ggml_type type_k_idx = idx_t == nullptr ? type_k
+                                   : std::string(idx_t) == "q8_0" ? GGML_TYPE_Q8_0
+                                   : std::string(idx_t) == "f16"  ? GGML_TYPE_F16
+                                   : type_k;
+
         return new llama_kv_cache(
-            model, hparams_idx, type_k, type_v, v_trans, offload, unified,
+            model, hparams_idx, type_k_idx, type_v, v_trans, offload, unified,
             kv_size, n_seq_max, n_pad, n_swa, swa_type,
             nullptr, filter_idx, nullptr, nullptr);
     }()) {}

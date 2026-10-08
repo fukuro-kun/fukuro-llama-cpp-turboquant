@@ -1084,16 +1084,6 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
                 // TODO:this is generally true, but would be nice to assert it
                 {
                     const float * h_tgt = llama_get_embeddings_nextn(ctx_tgt);
-                    // P1MTPDBG
-                    {
-                        int n_nan = 0; float mn = 1e30f, mx = -1e30f;
-                        for (int k = 0; k < n_tokens*(int)n_embd; ++k) {
-                            if (std::isnan(h_tgt[k]) || std::isinf(h_tgt[k])) { n_nan++; }
-                            else { mn = std::min(mn, h_tgt[k]); mx = std::max(mx, h_tgt[k]); }
-                        }
-                        LOG_ERR("P1MTPDBG h_tgt: n_tokens=%d nan=%d range=[%g,%g] first4=[%g %g %g %g]\n",
-                                n_tokens, n_nan, mn, mx, h_tgt[0], h_tgt[1], h_tgt[2], h_tgt[3]);
-                    }
                     std::memcpy(batch.embd + (size_t) 1 * n_embd, h_tgt, row_bytes * (n_tokens-1));
                 }
 
@@ -1196,8 +1186,6 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
             common_batch_add(batch, dp.id_last, dp.pos0, { seq_id }, true);
 
             h_row = pending_h[seq_id].data();
-            { int nn=0; for (int k=0;k<(int)n_embd;++k){ if(std::isnan(h_row[k])||std::isinf(h_row[k])) nn++; }
-              LOG_ERR("P1MTPDBG draft seed pending_h seq=%d nan=%d first4=[%g %g %g %g]\n", (int)seq_id, nn, h_row[0], h_row[1], h_row[2], h_row[3]); }
             std::memcpy(batch.embd + n_embd*(batch.n_tokens - 1), h_row, row_bytes);
         }
 
