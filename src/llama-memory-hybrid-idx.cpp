@@ -155,6 +155,65 @@ bool llama_memory_hybrid_idx::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_po
     return get_mem_attn()->seq_rm(seq_id, p0, p1);
 }
 
+void llama_memory_hybrid_idx::state_write(llama_io_write_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) const {
+    llama_memory_hybrid::state_write(io, seq_id, flags);
+
+    // the indexer section goes last, so it is a pure suffix: an old reader stops early instead of misparsing it
+    // the indexer mirrors the attention cache, so it shares the same PARTIAL_ONLY gate
+    if ((flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0) {
+        if (mem_idx) {
+            mem_idx->state_write(io, seq_id, flags);
+        }
+    }
+}
+
+void llama_memory_hybrid_idx::state_read(llama_io_read_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) {
+    // repeats llama_memory_hybrid::state_read, but the indexer needs the attention cache's
+    // cells and a half-failed restore must leave all three caches alike
+
+    // the indexer restore adopts the attention cache's layout instead of searching for cells
+    // of its own: two find_slot calls agree only while both caches see the same occupancy,
+    // which a restore cannot promise
+    llama_kv_cache::slot_info_vec_t sinfos_attn;
+
+    try {
+        if ((flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0) {
+            get_mem_attn()->state_read_sinfo(io, seq_id, flags, mem_idx ? &sinfos_attn : nullptr, nullptr);
+        }
+
+        get_mem_recr()->state_read(io, seq_id, flags);
+
+        // must mirror the write order in state_write
+        if ((flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0) {
+            if (mem_idx) {
+                mem_idx->state_read_sinfo(io, seq_id, flags, nullptr, &sinfos_attn);
+            }
+        }
+    } catch (...) {
+        // a half-restored context is the one state the indexer cannot fix by itself: attention
+        // holds new cells, the indexer old ones. drop what was being restored from all three.
+        state_drop(seq_id);
+
+        throw;
+    }
+}
+
+void llama_memory_hybrid_idx::state_drop(llama_seq_id seq_id) {
+    // dropped directly, not via seq_rm: the recurrent cache may refuse it and then only the
+    // other two get cleared
+    if (seq_id < 0) {
+        clear(true);
+        return;
+    }
+
+    get_mem_attn()->state_clear(seq_id);
+    get_mem_recr()->seq_rm(seq_id, -1, -1);
+
+    if (mem_idx) {
+        mem_idx->state_clear(seq_id);
+    }
+}
+
 void llama_memory_hybrid_idx::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, llama_pos p0, llama_pos p1) {
     llama_memory_hybrid::seq_cp(seq_id_src, seq_id_dst, p0, p1);
 
