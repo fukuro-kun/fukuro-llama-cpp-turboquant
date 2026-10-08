@@ -6,6 +6,24 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-10-08
+
+### fix: Vollstaendiger KV-Restore erhaelt alle Streams
+
+`state_read_meta` loeschte beim Fullstate-Restore den gesamten KV-Cache
+innerhalb der Stream-Schleife. Jeder spaetere Stream verwarf damit bereits
+restaurierte Metadaten und K/V-Bytes. Der einmalige Clear vor der Schleife
+in `state_read_sinfo` bleibt erhalten; der redundante globale Clear entfaellt.
+Regression im bestehenden Fragmentierungs-Test: drei nicht-unifizierte
+Streams, Byte-Vergleich je Sequenz vor/nach Fullstate-Restore. CPU-Test
+schlug vorher bei Stream 0 fehl und besteht nach dem Fix mit f16 sowie
+anschliessender fragmentierter Sequenzrestauration und echtem Decode.
+Q8_0-Paritaet auf kompatiblem Modell noch offen; kein Qwen-MTP-Fix-Claim.
+
+Hybrid-Indexer-Splits beachten zudem wie die Basisklasse den vorhandenen
+`n_rs_seq`-Vertrag. Qwen4Exp klemmt diesen Wert derzeit auf 0, deshalb
+ist diese Konsistenzkorrektur keine Erklaerung seiner Spec-Degeneration.
+
 ## 2026-10-07
 
 ### fix: MoE-Expert-Prefetch-Crash auf CUDA behoben

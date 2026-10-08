@@ -14,6 +14,64 @@
 #include <cstdio>
 #include <cstring>
 
+static bool test_multistream_restore(llama_model * model, const common_params & params) {
+    std::vector<ggml_type> types_k = { GGML_TYPE_F16 };
+    if (params.cache_type_k != GGML_TYPE_F16) {
+        types_k.push_back(params.cache_type_k);
+    }
+    for (const auto type_k : types_k) {
+        auto cparams = common_context_params_to_llama(params);
+        cparams.n_ctx = 768;
+        cparams.n_batch = 32;
+        cparams.n_ubatch = 32;
+        cparams.n_seq_max = 3;
+        cparams.kv_unified = false;
+        cparams.type_k = type_k;
+        cparams.type_v = GGML_TYPE_F16;
+        llama_context * ctx = llama_init_from_model(model, cparams);
+        if (ctx == nullptr) {
+            fprintf(stderr, "%s: failed to create multistream context (%s K)\n", __func__, ggml_type_name(type_k));
+            return false;
+        }
+        llama_batch batch = llama_batch_init(32, 0, 1);
+        bool ok = true;
+        for (int s = 0; s < 3 && ok; ++s) {
+            common_batch_clear(batch);
+            for (int pos = 0; pos < 8 + s; ++pos) {
+                common_batch_add(batch, 1 + s, pos, { s }, pos == 7 + s);
+            }
+            ok = llama_decode(ctx, batch) == 0;
+        }
+        if (ok) {
+            std::vector<std::vector<uint8_t>> seq_states(3);
+            for (int s = 0; s < 3 && ok; ++s) {
+                seq_states[s].resize(llama_state_seq_get_size(ctx, s));
+                ok = !seq_states[s].empty() && llama_memory_seq_pos_max(llama_get_memory(ctx), s) == 7 + s &&
+                     llama_state_seq_get_data(ctx, seq_states[s].data(), seq_states[s].size(), s) == seq_states[s].size();
+            }
+            std::vector<uint8_t> state(llama_state_get_size(ctx));
+            ok = ok && llama_state_get_data(ctx, state.data(), state.size()) == state.size();
+            llama_memory_clear(llama_get_memory(ctx), true);
+            ok = ok && llama_state_set_data(ctx, state.data(), state.size()) == state.size();
+            for (int s = 0; s < 3 && ok; ++s) {
+                std::vector<uint8_t> restored(llama_state_seq_get_size(ctx, s));
+                ok = llama_state_seq_get_data(ctx, restored.data(), restored.size(), s) == restored.size() &&
+                     restored == seq_states[s];
+                if (!ok) {
+                    fprintf(stderr, "%s: stream %d (%s) differs after full restore\n", __func__, s, ggml_type_name(type_k));
+                }
+            }
+        }
+        llama_batch_free(batch);
+        llama_free(ctx);
+        if (!ok) {
+            return false;
+        }
+        fprintf(stderr, "%s: full restore preserves all three streams (%s K)\n", __func__, ggml_type_name(type_k));
+    }
+    return true;
+}
+
 int main(int argc, char ** argv) {
     common_params params;
 
@@ -42,7 +100,9 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    GGML_UNUSED(model);
+    if (!test_multistream_restore(model, params)) {
+        return 1;
+    }
 
     // tokenize prompt
     std::vector<llama_token> tokens(70, 1);

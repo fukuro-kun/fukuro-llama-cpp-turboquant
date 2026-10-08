@@ -88,7 +88,7 @@ llama_memory_context_ptr llama_memory_hybrid_idx::init_batch(llama_batch_allocr 
                 //   so that the rollback snapshots remain valid
                 const uint32_t n_rs_seq = get_mem_recr()->n_rs_seq;
 
-                ubatch = balloc.split_equal(n_ubatch, !unified);
+                ubatch = n_rs_seq > 0 ? balloc.split_seq(n_ubatch) : balloc.split_equal(n_ubatch, !unified);
             }
 
             if (ubatch.n_tokens == 0) {
