@@ -26,6 +26,8 @@
 ### CUDA-Expert-Prefetch (Fork-spezifisch)
 
 - Prefetch ist **opt-in**: ohne gesetzte `GGML_SCHED_PREFETCH_EXPERTS` bleibt er aus. `GGML_SCHED_PREFETCH_EXPERTS=1` aktiviert den Pfad mit Default 3 Slots; `>=2` setzt die Slot-Zahl direkt; `GGML_SCHED_PREFETCH_SLOTS=N` ueberschreibt die Slot-Zahl unabhaengig. Er prefetcht **volle Expert-Tensoren** ueber einen zweiten Backend-/Event-Pfad — das ist nicht aequivalent zu Strata-artigem Double-Buffer-Streaming.
+- Prefetch-State ist **pro Split-Backend** (Slot-Ring, Ready-/Free-Events, eigene Copy-Instanz pro Device) — ein CUDA1-Input landet nie in einem CUDA0-Slot.
+- `GGML_SCHED_PREFETCH_ALL=1` (opt-in): staged **jeden** eligiblen Expert-Input eines Splits (Default: nur den ersten). Slot-Sicherheitsregel: ein Slot darf nur wiederbefuellt werden, wenn sein letzter Nutzer ein frueherer Split war (`holder < split_id`) — sonst kreisfaelliges Event-Warten. Eligible Inputs ohne freien Slot nehmen den generischen Async-Vollupload statt des selektiven Pfads — dadurch entfaellt der blockierende IDs-Readback (`ggml_backend_synchronize` pro Layer) bei grossen Batches komplett. Kleine Batches bleiben beim selektiven Pfad (`n_tokens*n_used < 2*n_expert`).
 - Die Standalone-Prefetch-Slots tragen seit dem P1b-Fix ein `+512 B` Padding mit genulltem Tail — MMQ liest wenige Bytes ueber das Tensorende hinaus; das Padding ist fuer MMQ erforderlich, nicht optional.
 - Siehe Plan `docs/fork/plans/SESSION_PLAN_20261006_strata-optllama-uranus-eval.md` §10.3.
 
