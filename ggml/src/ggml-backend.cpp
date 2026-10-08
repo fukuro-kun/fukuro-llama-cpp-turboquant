@@ -858,6 +858,7 @@ struct ggml_backend_sched {
     // copy stream and slot ring so a split never reads weights through a foreign device
     bool prefetch_experts;
     bool prefetch_all;
+    bool prefetch_lookahead;
     int prefetch_n_slots;
     // staged uploads are issued in chunks of this many bytes (0 = one copy):
     // a single ~440 MiB copy monopolizes the copy engine for ~70 ms and starves
@@ -2041,7 +2042,7 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
         // compute, so staging only the next split's input starves the copy stream.
         // keep it saturated by staging eligible inputs of later splits as long as
         // slots are free; each consumer waits on its slot's ready event anyway
-        if (sched->prefetch_all && !sched->callback_eval) {
+        if (sched->prefetch_lookahead && !sched->callback_eval) {
             for (int f = split_id + 1; f < sched->n_splits; f++) {
                 struct ggml_backend_sched_split * fsplit = &splits[f];
                 const int fb = fsplit->backend_id;
@@ -2241,16 +2242,21 @@ ggml_backend_sched_t ggml_backend_sched_new(
     const char * GGML_SCHED_PREFETCH_EXPERTS = getenv("GGML_SCHED_PREFETCH_EXPERTS");
     const int prefetch_n_slots = GGML_SCHED_PREFETCH_EXPERTS ? atoi(GGML_SCHED_PREFETCH_EXPERTS) : 0;
     sched->prefetch_experts = op_offload && prefetch_n_slots > 0;
-    // GGML_SCHED_PREFETCH_ALL=1 additionally stages eligible expert tensors of
-    // LATER splits while earlier compute is still running (lookahead), bounded
-    // by the slot ring; without it only the first eligible input of each split
-    // is staged. Requires GGML_SCHED_PREFETCH_EXPERTS; slotless eligible inputs
-    // keep the selective per-expert copy, which beats plain full uploads here
+    // GGML_SCHED_PREFETCH_ALL=1 stages every eligible expert input of a split
+    // (not only the first); requires GGML_SCHED_PREFETCH_EXPERTS. Slotless
+    // eligible inputs keep the selective per-expert copy, which beats plain
+    // full uploads here
     sched->prefetch_all = sched->prefetch_experts &&
         getenv("GGML_SCHED_PREFETCH_ALL") != NULL && atoi(getenv("GGML_SCHED_PREFETCH_ALL")) > 0;
+    // GGML_SCHED_PREFETCH_LOOKAHEAD=1 additionally stages eligible inputs of
+    // LATER splits while earlier compute is still running, bounded by the slot
+    // ring. On this model it does not beat depth-1 staging without OFFLOAD_SPREAD
+    // (extra queue depth costs ~5%): opt-in for spread or debugging
+    sched->prefetch_lookahead = sched->prefetch_experts &&
+        getenv("GGML_SCHED_PREFETCH_LOOKAHEAD") != NULL && atoi(getenv("GGML_SCHED_PREFETCH_LOOKAHEAD")) > 0;
     // default of 3 covers the gate/up/down expert tensors of one MoE layer;
-    // with PREFETCH_ALL lookahead deeper rings (e.g. 8) keep the copy stream
-    // saturated further ahead of compute
+    // deeper rings (e.g. 8) keep the copy stream saturated further ahead of
+    // compute when lookahead or spread is used
     // GGML_SCHED_PREFETCH_EXPERTS=1 → 3 slots (default), =2 → 2 slots, etc.
     // Use GGML_SCHED_PREFETCH_SLOTS to override independently:
     //   GGML_SCHED_PREFETCH_EXPERTS=1 GGML_SCHED_PREFETCH_SLOTS=1 → 1 slot (less VRAM, less overlap)
@@ -2261,11 +2267,11 @@ ggml_backend_sched_t ggml_backend_sched_new(
         sched->prefetch_n_slots = prefetch_n_slots <= 1 ? 3 : std::min(prefetch_n_slots, GGML_SCHED_MAX_PREFETCH_SLOTS);
     }
 
-    // multi-GPU: spread host-weight offloaded ops across devices so the expert
-    // stream uses every PCIe link; GGML_SCHED_OFFLOAD_SPREAD=0 restores the
-    // first-fit choice (all MoE on device 0)
-    sched->offload_spread = getenv("GGML_SCHED_OFFLOAD_SPREAD") == NULL ||
-        atoi(getenv("GGML_SCHED_OFFLOAD_SPREAD")) != 0;
+    // multi-GPU: GGML_SCHED_OFFLOAD_SPREAD=1 spreads host-weight offloaded ops
+    // across devices so the expert stream uses every PCIe link; default is the
+    // first-fit choice (all MoE on device 0), which wins without lookahead
+    sched->offload_spread = getenv("GGML_SCHED_OFFLOAD_SPREAD") != NULL &&
+        atoi(getenv("GGML_SCHED_OFFLOAD_SPREAD")) > 0;
     sched->n_offload_spread = 0;
 
     // GGML_SCHED_PREFETCH_CHUNK_MB: staged upload segment size, 0 = unchunked
