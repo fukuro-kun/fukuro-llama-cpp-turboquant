@@ -1051,3 +1051,34 @@ Main-Agent):**
       korrigierten Root-/Child-DOX; TOP_K-Row-Cap CUDA-Paritaetsgate.
 - [ ] `[OFFEN]` Legacy-Docs mit Host-/Pfad-Details bei Bedarf
       bereinigen (keine globale Sauberung in dieser Runde).
+
+### 10.10 Wiederaufnahme S1/S2 nach DOX-Commit
+
+- [x] DOX-Hauptstand committiert: `284805e223`; getrennte
+      Top-k-Dokumentation `b34b363e26`, unvalidierter Code nicht enthalten.
+- [x] Ausstehende lokale ub4096-Rohantwort ausgewertet:
+      `prefill-dual-4096-reps3-20261008.log`, synthetisches pp8192,
+      Build `cf86da5927`, Dual-GPU, UD-IQ4_XS, q8_0/q8_0,
+      drei Samples 318.462 / 335.751 / 335.616 t/s, Median 335.616.
+      Vergleich zum bereits verifizierten ub8192-Median 469.724:
+      Faktor 1.39959, etwa +39.96 %. JSON-Konfigurationen stimmen
+      ausser physischer UBatch und Zeitstempel ueberein; Environment
+      ist dort nicht gespeichert. Kein vollstaendiges A/B-Gate,
+      keine Output-Paritaet und kein Same-Text-Strata-Vergleich.
+- [x] Neuer isolierter Worktree/Branch `feat/flashnext-s1-lookahead`
+      auf `284805e223` angelegt.
+- [x] Scheduler-Pfad gelesen: voller Expert-Upload beginnt derzeit
+      beim verbrauchenden Split; dessen Compute-Stream wartet
+      unmittelbar auf das Ready-Event. Zusaetzliche Slots allein
+      garantieren kein vorauseilendes Kopieren.
+- [ ] S1-Prototyp: nach Start des aktuellen Expert-Splits einen
+      zukuenftigen unveraenderlichen Expert-Tensor vorbereiten.
+      Nur gleiche Device-Zuordnung, mindestens zwei sichere Slots,
+      kein dauerhafter Graph-Pointer-Umbau; Default unveraendert.
+- [ ] Lokale Scheduler-Regressionspruefung, danach CUDA-Paritaet
+      und kontrolliertes Prefill-A/B auf dem Testsystem.
+- [ ] S2 bleibt zweite Hauptsaeule: Warm-mmap/no-mmap/Hostregister
+      fair vergleichen; Residenz/Pinning nur bei belegtem Zusatznutzen
+      adaptieren, keine Arena als Selbstzweck.
+- [ ] SSH-/Netzwerkfreigabe fuer die weitere CUDA-Gegenprobe
+      angefragt; bis dahin nur lokale Arbeiten ohne GPU-Inferenz.
