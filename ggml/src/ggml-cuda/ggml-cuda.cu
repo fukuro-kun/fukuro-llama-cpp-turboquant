@@ -2025,6 +2025,8 @@ static cudaError_t ggml_cuda_copy_across_devices(
     auto & pool = ggml_cuda_get_staging();
     cudaError_t err = pool.ensure(size);
     if (err != cudaSuccess) { return err; }
+    const int bidx = pool.cur;
+    void * sbuf = pool.next_buf();
 
     ggml_cuda_set_device(src_device);
     err = pool.ensure_stream(src_device);
@@ -2037,8 +2039,6 @@ static cudaError_t ggml_cuda_copy_across_devices(
     if (err != cudaSuccess) { goto cleanup; }
     err = cudaStreamWaitEvent(pool.st_stream[src_device], pool.src_ready_ev[src_device], 0);
     if (err != cudaSuccess) { goto cleanup; }
-    const int bidx = pool.cur;
-    void * sbuf = pool.next_buf();
     if (pool.in_flight_dev[bidx] >= 0) {
         err = cudaStreamWaitEvent(pool.st_stream[src_device], pool.done_ev[bidx][pool.in_flight_dev[bidx]], 0);
         if (err != cudaSuccess) { goto cleanup; }
@@ -2094,6 +2094,8 @@ static cudaError_t ggml_cuda_copy2d_across_devices(
     auto & pool = ggml_cuda_get_staging();
     cudaError_t err = pool.ensure(width * height);
     if (err != cudaSuccess) { return err; }
+    const int bidx = pool.cur;
+    void * sbuf = pool.next_buf();
 
     ggml_cuda_set_device(src_device);
     err = pool.ensure_stream(src_device);
@@ -2106,8 +2108,6 @@ static cudaError_t ggml_cuda_copy2d_across_devices(
     if (err != cudaSuccess) { goto cleanup; }
     err = cudaStreamWaitEvent(pool.st_stream[src_device], pool.src_ready_ev[src_device], 0);
     if (err != cudaSuccess) { goto cleanup; }
-    const int bidx = pool.cur;
-    void * sbuf = pool.next_buf();
     if (pool.in_flight_dev[bidx] >= 0) {
         err = cudaStreamWaitEvent(pool.st_stream[src_device], pool.done_ev[bidx][pool.in_flight_dev[bidx]], 0);
         if (err != cudaSuccess) { goto cleanup; }
