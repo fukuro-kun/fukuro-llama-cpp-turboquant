@@ -1917,86 +1917,24 @@ static cudaError_t ggml_cuda_Memcpy2DPeerAsync(
 // Pinned host staging buffer for cross-GPU copies without peer access.
 // Reuses a single buffer across calls, growing as needed, to avoid the
 // overhead of per-call cudaMallocHost/cudaFreeHost.
-// ping-pong staging buffers: a single buffer would serialize every staged
-// copy behind the previous copy's H2D; alternating buffers only needs the
-// wait for the copy two iterations back, which has long finished
-#define GGML_CUDA_STAGING_BUFS 4
-
 struct ggml_cuda_host_staging_pool {
-    void * buf[GGML_CUDA_STAGING_BUFS] = {};
+    void * buf = nullptr;
     size_t size = 0;
-    int cur = 0;
-    // per-device staging stream + events, created under that device's context:
-    // cudaEventRecord is context-local, waiting from another device is allowed.
-    // The D2H runs on the staging stream so neither compute stream is blocked:
-    // src_ready_ev snapshots the producer position on the src stream, staged_ev
-    // orders the dst H2D, done_ev tracks per-buffer reuse while a pending H2D
-    // may still read it.
-    cudaStream_t st_stream[GGML_CUDA_MAX_DEVICES] = {};
-    cudaEvent_t src_ready_ev[GGML_CUDA_MAX_DEVICES] = {};
-    cudaEvent_t staged_ev[GGML_CUDA_MAX_DEVICES] = {};
-    cudaEvent_t done_ev[GGML_CUDA_STAGING_BUFS][GGML_CUDA_MAX_DEVICES] = {};
-    int in_flight_dev[GGML_CUDA_STAGING_BUFS] = {-1, -1, -1, -1};
 
     cudaError_t ensure(size_t needed) {
         if (needed <= size) {
             return cudaSuccess;
         }
-        for (int i = 0; i < GGML_CUDA_STAGING_BUFS; i++) {
-            if (in_flight_dev[i] >= 0) {
-                // a staged copy may still read this buf on that dst stream
-                CUDA_CHECK(cudaEventSynchronize(done_ev[i][in_flight_dev[i]]));
-                in_flight_dev[i] = -1;
-            }
-            if (buf[i]) {
-                CUDA_CHECK(cudaFreeHost(buf[i]));
-                buf[i] = nullptr;
-            }
+        if (buf) {
+            CUDA_CHECK(cudaFreeHost(buf));
         }
-        for (int i = 0; i < GGML_CUDA_STAGING_BUFS; i++) {
-            cudaError_t err = cudaMallocHost(&buf[i], needed);
-            if (err != cudaSuccess) {
-                for (int j = 0; j < GGML_CUDA_STAGING_BUFS; j++) {
-                    if (buf[j]) { cudaFreeHost(buf[j]); buf[j] = nullptr; }
-                }
-                size = 0;
-                return err;
-            }
+        cudaError_t err = cudaMallocHost(&buf, needed);
+        if (err != cudaSuccess) {
+            buf = nullptr;
+            size = 0;
+            return err;
         }
         size = needed;
-        return cudaSuccess;
-    }
-
-    void * next_buf() {
-        void * b = buf[cur];
-        cur = (cur + 1) % GGML_CUDA_STAGING_BUFS;
-        return b;
-    }
-
-    int last_buf_idx() const {
-        return (cur + GGML_CUDA_STAGING_BUFS - 1) % GGML_CUDA_STAGING_BUFS;
-    }
-
-    // must be called with `dev` as the current device
-    cudaError_t ensure_stream(int dev) {
-        if (st_stream[dev] == nullptr) {
-            return cudaStreamCreateWithFlags(&st_stream[dev], cudaStreamNonBlocking);
-        }
-        return cudaSuccess;
-    }
-
-    // must be called with `dev` as the current device
-    cudaError_t ensure_event(cudaEvent_t * ev, int dev) {
-        if (ev[dev] == nullptr) {
-            return cudaEventCreateWithFlags(&ev[dev], cudaEventDisableTiming);
-        }
-        return cudaSuccess;
-    }
-
-    cudaError_t ensure_done_event(int b, int dev) {
-        if (done_ev[b][dev] == nullptr) {
-            return cudaEventCreateWithFlags(&done_ev[b][dev], cudaEventDisableTiming);
-        }
         return cudaSuccess;
     }
 };
@@ -2008,8 +1946,6 @@ static ggml_cuda_host_staging_pool & ggml_cuda_get_staging() {
 
 // Host-staged cross-device copy for GPUs without peer access.
 // Copies data from src_device to dst_device via a pinned host buffer.
-// The D2H half runs on a dedicated staging stream so this never blocks the
-// host nor a compute stream; ordering is via events only.
 // Returns cudaSuccess on success, error code on failure.
 static cudaError_t ggml_cuda_copy_across_devices(
     void * dst, int dst_device, const void * src, int src_device,
@@ -2025,38 +1961,16 @@ static cudaError_t ggml_cuda_copy_across_devices(
     auto & pool = ggml_cuda_get_staging();
     cudaError_t err = pool.ensure(size);
     if (err != cudaSuccess) { return err; }
-    const int bidx = pool.cur;
-    void * sbuf = pool.next_buf();
 
     ggml_cuda_set_device(src_device);
-    err = pool.ensure_stream(src_device);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = pool.ensure_event(pool.src_ready_ev, src_device);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = pool.ensure_event(pool.staged_ev, src_device);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = cudaEventRecord(pool.src_ready_ev[src_device], src_stream);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = cudaStreamWaitEvent(pool.st_stream[src_device], pool.src_ready_ev[src_device], 0);
-    if (err != cudaSuccess) { goto cleanup; }
-    if (pool.in_flight_dev[bidx] >= 0) {
-        err = cudaStreamWaitEvent(pool.st_stream[src_device], pool.done_ev[bidx][pool.in_flight_dev[bidx]], 0);
-        if (err != cudaSuccess) { goto cleanup; }
-    }
-    err = cudaMemcpyAsync(sbuf, src, size, cudaMemcpyDeviceToHost, pool.st_stream[src_device]);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = cudaEventRecord(pool.staged_ev[src_device], pool.st_stream[src_device]);
+    err = cudaMemcpyAsync(pool.buf, src, size, cudaMemcpyDeviceToHost, src_stream);
     if (err != cudaSuccess) { goto cleanup; }
 
-    err = cudaStreamWaitEvent(dst_stream, pool.staged_ev[src_device], 0);
+    err = cudaStreamSynchronize(src_stream);
     if (err != cudaSuccess) { goto cleanup; }
+
     ggml_cuda_set_device(dst_device);
-    err = pool.ensure_done_event(bidx, dst_device);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = cudaMemcpyAsync(dst, sbuf, size, cudaMemcpyHostToDevice, dst_stream);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = cudaEventRecord(pool.done_ev[bidx][dst_device], dst_stream);
-    pool.in_flight_dev[bidx] = dst_device;
+    err = cudaMemcpyAsync(dst, pool.buf, size, cudaMemcpyHostToDevice, dst_stream);
 
 cleanup:
     ggml_cuda_set_device(prev_device);
@@ -2064,8 +1978,8 @@ cleanup:
 }
 
 // 2D host-staged cross-device copy for strided data (used in split mul_mat output).
-// Same async staging path as ggml_cuda_copy_across_devices: D2H on the staging
-// stream, event-ordered H2D on the dst stream.
+// Batches all rows into a single contiguous staging buffer to replace the
+// original row-by-row approach (one sync per row → two syncs total).
 static cudaError_t ggml_cuda_copy2d_across_devices(
     void * dst, int dst_device, size_t dpitch,
     const void * src, int src_device, size_t spitch,
@@ -2094,52 +2008,29 @@ static cudaError_t ggml_cuda_copy2d_across_devices(
     auto & pool = ggml_cuda_get_staging();
     cudaError_t err = pool.ensure(width * height);
     if (err != cudaSuccess) { return err; }
-    const int bidx = pool.cur;
-    void * sbuf = pool.next_buf();
-
-    ggml_cuda_set_device(src_device);
-    err = pool.ensure_stream(src_device);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = pool.ensure_event(pool.src_ready_ev, src_device);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = pool.ensure_event(pool.staged_ev, src_device);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = cudaEventRecord(pool.src_ready_ev[src_device], src_stream);
-    if (err != cudaSuccess) { goto cleanup; }
-    err = cudaStreamWaitEvent(pool.st_stream[src_device], pool.src_ready_ev[src_device], 0);
-    if (err != cudaSuccess) { goto cleanup; }
-    if (pool.in_flight_dev[bidx] >= 0) {
-        err = cudaStreamWaitEvent(pool.st_stream[src_device], pool.done_ev[bidx][pool.in_flight_dev[bidx]], 0);
-        if (err != cudaSuccess) { goto cleanup; }
-    }
 
     // Batch D2H for all rows
+    ggml_cuda_set_device(src_device);
     for (size_t r = 0; r < height; r++) {
         err = cudaMemcpyAsync(
-            (char *)sbuf + r * width,
+            (char *)pool.buf + r * width,
             (const char *)src + r * spitch,
-            width, cudaMemcpyDeviceToHost, pool.st_stream[src_device]);
+            width, cudaMemcpyDeviceToHost, src_stream);
         if (err != cudaSuccess) { goto cleanup; }
     }
-    err = cudaEventRecord(pool.staged_ev[src_device], pool.st_stream[src_device]);
-    if (err != cudaSuccess) { goto cleanup; }
-
-    err = cudaStreamWaitEvent(dst_stream, pool.staged_ev[src_device], 0);
-    if (err != cudaSuccess) { goto cleanup; }
-    ggml_cuda_set_device(dst_device);
-    err = pool.ensure_done_event(bidx, dst_device);
+    err = cudaStreamSynchronize(src_stream);
     if (err != cudaSuccess) { goto cleanup; }
 
     // Batch H2D for all rows
+    ggml_cuda_set_device(dst_device);
     for (size_t r = 0; r < height; r++) {
         err = cudaMemcpyAsync(
             (char *)dst + r * dpitch,
-            (char *)sbuf + r * width,
+            (char *)pool.buf + r * width,
             width, cudaMemcpyHostToDevice, dst_stream);
         if (err != cudaSuccess) { goto cleanup; }
     }
-    err = cudaEventRecord(pool.done_ev[bidx][dst_device], dst_stream);
-    pool.in_flight_dev[bidx] = dst_device;
+    err = cudaStreamSynchronize(dst_stream);
 
 cleanup:
     ggml_cuda_set_device(prev_device);
