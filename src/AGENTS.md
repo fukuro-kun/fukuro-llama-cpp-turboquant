@@ -43,6 +43,13 @@ Diese Dateien enthalten Fork-spezifische Logik und duerfen bei Upstream-Syncs be
 - `n_embd_inp_impl` und `n_embd_out_impl` **müssen** auf `n_embd_backbone` gesetzt werden (nicht auf `n_embd`). Der Assistant hat ein eigenes `n_embd` (z.B. 1024), aber Input/Output-Projektionen (`nextn_proj_pre/post`) arbeiten mit `n_embd_backbone` (z.B. 3840). Wenn diese nicht korrekt gesetzt werden, wird der `pending_h`-Puffer in `speculative.cpp` zu klein dimensioniert → Backbone-Hidden-State wird trunciert → 0% MTP-Akzeptanz.
 - `llama_kv_cache_iswa_context` muss `get_turbo_innerq_scale_inv()` (und `get_turbo_rot_forward/inverse`) überschreiben und an `ctx_base` delegieren, da `build_attn_mha` über `this->mctx` (den ISWA-Wrapper) auf diese Methoden zugreift.
 
+### Wichtige Konfiguration in `qwen4exp.cpp` / Hybrid-Memory
+
+- **HC-Breite:** Qwen4Exp nutzt Hyper-Connections; die relevante Hidden-State-Breite fuer den MTP-Draft ist die Ausgangsbreite (z.B. 10240 = 4×2560), nicht `n_embd_inp()`. Der Draft-Kontext (`LLAMA_CONTEXT_TYPE_MTP`) allokiert Batch-Buffers mit `n_embd_out()`.
+- **Fullstate-Restore:** der Whole-Context-Restore fuehrt den globalen Cache-Clear **einmal ausserhalb der Stream-Schleife** aus (nicht erneut pro Stream) — andernfalls werden frueher restaurierte Streams wieder gewiped.
+- **Hybrid-Indexer (`llama-memory-hybrid-idx.cpp`):** der Restore spiegelt das Attention-Slot-Layout (`state_read_sinfo` liefert das Layout); `init_batch` respektiert den `n_rs_seq`-Vertrag der Basisklasse.
+- **`n_rs_seq`:** der recurrent-State-Split wird vom Vertrag respektiert, aber `qwen4exp` klemmt `n_rs_seq` derzeit auf 0 (`llama-context.cpp`; nur qwen35/moe erlauben den Pfad). Konsequenz: die obige Hybrid-Indexer-Split-Korrektur ist unter `n_rs_seq = 0` **inaktiv** und kann den getesteten q8_0-Spec-Fehler nicht erklaeren. Ob der Clamp selbst zur Degradation beitraegt, ist **nicht** als Root Cause ausgeschlossen — er wurde nur nicht als Erklaerung des init_batch-Befunds benoetigt.
+
 ### Modell-Implementierungen
 
 - `src/models/` enthaelt >100 Modell-Dateien (eine pro Architektur).
@@ -70,7 +77,7 @@ Diese Dateien enthalten Fork-spezifische Logik und duerfen bei Upstream-Syncs be
 2. `models/<arch>.cpp`: Forward-Graph und Layer-Logik implementieren.
 3. `llama-graph.cpp`: Falls neue GGML-Ops benoetigt.
 4. Build testen: `cmake --build build -j$(nproc)`.
-5. `tests/test-models.cpp` oder `./build/bin/llama-cli` mit betroffenem Modell pruefen.
+5. `./build/bin/llama-cli` mit betroffenem Modell pruefen (ein `tests/test-models.cpp` existiert nicht).
 
 ### Aenderungen am KV-Cache
 
@@ -84,7 +91,7 @@ Diese Dateien enthalten Fork-spezifische Logik und duerfen bei Upstream-Syncs be
 
 - [ ] Build erfolgreich (`cmake --build build -j$(nproc)`)
 - [ ] Bei Arch-Aenderung: `llama-cli` laedt betroffenes Modell ohne Crash
-- [ ] Bei KV-Cache-Aenderung: `./build/bin/test-kv-cache` (falls vorhanden) oder manueller Test mit Prompt-Wiederholung
+- [ ] Bei KV-Cache-Aenderung: `./build/bin/test-save-load-state`, `test-state-restore-fragmented` oder `test-recurrent-state-rollback` (registriert, LABEL `model` — benoetigen die Modell-Fixture) oder manueller Test mit Prompt-Wiederholung
 - [ ] Fork-spezifische Dateien nach Upstream-Sync auf Konsistenz geprueft
 
 ---
@@ -93,6 +100,6 @@ Diese Dateien enthalten Fork-spezifische Logik und duerfen bei Upstream-Syncs be
 
 | Pfad | Zweck | Status |
 |------|-------|--------|
-| `src/models/` | >100 Modell-Implementierungen (eine Datei pro Architektur) | [x] Aktiv |
+| `src/models/` | >100 Modell-Implementierungen (eine Datei pro Architektur) | [~] Kein eigenes DOX — durch dieses Dokument abgedeckt |
 
-*Hinweis: `src/models/` benoetigt kein weiteres Child-DOX pro Datei. Ein einzelnes Child-AGENTS.md fuer `src/models/` genuegt, um Modell-Implementierungs-Richtlinien und den Datei-Index zentral zu halten.*
+*Hinweis: `src/models/` benoetigt kein weiteres Child-DOX pro Datei; die Modell-Implementierungs-Richtlinien stehen oben unter "Fork-spezifische Dateien" und "Modell-Implementierungen". Ein eigenes `src/models/AGENTS.md` erst bei eigenstaendiger Vertragsdomaene anlegen.*

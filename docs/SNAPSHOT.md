@@ -1,5 +1,9 @@
 # Momentaufnahme — fukuro-llama-cpp-turboquant
 
+> **HISTORISCH.** Eingefrorener Juli-2026-Status — dient der Historie, nicht
+> als aktueller Projektstand. Aktuell: `fork/ROADMAP.md` (Backlog),
+> `../CHANGELOG.md` (Chronologie), `DOX_AUDIT.md` (Doku-Hierarchie).
+
 **Datum:** 2026-07-26 | **Branch:** `master` | **Letzter Commit:** `04ed54f16` (Code-Cleanup -358 Zeilen)
 
 ---

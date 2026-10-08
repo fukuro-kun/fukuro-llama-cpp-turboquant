@@ -1,5 +1,11 @@
 # SESSION_PLAN: Vulkan turbo3/turbo4 KV-Cache Benchmark
 
+> **HISTORISCH.** Abgeschlossener Solo-Session-Plan vom Juli 2026 — bleibt als
+> Ergebnis-/Prozessdokumentation bestehen und wird nicht verschoben oder
+> geloescht. Aktueller Stand und offene Arbeiten: `docs/fork/ROADMAP.md` und
+> `CHANGELOG.md`; die kanonische Dokumenten-Uebersicht steht in
+> `docs/AGENTS.md`.
+
 **Erstellt:** 2026-07-09
 **Typ:** Solo-Session (Research + Benchmark)
 **Status:** ✅ ABGESCHLOSSEN

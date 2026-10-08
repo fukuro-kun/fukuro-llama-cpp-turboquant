@@ -1,5 +1,11 @@
 # TurboQuant+ fork — upstream catch-up merge notes
 
+> **HISTORISCH.** Datierte Merge-Recherche; die unten beschriebene
+> Missing-Feature-Liste und der Merge-Stand beziehen sich auf den damaligen
+> Zeitpunkt und sind **kein** aktueller Backlog. Die Merge-/Upstream-
+> Kompatibilitaet wurde seither nicht erneut verifiziert. Aktueller Backlog:
+> `docs/fork/ROADMAP.md`; aktive Chronologie: `CHANGELOG.md`.
+
 Merges `upstream/master` (ggml-org/llama.cpp) into
 `feature/turboquant-kv-cache` (the fork's active branch). This is a **merge**
 (not a rebase): every fork commit, hash, and author is retained, and the merge

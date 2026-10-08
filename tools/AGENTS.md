@@ -16,7 +16,8 @@
 - OpenAI-kompatible HTTP-API (`/v1/chat/completions`, `/v1/embeddings`, etc.).
 - Fork-spezifische Endpoints: `POST /cancel` (laufende Requests abbrechen, Slot freigeben), `POST /models/load`, `POST /models/unload` (Router-Modus), `POST /decision` und `/v1/decision` (endliche Schema-Entscheidungen, aktiviert mit `--decision-seqs N`, mindestens 3).
 - `/slots` JSON-Endpoint (pro Slot): `id`, `n_ctx`, `speculative`, `is_processing`, und im `if (ptask)`-Block: `id_task`, `start_time` (wenn >= 0), `n_prompt_tokens`, `n_prompt_tokens_processed`, `n_prompt_tokens_cache`, `n_tokens_total` (Gesamtzahl der Task-Tokens), `progress` (0.0–1.0 Prefill-Fortschritt, geclampt), `params`, `next_token`. `n_tokens_total`/`progress` dienen dem janus-Router-Polling waehrend Prefill (Spec: `docs/SPEC_slot_progress.md`).
-- Unterstuetzt Multimodal (CLIP via `mtmd/`) und spekulative Decodierung (Gemma 4 MTP, Qwen NextN).
+- Unterstuetzt Multimodal (CLIP via `mtmd/`) und spekulative Decodierung ueber den generischen Draft-Pfad (`--spec-type draft-mtp` u.a.; aktuelle Referenz: `docs/speculative.md`).
+- `/health` meldet nur Liveness — kein Nachweis fuer korrektes Modellverhalten oder aktive Drafts. `/props` zeigt die Konfiguration, ist aber kein Laufzeit-Nachweis. Draft-Nachweis pro Request: `draft_n`/`draft_n_accepted` in den Response-Timings (`server-context.cpp`) und die Log-Zaehler; die `/metrics`-Generierungszaehler (`tokens_predicted_total` u.a.) sind **kein** Draft-Akzeptanz-Nachweis — es gibt derzeit keinen verifizierten Draft-Metrik-Export.
 - Schluesseldateien: `server.cpp`, `server-context.cpp`, `httplib.h`, `index.html.hpp`.
 
 ### Werkzeug-Hierarchie

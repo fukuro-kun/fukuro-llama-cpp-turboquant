@@ -15,13 +15,19 @@
 - Implementierung in `src/ggml-turbo-quant.c`
 - Aenderungen nur in Absprache mit `src/llama-quant.cpp` und `src/llama.cpp` (KV-Cache-Integration)
 - Neue Quantisierungstypen muessen in `ggml-quants.c`, `ggml-common.h` und `ggml.h` registriert werden
-- Typnummern sind auch GGUF-/RPC-/KV-State-Vertraege: `Q2_0=42`, `TURBO2_0=47`; TURBO3/4 und TQ3_1S/TQ4_1S behalten 43/44/45/46. C-Enum, Python-Enum und Vulkan-Shader-Konstanten synchron halten; bei Enum-Aenderungen alle Bibliotheken und RPC-Teilnehmer gemeinsam neu bauen. Alte TURBO2-KV-Sessions sind nicht kompatibel; Wire-Typ 42 nicht heuristisch als TURBO2 interpretieren.
+- Typnummern sind GGUF-/RPC-/KV-State-Vertraege: `Q2_0=42`, `TURBO2_0=47`; TURBO3/4 und TQ3_1S/TQ4_1S behalten 43/44/45/46. C-/Python-Enum und Backend-Konstanten synchron halten; nach Aenderungen Bibliotheken/RPC-Teilnehmer gemeinsam neu bauen. Alte TURBO2-KV-Sessions sind nicht kompatibel; Typ 42 nicht heuristisch als TURBO2 interpretieren.
 
 ### Backend-Regeln
 
 - Jedes Backend (CPU, CUDA, Vulkan, Metal, etc.) implementiert das Interface aus `ggml-backend.cpp`
 - Neue Ops in `ggml.c` erfordern Fallback in `ggml-cpu/` und ggfs. Implementation in CUDA/Metal/Vulkan
 - `ggml-backend-meta.cpp` und `ggml-backend-reg.cpp` enthalten Registrierungslogik — bei neuen Backends anpassen
+
+### CUDA-Expert-Prefetch (Fork-spezifisch)
+
+- Prefetch ist **opt-in**: ohne gesetzte `GGML_SCHED_PREFETCH_EXPERTS` bleibt er aus. `GGML_SCHED_PREFETCH_EXPERTS=1` aktiviert den Pfad mit Default 3 Slots; `>=2` setzt die Slot-Zahl direkt; `GGML_SCHED_PREFETCH_SLOTS=N` ueberschreibt die Slot-Zahl unabhaengig. Er prefetcht **volle Expert-Tensoren** ueber einen zweiten Backend-/Event-Pfad — das ist nicht aequivalent zu Strata-artigem Double-Buffer-Streaming.
+- Die Standalone-Prefetch-Slots tragen seit dem P1b-Fix ein `+512 B` Padding mit genulltem Tail — MMQ liest wenige Bytes ueber das Tensorende hinaus; das Padding ist fuer MMQ erforderlich, nicht optional.
+- Siehe Plan `docs/fork/plans/SESSION_PLAN_20261006_strata-optllama-uranus-eval.md` §10.3.
 
 ### Sprachtrennung
 
@@ -40,7 +46,7 @@
 | `src/ggml.c` | Kern-Tensor-Operationen, Graphen-Ausfuehrung, Speicher-Allokation |
 | `src/ggml-quants.c` | Quantisierungsformate (Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K–Q8_K, IQ-Formate) |
 | `src/ggml-turbo-quant.c` | **TurboQuant KV/Weights-Kompression** (Fork-spezifisch) |
-| `src/ggml-cuda/moe-cache.cu` | **MoE Expert Cache** (Fork-spezifisch) — async CPU→GPU fetch, 4 Eviction-Policies: LRU (Default), Heuristic, Set-Associative, Workload-Aware. Env: `GGML_CUDA_MOE_CACHE=1`, `GGML_CUDA_MOE_CACHE_POLICY=lru\|heuristic\|set-assoc-lru\|workload`. Siehe `docs/fork/ROADMAP.md` #18/#69/#71 für Benchmark-Ergebnisse. |
+| `src/ggml-cuda/moe-cache.cu` | **MoE Expert Cache** (Fork-spezifisch) — async CPU→GPU fetch, 2 Eviction-Policies: `lru` (Default) und `heuristic` (Aliases `0`/`1`). Env: `GGML_CUDA_MOE_CACHE` ist per Default aktiv (nur `<= 0` deaktiviert), `GGML_CUDA_MOE_CACHE_POLICY=lru\|heuristic`. Die Policies `set-assoc`/`workload` wurden im Juli-Cleanup entfernt. Siehe `docs/fork/ROADMAP.md` #18/#69/#71 für Benchmark-Ergebnisse. |
 | `src/ggml-backend.cpp` | Backend-Abstraktion, Scheduling, Buffer-Management |
 | `src/ggml-backend-meta.cpp` | Backend-Metadaten und Aufzaehlung |
 | `src/ggml-backend-reg.cpp` | Backend-Registrierung (Dynamisches Laden) |
@@ -86,9 +92,10 @@
 ## Verifikation
 
 - [ ] Build erfolgreich mit mindestens einem Backend (`cmake --build build -j$(nproc)`)
-- [ ] `./build/bin/test-backend-buffer` laeuft durch (Backend-Grundfunktion)
-- [ ] `./build/bin/test-quantize` laeuft durch (Quantisierungs-Rundtrip)
-- [ ] Bei TurboQuant-Aenderungen: `./build/bin/test-tq` oder Inferenz mit TurboQuant-Modell erfolgreich
+- [ ] `./build/bin/test-backend-ops` laeuft durch (Backend-Grundfunktion; auf dem Dev-Host nur `-b CPU`)
+- [ ] `./build/bin/test-quantize-fns` laeuft durch (Quantisierungs-Rundtrip)
+- [ ] Bei TurboQuant-Aenderungen: `./build/bin/test-turbo-quant` oder Inferenz mit TurboQuant-Modell erfolgreich
+- [ ] Bei KV-State-Aenderungen: `test-save-load-state` / `test-state-restore-fragmented` / `test-recurrent-state-rollback` (LABEL `model`, benoetigen Modell-Fixture)
 - [ ] Keine neuen Warnungen in ggml-Quellen
 
 ---

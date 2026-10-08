@@ -14,6 +14,8 @@
 - Test-Vokabulare und Modell-Stubs liegen in `models/ggml-vocab-*.gguf` (Repository-Root).
 - Keine lokalen absoluten Pfade in Test-Quellen oder CMake-Argumenten verwenden.
 - Shell-Testskripte duerfen keine Host-spezifischen Annahmen enthalten.
+- `test-state-restore-fragmented` prueft zusaetzlich Fullstate-Byte-Paritaet von drei nicht-unifizierten Streams. f16 ist die Kontrollgruppe; ein expliziter anderer K-Typ erfordert ein dazu kompatibles Modell und zaehlt nicht als geprueft, wenn nur f16 lief.
+- `python3 tests/test-bench-flashnext-mtp.py` prueft Runner-Logik mit HTTP-/Prozess-Mocks. Danach echte CLI-/Server-Probe vor GPU-Matrix; Mock-PASS belegt weder unterstuetzte Flags noch MTP-Korrektheit.
 
 ### Test-Framework
 - `testing.h` — Gemeinsames Header-Framework fuer Test-Makros und Assertions.
@@ -34,7 +36,6 @@ Beispiele:
 - `test-grammar-parser`
 - `test-llama-archs`
 - `test-gguf`
-- `test-speculative-mtp`
 - `test-turbo-quant`
 - `test-expected-attention`
 - `test-tokenizer-0`, `test-tokenizer-1-bpe`, `test-tokenizer-1-spm`
@@ -48,6 +49,8 @@ ctest --test-dir build
 ```bash
 ./build/bin/test-<name>
 ```
+
+**Hinweis:** `test-speculative-mtp.cpp` existiert als Quelle, ist aber nicht in `tests/CMakeLists.txt` registriert und daher nicht als Target buildbar — vor einer moeglichen Registrierung ist eine API-Port-/Kompatibilitaets-Pruefung noetig (die Quelle stammt aus einer aelteren API-Generation); siehe `docs/DOX_AUDIT.md`. Andererseits sind z.B. `test-turbo-quant` (`test-turbo-quant.c`), `test-expected-attention` (`test-expected-attention.cpp`), `test-save-load-state`, `test-state-restore-fragmented` und `test-recurrent-state-rollback` registriert (die `model`-LABELs nutzen die CMake-Modell-Fixture `FIXTURES_REQUIRED test-download-model` mit `ARGS -m "${MODEL_DEST}"`; uebersprungene Modell-/dtype-/backend-Faelle zaehlen nicht als bestanden).
 
 ### Neue Tests hinzufuegen
 1. Quelltext `test-<name>.cpp` (oder `.c`, `.py`, `.sh`) erstellen.

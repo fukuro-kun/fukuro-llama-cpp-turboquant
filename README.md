@@ -1,6 +1,6 @@
 # fukuro-llama-cpp-turboquant
 
-[![Primary: Codeberg](https://img.shields.io/badge/primary-codeberg.org-blue)](https://codeberg.org/fukuro/fukuro-llama-cpp-turboquant)
+![Primary: self-hosted](https://img.shields.io/badge/primary-self--hosted-blue)
 [![Mirror: GitHub](https://img.shields.io/badge/mirror-github.com-lightgrey)](https://github.com/fukuro-kun/fukuro-llama-cpp-turboquant)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
@@ -8,7 +8,7 @@
 
 LLM inference in C/C++
 
-> **Fork-Lineage:** `ggml-org/llama.cpp` → `TheTom/llama-cpp-turboquant` (TurboQuant KV/Weight compression) → `AtomicBot-ai/atomic-llama-cpp-turboquant` (Gemma 4 MTP, Qwen NextN, UDT quantisation) → **fukuro** (`codeberg.org:fukuro/fukuro-llama-cpp-turboquant`, primary remote; GitHub mirror).  
+> **Fork-Lineage:** `ggml-org/llama.cpp` → `TheTom/llama-cpp-turboquant` (TurboQuant KV/Weight compression) → `AtomicBot-ai/atomic-llama-cpp-turboquant` (Gemma 4 MTP, Qwen NextN, UDT quantisation) → **fukuro** (self-hosted primary remote; GitHub mirror, Codeberg legacy).
 > Details, Remotes und Feature-Vergleich: **[FORKS.md](FORKS.md)**
 
 ## Recent API changes
@@ -18,24 +18,24 @@ LLM inference in C/C++
 
 ## Hot topics
 
-- **Gemma 4 MTP speculative decoding: pair a `gemma4` target with the official `gemma4_assistant` head (loaded via `--mtp-head`) for ~+30-50 % short-prompt throughput. See [MTP.md](MTP.md) and the pre-built Q4 assistant GGUFs at the [AtomicChat/Gemma 4 Assistant GGUF collection](https://huggingface.co/collections/AtomicChat/gemma-4-assistant-gguf).**
-- **Qwen 3.6 NextN speculative decoding: point `--model-draft` at the same combined `*_MTP.gguf` and pass `--spec-type nextn` — the draft context reuses the target `llama_model` (no second mmap) and lands +24-36 % tps on Qwen 3.6 35B-A3B MoE, +5-7 % tps on Qwen 3.6 27B dense (MacBook Pro M4 Max, single-slot). See [NEXTN.md](NEXTN.md). Recommended pre-built combined `_MTP.gguf` quants live in the **[AtomicChat — Qwen 3.6 UDT](https://huggingface.co/collections/AtomicChat/qwen-36-udt-atomicchat-6a0481f5cc5a057c07759176)** collection ([27B](https://huggingface.co/AtomicChat/Qwen3.6-27B-UDT-MTP-GGUF) · [35B-A3B](https://huggingface.co/AtomicChat/Qwen3.6-35B-A3B-UDT-MTP-GGUF)) — built with the Unsloth public MTP-aware imatrix + fork masks that pin NextN/MTP tensors to `Q8_0` (preserves draft acceptance) and lift attention Q/K to `Q6_K` (pairs cleanly with TurboQuant3 KV); upstream sources also work: [`unsloth/Qwen3.6-35B-A3B-MTP-GGUF`](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF) / [`unsloth/Qwen3.6-27B-MTP-GGUF`](https://huggingface.co/unsloth/Qwen3.6-27B-MTP-GGUF).**
-- **TurboQuant KV cache & weights: WHT-rotated low-bit quantization with backend-native kernels (Metal `TurboFlash`, CUDA, Vulkan, HIP). Use `-ctk turbo3 -ctv turbo3` for ~4.3× KV compression, or quantize weights to `TQ4_1S`/`TQ3_1S`. See [Compression below](#turboquant-kv-cache--weight-compression).**
+- **Spekulative Decodierung via MTP-/NextN-Heads: `--spec-type draft-mtp` laedt einen Multi-Token-Prediction-Assistant — eingebettet im Target-GGUF (NextN-Layer) oder als separate `-md`/`--spec-draft-model`-GGUF. Durchsatzgewinne sind modell-, quant- und backend-spezifisch; fruehere Messungen an Gemma 4 und Qwen 3.6 bleiben unten und in [MTP.md](MTP.md)/[NEXTN.md](NEXTN.md) als historische Belege erhalten. Pro-Modell-Validierung (Sidecar-Shape + Tokenizer) erforderlich. Aktuelle Flag-/Architektur-Referenz: [docs/speculative.md](docs/speculative.md).**
+- **Qwen 3.6 kombinierte `_MTP.gguf`-Quants:** fuer NextN-faehige Targets liegen die empfohlenen vorgefertigten Quants in der **[AtomicChat — Qwen 3.6 UDT](https://huggingface.co/collections/AtomicChat/qwen-36-udt-atomicchat-6a0481f5cc5a057c07759176)**-Collection ([27B](https://huggingface.co/AtomicChat/Qwen3.6-27B-UDT-MTP-GGUF) · [35B-A3B](https://huggingface.co/AtomicChat/Qwen3.6-35B-A3B-UDT-MTP-GGUF)) — gebaut mit dem oeffentlichen Unsloth-MTP-Imatrix plus Fork-Masken, die NextN-/MTP-Tensoren auf `Q8_0` pinnen (Draft-Akzeptanz erhalten) und Attention-Q/K auf `Q6_K` anheben (passt zu TurboQuant3-KV); Upstream-Quellen funktionieren ebenfalls: [`unsloth/Qwen3.6-35B-A3B-MTP-GGUF`](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF) / [`unsloth/Qwen3.6-27B-MTP-GGUF`](https://huggingface.co/unsloth/Qwen3.6-27B-MTP-GGUF).
+- **TurboQuant KV cache & weights: WHT-rotated low-bit quantization with backend-native kernels (Metal `TurboFlash`, CUDA, Vulkan, HIP). Use `-ctk turbo3 -ctv turbo3` for ~4.3× KV compression, or quantize weights to `TQ4_1S`/`TQ3_1S`. See [Compression below](#turboquant--kv-cache--weight-compression).**
 - **Hugging Face cache migration: models downloaded with `-hf` are now stored in the standard Hugging Face cache directory, enabling sharing with other HF tools.**
 - **[guide : using the new WebUI of llama.cpp](https://github.com/ggml-org/llama.cpp/discussions/16938)**
 - [guide : running gpt-oss with llama.cpp](https://github.com/ggml-org/llama.cpp/discussions/15396)
 - [[FEEDBACK] Better packaging for llama.cpp to support downstream consumers 🤗](https://github.com/ggml-org/llama.cpp/discussions/15313)
 - Support for the `gpt-oss` model with native MXFP4 format has been added | [PR](https://github.com/ggml-org/llama.cpp/pull/15091) | [Collaboration with NVIDIA](https://blogs.nvidia.com/blog/rtx-ai-garage-openai-oss) | [Comment](https://github.com/ggml-org/llama.cpp/discussions/15095)
 - Multimodal support arrived in `llama-server`: [#12898](https://github.com/ggml-org/llama.cpp/pull/12898) | [documentation](./docs/multimodal.md)
-- **This fork:** `--mmproj` can be loaded **alongside** `mtp` / `nextn` / `eagle3` speculative decoding on a single slot (validated on Qwen 3.6-35B-A3B-UDT + NextN + turbo3 KV and Gemma 4-26B-A4B + MTP + turbo3 KV). Draft acceleration applies to **text-only turns**; image-bearing turns fall back to plain target decoding (image still recognised). Other spec types remain disabled with multimodal. Details: [docs/speculative.md](./docs/speculative.md) and [NEXTN.md](./NEXTN.md) §10.
+- **Dieser Fork — Multimodal x spekulativ:** eine fruehere Implementierung erlaubte `mtp`/`nextn`/`eagle3` neben `--mmproj` (Text-Turns mit Draft, Bild-Turns fielen auf Target-only zurueck). Diese Whitelist existiert im aktuellen Code nicht mehr — die Kombination ist ein **offenes Gate** ohne Kompatibilitaets- oder Speedup-Zusicherung bis zur Neuverifikation. Siehe [docs/speculative.md](./docs/speculative.md).
 - VS Code extension for FIM completions: https://github.com/ggml-org/llama.vscode
 - Vim/Neovim plugin for FIM completions: https://github.com/ggml-org/llama.vim
 - Hugging Face Inference Endpoints now support GGUF out of the box! https://github.com/ggml-org/llama.cpp/discussions/9669
 - Hugging Face GGUF editor: [discussion](https://github.com/ggml-org/llama.cpp/discussions/9268) | [tool](https://huggingface.co/spaces/CISCai/gguf-editor)
-- **This fork — Vulkan & CUDA stability work:** `Q3_K`/`Q6_K` block-load shaders (+57 % tg128 / +78 % tg128 on Intel BMG), iq1 shared-memory reduction for `mul_mm`, host-memory `shared_mutex` optimisation for multi-stream, and CUDA KV-Cache pre-reservation for FlashAttention (reduces OOM risk). See [FORKS.md §5.13–5.15](FORKS.md) for benchmark numbers and cherry-pick walkthroughs.
-- **This fork — Vulkan APU GPU-Hang Fix:** `nodes_per_submit=10` for UMA devices prevents `amdgpu.lockup_timeout` (2000 ms) GPU ring resets on AMD APUs. Upstream Issue [#21724](https://github.com/ggml-org/llama.cpp/issues/21724) is still open — no other fork or upstream has this fix. Without it, AMD APUs (RADV PHOENIX, Renoir, etc.) hang at contexts ≥186k and prompt sizes ≥16384, making large-context inference impossible. With this fix, the full model context range is usable — up to 262k tokens on AMD 760M with stable ~22 t/s generation (was: GPU hang / unusable). The fix auto-detects UMA devices via `ctx->device->uma`, no user configuration needed. See [docs/fork/2026-06-21_VULKAN_GPU_HANG_ROOT_CAUSE.md](docs/fork/2026-06-21_VULKAN_GPU_HANG_ROOT_CAUSE.md).
-- **This fork — DiffusionGemma (experimental):** block text-diffusion MoE on Gemma-4-backbone with entropy-bound decoder. Forward pass and decoding loop functional; Self-Conditioning blocked (SC tensors missing in GGUFs). See [FORKS.md §5.10](FORKS.md).
-- **This fork — DOX framework:** `AGENTS.md` contracts in every directory tree for reproducible agent work. See [AGENTS.md](AGENTS.md).
+- **This fork — Vulkan & CUDA stability work:** `Q3_K`/`Q6_K` block-load shaders (+57 % tg128 / +78 % tg128 on Intel BMG), iq1 shared-memory reduction for `mul_mm`, host-memory `shared_mutex` optimisation for multi-stream, and CUDA KV-Cache pre-reservation for FlashAttention (reduces OOM risk). Siehe Cherry-Pick-Tabelle in [FORKS.md §5.4](FORKS.md) und `docs/fork/` fuer die Benchmark-Zahlen.
+- **Dieser Fork — Vulkan-APU-GPU-Hang-Fix:** `nodes_per_submit=10` fuer UMA-Geraete verhindert `amdgpu.lockup_timeout`-GPU-Ring-Resets auf AMD-APUs. Historischer Befund vom Juni 2026 (**nicht** erneut verifiziert): ohne den Fix hingen AMD-APUs (RADV PHOENIX, Renoir u.a.) bei Kontexten >=186k und Prompts >=16384; der damalige Verweis auf das offene Upstream-Issue [#21724](https://github.com/ggml-org/llama.cpp/issues/21724) und die Aussage, kein anderer Fork/Upstream habe den Fix, wurden seitdem nicht erneut geprueft. Die 262k/~22-t/s-Zahlen sind eine **historische, modellspezifische Messung** (AMD 760M, Juni 2026), kein universelles Versprechen. Der Fix erkennt UMA-Geraete ueber `ctx->device->uma`, keine Nutzerkonfiguration noetig. Siehe [docs/fork/archive/rca/2026-06-21_VULKAN_GPU_HANG_ROOT_CAUSE.md](docs/fork/archive/rca/2026-06-21_VULKAN_GPU_HANG_ROOT_CAUSE.md).
+- **This fork — DiffusionGemma (experimental):** block text-diffusion MoE on Gemma-4-backbone with entropy-bound decoder. Forward pass and decoding loop functional; Self-Conditioning blocked (SC tensors missing in GGUFs). Siehe Feature-Matrix in [FORKS.md §6](FORKS.md).
+- **Dieser Fork — DOX-Framework:** registrierte `AGENTS.md`-Vertragshierarchie (Root + Domaenen-Children unter `src/`, `ggml/`, `common/`, `tools/`, `tests/`, `scripts/`, `docs/`) fuer reproduzierbare Agenten-Arbeit — Verzeichnisse ohne eigenen Vertrag bleiben parent-gesteuert. Siehe [AGENTS.md](AGENTS.md) und [docs/DOX_AUDIT.md](docs/DOX_AUDIT.md).
 
 ----
 
@@ -87,23 +87,41 @@ This fork stands on the shoulders of several projects and people:
 - **[@TheTom](https://github.com/TheTom)** — for the original [TurboQuant](https://github.com/TheTom/llama-cpp-turboquant) design: WHT-rotated KV/weight quantization, the reference kernels, and the relentless backend ports (Metal TurboFlash, CUDA, Vulkan, HIP). None of the compression work in this fork would exist without that foundation.
 - **[@AtomicBot-ai](https://github.com/AtomicBot-ai)** — for Gemma 4 MTP speculative decoding, Qwen 3.x NextN shared-model drafting, the UDT quantisation masks, and the extensive documentation (MTP.md, NEXTN.md, speculative-decoding matrix benches).
 
-## Gemma 4 MTP — speculative decoding
+## Spekulative Decodierung (MTP / NextN) — aktueller Stand
 
-This fork ships a first-class implementation of **Multi-Token Prediction (MTP)**
-speculative decoding for **Gemma 4** targets paired with the official
-**`gemma4_assistant`** drafter head. Unlike a classical draft-model setup, the
-assistant is loaded **into the target context** (no second `llama_context`,
-no second tokenizer, no separate KV cache) and runs on a dedicated scheduler
-so MTP draft compute overlaps target verification.
+Dieser Fork enthaelt **Multi-Token-Prediction**-Spekulation ueber den generischen
+Draft-Pfad: `--spec-type draft-mtp` mit einem Assistant-/Draft-Modell ueber
+`-md`/`--spec-draft-model`, oder eingebetteten MTP-/NextN-Layern im Target-GGUF
+(der Server baut dann einen `LLAMA_CONTEXT_TYPE_MTP`-Kontext auf demselben
+geladenen Modell — siehe `tools/server/server-context.cpp`).
 
-Highlights:
+> **Namens-Hinweis.** Die in historischen Dokumenten gezeigten alten
+> Flags/Typen — `--spec-type mtp`, `--spec-type nextn`, `--mtp-head`,
+> `--draft-block-size`, `--draft-max`/`--draft-min` und APIs wie
+> `llama_decode_mtp_async` / `llama_set_nextn` — existieren im aktuellen Code
+> **nicht mehr**. Zu verwenden sind `--spec-type draft-mtp`, `-md`,
+> `--spec-draft-n-max`/`--spec-draft-n-min`.
+> Referenz: **[docs/speculative.md](docs/speculative.md)**.
 
-- **+30-50 % short-prompt throughput** on Gemma 4 26B-A4B / 31B in the
-  matrix bench (`f16` KV); accept rate ~85-88 % on dense targets.
-- **Async pipeline (depth-2)** with `llama_decode_mtp_async` /
-  `llama_decode_mtp_wait` so MTP work overlaps server post-accept bookkeeping.
-- **In-graph argmax** — host transfers 4 bytes per draft step instead of the
-  full F32 `[n_vocab]` row.
+**Readiness-Gate.** Spekulative Gewinne sind pro Modell, Quant und Backend
+unterschiedlich — es gibt keinen universellen Speedup. Vor Verlass auf ein
+Paar die Kompatibilitaets-Pruefungen (Sidecar-Tensor-Shape + Tokenizer) und
+einen kontrollierten Target-vs-Draft-Benchmark mit identischen
+Prompts/Tokenbudgets durchfuehren. Die historischen Matrix-Ergebnisse unten
+(Gemma 4, Qwen 3.6) sind datierte Belege, keine aktuellen Zusicherungen.
+
+### Gemma 4 MTP (historische Implementierungs-Zusammenfassung)
+
+Der urspruengliche Gemma-4-MTP-Pfad paarte `gemma4`-Targets mit dem offiziellen
+**`gemma4_assistant`**-Draft-Head. Zentrale Eigenschaften dieser Implementierung
+(inzwischen durch den generischen `draft-mtp`-Pfad abgeloest):
+
+- **+30-50 % Short-Prompt-Durchsatz** auf Gemma 4 26B-A4B / 31B im
+  Matrix-Bench (`f16` KV); Akzeptanzrate ~85-88 % auf Dense-Targets
+  (historisch, M4 Max / Metal, Mai 2026).
+- **Async-Pipeline (Depth-2)**, die Draft-Compute mit der
+  Post-Accept-Buchfuehrung ueberlappte (APIs inzwischen entfernt; siehe
+  `MTP.md`, historisch).
 - **Centroid LM head** for Edge variants (E2B / E4B); dense tied head for
   26B-A4B / 31B.
 
@@ -126,36 +144,40 @@ footprint is ~4× lower). Also published: `Q4_K_S`, `Q5_K_M`, `Q8_0`, `F16`.
 ### Quick start
 
 ```bash
-# Manual invocation — works for any of the five targets above.
+# Manuelle Ausfuehrung — aktuelle Flags (fuer jedes validierte Target/Assistant-Paar).
 llama-server \
   -m /path/to/gemma-4-target.gguf \
-  --mtp-head /path/to/gemma-4-assistant-Q4_K_M.gguf \
-  --spec-type mtp \
-  --draft-block-size 3 \
+  -md /path/to/gemma-4-assistant-Q4_K_M.gguf \
+  --spec-type draft-mtp \
+  --spec-draft-n-max 3 --spec-draft-n-min 0 \
   -c 16384 \
   -ngl 99 -ngld 99 \
   -fa on \
   --host 127.0.0.1 --port 8080
 ```
 
-Repo helper scripts pick the right defaults per target (and prefer a
-quantized assistant under `.scratch/` when one exists):
+> **Fork-Hinweis (Legacy):** die Repo-Helper-Skripte stammen aus der alten
+> `--draft`/MTP-Generation und sind **nicht** gegen die aktuellen Flags
+> geprueft — sie koennen entfernte Flags uebergeben. Bis zur Reparatur
+> gelten sie als unverifiziert; Status und Regeln siehe
+> [`scripts/AGENTS.md`](scripts/AGENTS.md) ("Legacy-Helper"), aktuelle
+> Flags in [`docs/speculative.md`](docs/speculative.md).
 
 ```bash
-# Dense targets.
+# Dense-Targets.
 scripts/run-gemma4-mtp-server.sh         # 26B-A4B
 scripts/run-gemma4-31b-mtp-server.sh     # 31B
 
-# Edge / centroid-head targets — MTP_PRESET=throughput|lift|balanced|quality.
+# Edge-/Centroid-Head-Targets — MTP_PRESET=throughput|lift|balanced|quality.
 MTP_PRESET=throughput scripts/run-gemma4-e4b-mtp-server.sh
 MTP_PRESET=throughput scripts/run-gemma4-e2b-mtp-server.sh
 ```
 
-### Bench snapshot (MacBook Pro M4 Max, 40-core GPU, 48 GB, Metal, single slot)
+### Bench-Snapshot (HISTORISCH — MacBook Pro M4 Max, 40-Core-GPU, 48 GB, Metal, Single-Slot, Mai 2026)
 
-Median tps over 3 runs with Q4_K_M assistant heads. Dense scripts default to
-`--draft-block-size 3`; E4B uses `MTP_PRESET=throughput` (`B = 2`,
-`--draft-max 6`). See
+Median-tps ueber 3 Laeufe mit Q4_K_M-Assistant-Heads auf dem alten `mtp`-Pfad
+(`--draft-block-size 3`; E4B `MTP_PRESET=throughput`, `B = 2`). Datierte,
+modellspezifische Belege — keine aktuelle Zusicherung. Siehe
 `.scratch/bench-logs/gemma-matrix-fullrun-20260512-224705.md`.
 
 | model | mode | n=128 tps | n=512 tps | accept@128 | accept@512 |
@@ -170,46 +192,39 @@ Median tps over 3 runs with Q4_K_M assistant heads. Dense scripts default to
 | gemma-31B | **f16-mtp** | **21.2** | **18.5** | 88.0 % | 74.4 % |
 | gemma-31B | turbo3-mtp  | **19.4**  | **16.3** | 88.0 % | 70.7 % |
 
-### Knobs
+### Schalter (aktuell)
 
-- `--draft-block-size B` — head emits `B - 1` tokens per round (default 4;
-  bench used 3).
-- `--mtp-head <path>` (preferred) / `-md <path>` (back-compat alias).
-- `LLAMA_MTP_SKIP_STREAK_THRESHOLD=N` — adaptive skip after `N` consecutive
-  zero-accept batches (off by default).
-- `LLAMA_PIPELINE_DEPTH2=0` — disable depth-2 overlap (A/B against sync).
-- `LLAMA_MTP_ACC_TRACE=1|<path>` — NDJSON tracer for per-iteration
-  draft / accept events.
+- `--spec-draft-n-max` / `--spec-draft-n-min` — Draft-Token-Grenzen pro Runde.
+- `-md` / `--spec-draft-model` — Pfad zur Assistant-/Draft-GGUF.
+- `-ngld`, `-ctkd`, `-ctvd` — GPU-Layer und KV-Cache-Typen des Drafts.
 
-Full architecture (graph, KV-safety contract, async pipeline, server
-integration, trade-offs) and the longer benchmark history live in
-**[MTP.md](MTP.md)**. User-facing CLI flags are also documented in
+Historische Schalter (`--draft-block-size`, `--mtp-head`,
+`LLAMA_MTP_SKIP_STREAK_THRESHOLD`, `LLAMA_PIPELINE_DEPTH2`,
+`LLAMA_MTP_ACC_TRACE`) sind in **[MTP.md](MTP.md)** (HISTORISCH)
+dokumentiert und existieren im aktuellen Code nicht mehr. Nutzer-Flags:
 [docs/speculative.md](docs/speculative.md).
 
-## Qwen 3.6 NextN — speculative decoding
+## Qwen 3.6 NextN — Shared-Model-Draft (historische Zusammenfassung)
 
-This fork also ships a first-class implementation of **NextN** (a.k.a. MTP
-auxiliary-head) speculative decoding for **Qwen 3.6** targets — both the
-dense `qwen35` family and the `qwen35moe` Mixture-of-Experts variants. The
-NextN-layer weights ship **inside the target's combined `*_MTP.gguf`**
-(produced by the official Qwen converter), so the draft context **reuses the
-already-loaded target `llama_model` — no second mmap, no second tokenizer, no
-second model load**.
+Qwen-3.6-Targets (`qwen35` Dense und `qwen35moe` MoE) enthalten die
+NextN-/MTP-Hilfskopf-Gewichte **in der kombinierten `*_MTP.gguf`**. Auf dem
+aktuellen `draft-mtp`-Pfad fordert der Server ohne explizites `-md`
+`llama_model_n_layer_nextn(model) > 0` und baut einen zweiten
+`LLAMA_CONTEXT_TYPE_MTP`-Kontext auf demselben geladenen Modell.
 
-Highlights:
+Eigenschaften der urspruenglichen Implementierung (vollstaendige
+Beschreibung in `NEXTN.md`, HISTORISCH):
 
-- **+28-36 % throughput** on Qwen 3.6 35B-A3B MoE (the headline use case);
-  acceptance ≥ 78 % at both prompt lengths in the matrix bench.
-- **+5-7 % throughput** on Qwen 3.6 27B dense (draft-compute-bound on this
-  workload, but consistently positive after the shared-model refactor —
-  previous double-mmap path regressed by 8-12 %).
-- **Shared-model draft context** built over the target's weights with
-  `cparams.nextn_draft = true`; draft KV is sized only for the NextN layer
-  (`kv_only_nextn = true`).
-- **Composes with TurboQuant3 KV** (`-ctk turbo3 -ctv turbo3`) — on MoE
-  targets the combination is the recommended default.
-- **Same async / depth-2 pipeline** as Gemma MTP; pre-norm hidden states
-  flow from the target via the `embeddings_pre_norm` path.
+- **+28-36 % Durchsatz** auf Qwen 3.6 35B-A3B MoE und **+5-7 %** auf 27B
+  Dense — historische, modellspezifische Messungen (M4 Max / Metal,
+  Mai 2026), keine aktuellen Zusicherungen.
+- Draft-KV nur fuer den NextN-Layer dimensioniert; Pre-Norm-Hidden-States
+  fliessen vom Target ueber
+  `llama_set_embeddings_nextn`/`llama_get_embeddings_nextn_ith`
+  (`src/llama-ext.h` — fork-internes Staging-API, nicht stabil).
+- **Kombinierbar mit TurboQuant3-KV** (`-ctk turbo3 -ctv turbo3`) — auf
+  MoE-Targets war die Kombination in der gemessenen Konfiguration der
+  empfohlene Default.
 
 ### Pre-built model GGUFs
 
@@ -225,7 +240,7 @@ What makes UDT different from a vanilla `llama-quantize -imatrix` run:
 - **MTP-aware imatrix** — calibrated by Unsloth with the NextN head active (we re-host their public [`imatrix_unsloth.gguf_file`](https://huggingface.co/unsloth/Qwen3.6-27B-MTP-GGUF/blob/main/imatrix_unsloth.gguf_file) so you can reproduce or re-mix on top of it).
 - **NextN-preserve mask** — every `blk.*.nextn.*` and `mtp.*` tensor pinned to `Q8_0`. Tiny size cost (~10 MiB), keeps draft acceptance high.
 - **TurboQuant3-friendly mask** — `attn_q` / `attn_k` bumped to `Q6_K` so the file pairs cleanly with `-ctk turbo3 -ctv turbo3`.
-- **Combined `_MTP.gguf`** — target + NextN head in one file, ready for the shared-model speculative path (`-m` and `-md` point at the same path; no second mmap).
+- **Kombinierte `_MTP.gguf`** — Target und NextN-Head in einer Datei. Fuer den aktuellen Shared-Model-Pfad `--spec-type draft-mtp` ohne `-md` verwenden. Explizites `-md` laedt ein separates Draft-Modell, auch bei identischem Dateipfad.
 - **Apache-2.0**, full attribution: Qwen team (weights), Unsloth (imatrix + BF16 sources), @TheTom (TurboQuant), AtomicChat (UDT masks + packaging).
 
 Collection: [AtomicChat — Qwen 3.6 UDT](https://huggingface.co/collections/AtomicChat/qwen-36-udt-atomicchat-6a0481f5cc5a057c07759176). Full recipe & runbook: [docs/qwen-udt/RUNBOOK.md](docs/qwen-udt/RUNBOOK.md). Mask files: [`scripts/quantize-masks/qwen36-ud-{base,v1-nextn,v2-turbo3,v3-combined}.txt`](scripts/quantize-masks).
@@ -233,46 +248,35 @@ Collection: [AtomicChat — Qwen 3.6 UDT](https://huggingface.co/collections/Ato
 ### Quick start
 
 ```bash
-# Pull both target (-hf) and draft (-hfd) from the same HF combined _MTP.gguf;
-# they resolve to the same cached file → the server takes the shared-model branch.
+# Kombinierte _MTP.gguf (eingebetteter NextN-Head): kein -md noetig — der
+# Server erkennt die eingebetteten Layer und baut den MTP-Kontext auf demselben Modell.
 llama-server \
-  -hf  AtomicChat/Qwen3.6-35B-A3B-UDT-MTP-GGUF:Q4_K_XL \
-  -hfd AtomicChat/Qwen3.6-35B-A3B-UDT-MTP-GGUF:Q4_K_XL \
-  --spec-type nextn \
-  --draft-max 2 --draft-min 1 \
-  -c 8192 \
-  -ngl 99 -ngld 99 \
-  -ctk turbo3 -ctv turbo3 -fa on \
+  -m /path/to/Qwen3.6-35B-A3B-UD-Q4_K_XL_MTP.gguf \
+  --spec-type draft-mtp \
+  --spec-draft-n-max 2 --spec-draft-n-min 1 \
+  -c 8192 -ngl 99 -ctk turbo3 -ctv turbo3 -fa on \
   --host 127.0.0.1 --port 8080
 ```
 
-Or with a local file (e.g. the artifact stored under `.scratch/`):
-
-```bash
-llama-server \
-  -m   /path/to/Qwen3.6-35B-A3B-UD-Q4_K_XL_MTP.gguf \
-  -md  /path/to/Qwen3.6-35B-A3B-UD-Q4_K_XL_MTP.gguf \
-  --spec-type nextn --draft-max 2 --draft-min 1 \
-  -c 8192 -ngl 99 -ngld 99 -ctk turbo3 -ctv turbo3 -fa on
-```
-
-Repo helper scripts pick the right defaults per target:
+> **Fork-Hinweis (Legacy):** die Repo-Helper-Skripte sind **nicht** gegen
+> die aktuellen Flags geprueft und gelten bis zur CLI-Reparatur als
+> unverifiziert — siehe [`scripts/AGENTS.md`](scripts/AGENTS.md) und
+> [`docs/speculative.md`](docs/speculative.md).
 
 ```bash
 scripts/run-qwen36-27b-nextn-server.sh        # Qwen 3.6 27B dense
 scripts/run-qwen36-35ba3b-nextn-server.sh     # Qwen 3.6 35B-A3B MoE
 ```
 
-If you ship the NextN head as a separate **NEXTN_ONLY** GGUF
-(`general.architecture = qwen35*_mtp`), it is still supported — point
-`--model-draft` at that file and the server falls back to the legacy
-`override_arch` path (loads a second `llama_model`).
+Wird der NextN-Head als separate **`_mtp`-GGUF** ausgeliefert, ist er als
+Fallback weiterhin nutzbar — `-md` auf diese Datei zeigen; der Server laedt
+sie dann als Draft-Modell.
 
-### Bench snapshot (MacBook Pro M4 Max, 40-core GPU, 48 GB, Metal, single slot)
+### Bench-Snapshot (HISTORISCH — MacBook Pro M4 Max, 40-Core-GPU, 48 GB, Metal, Single-Slot, Mai 2026)
 
-Median tps over 3 runs, `--draft-max 2 --draft-min 1`, single-slot, shared
-target/draft model. See
-`.scratch/bench-logs/qwen-matrix-fullrun-20260512-222625.md`.
+Median-tps ueber 3 Laeufe (alter `nextn`-Pfad, `--draft-max 2 --draft-min 1`),
+Single-Slot, Shared-Target/Draft-Modell. Datierte Belege — keine aktuelle
+Zusicherung. Siehe `.scratch/bench-logs/qwen-matrix-fullrun-20260512-222625.md`.
 
 | model | mode | n=128 tps | n=512 tps | accept@128 | accept@512 |
 |---|---|---:|---:|---:|---:|
@@ -285,21 +289,17 @@ target/draft model. See
 | qwen-35B-A3B MoE | turbo3-base    | 61.8 | 62.0 | — | — |
 | qwen-35B-A3B MoE | **turbo3-nextn** | **82.7** | **77.2** | 82.9 % | 80.6 % |
 
-### Knobs
+### Schalter (aktuell)
 
-- `--spec-type nextn` — enable NextN drafting (not Gemma `mtp`).
-- `--model-draft` / `-md` — pass the **same** path as `--model` for the
-  shared-model path; pass a NEXTN_ONLY GGUF to use the legacy double-load
-  fallback.
-- `--draft-max` / `--draft-min` — chained-draft bounds per round
-  (current default for the helper scripts: `2 / 1`).
-- `llama_set_nextn` (C API) — pairs target and draft contexts so that
-  `llama_context_nextn_seq_rm` trims **both** KV caches in one call.
+- `--spec-type draft-mtp` — aktiviert den MTP-/NextN-Draft-Pfad.
+- `-md` / `--spec-draft-model` — eigenstaendige Draft-GGUF (weglassen, wenn
+  das Target-GGUF die NextN-Layer bereits enthaelt).
+- `--spec-draft-n-max` / `--spec-draft-n-min` — Draft-Token-Grenzen pro Runde.
 
-Full architecture (graph dispatch, KV-only-NextN trick, hidden-state
-transfer, performance trade-offs and the 27B-dense compute-bound analysis)
-lives in **[NEXTN.md](NEXTN.md)**; user-facing CLI flags are also
-documented in [docs/speculative.md](docs/speculative.md).
+Die vollstaendige Architektur (Graph-Dispatch, KV-only-NextN-Dimensionierung,
+Hidden-State-Transfer, Performance-Trade-offs und die
+27B-Dense-Compute-Bound-Analyse) steht in **[NEXTN.md](NEXTN.md)**
+(HISTORISCH); aktuelle CLI-Flags: [docs/speculative.md](docs/speculative.md).
 
 ## TurboQuant — KV cache & weight compression
 
@@ -717,12 +717,13 @@ To learn more about model quantization, [read this documentation](tools/quantize
     </details>
 
 - <details>
-    <summary>Enable Gemma 4 MTP speculative decoding (this fork)</summary>
+    <summary>MTP-Spekulation mit einer Assistant-GGUF aktivieren (dieser Fork)</summary>
 
-    Pair a `gemma4` target with the official `gemma4_assistant` MTP head. The
-    head is loaded **into** the target context (no second `llama_context`,
-    no second KV cache) and runs on a dedicated scheduler so MTP draft compute
-    overlaps target verification.
+    Ein Target mit einem kompatiblen MTP-/Assistant-Drafter ueber den
+    generischen Draft-Pfad paaren (`--spec-type draft-mtp` + `-md`).
+    Sidecar-Tensor-Shape und Tokenizer-Kompatibilitaet muessen pro
+    Modellpaar validiert werden — siehe
+    [docs/speculative.md](docs/speculative.md).
 
     Pre-built assistant GGUFs (recommended **`Q4_K_M`** / `Q4_K_S` for best
     speed/quality) are published in the [AtomicChat / Gemma 4 Assistant GGUF
@@ -737,34 +738,36 @@ To learn more about model quantization, [read this documentation](tools/quantize
     | Gemma 4 31B | [`AtomicChat/gemma-4-31B-it-assistant-GGUF`](https://huggingface.co/AtomicChat/gemma-4-31B-it-assistant-GGUF) |
 
     ```bash
-    # Manual invocation — works for any of the five targets above.
+    # Manuelle Ausfuehrung — aktuelle Flags.
     llama-server \
       -m   /path/to/gemma-4-target.gguf \
-      --mtp-head /path/to/gemma-4-assistant-Q4_K_M.gguf \
-      --spec-type mtp \
-      --draft-block-size 3 \
+      -md  /path/to/gemma-4-assistant-Q4_K_M.gguf \
+      --spec-type draft-mtp \
+      --spec-draft-n-max 3 --spec-draft-n-min 0 \
       -c 16384 \
       -ngl 99 -ngld 99 \
       -fa on \
       --host 127.0.0.1 --port 8080
     ```
 
-    Repo helper scripts pick the right defaults per target (and prefer
-    a quantized assistant when present under `.scratch/`):
+    **Fork-Hinweis (Legacy):** die Repo-Helper-Skripte sind **nicht** gegen
+    die aktuellen Flags geprueft — aeltere Helper koennen entfernte Flags
+    uebergeben. Bis zur Reparatur gelten sie als unverifiziert; siehe
+    `scripts/AGENTS.md` ("Legacy-Helper") und
+    [`docs/speculative.md`](docs/speculative.md).
 
     ```bash
-    # Dense targets (block size 3 by default).
+    # Dense-Targets.
     scripts/run-gemma4-mtp-server.sh           # 26B-A4B
     scripts/run-gemma4-31b-mtp-server.sh       # 31B
 
-    # Edge / centroid-head targets (MTP_PRESET aware: throughput|lift|balanced|quality).
-    MTP_PRESET=throughput scripts/run-gemma4-e4b-mtp-server.sh
-    MTP_PRESET=throughput scripts/run-gemma4-e2b-mtp-server.sh
+    # Edge-/Centroid-Head-Targets.
+    scripts/run-gemma4-e4b-mtp-server.sh
+    scripts/run-gemma4-e2b-mtp-server.sh
     ```
 
-    Full architecture, async pipeline, KV-safety contract, tuning knobs and
-    the latest matrix benchmark live in [MTP.md](MTP.md). User-facing CLI
-    flags (`--spec-type`, `--draft-*`) are documented in
+    Architektur und Benchmark-Historie (alte Flag-Namen) stehen in
+    [MTP.md](MTP.md) (HISTORISCH). Aktuelle Flags:
     [docs/speculative.md](docs/speculative.md).
 
     </details>
@@ -772,17 +775,15 @@ To learn more about model quantization, [read this documentation](tools/quantize
 - <details>
     <summary>Enable Qwen 3.6 NextN speculative decoding (this fork)</summary>
 
-    For **Qwen 3.6** combined `*_MTP.gguf` checkpoints (the official Qwen
-    converter packs the NextN auxiliary-head weights into the same file as
-    the target), point **`--model-draft` (`-md`)** at the **same** file as
-    `--model` and pass **`--spec-type nextn`**. The server detects this and
-    reuses the already-loaded target `llama_model` — drafting builds a
-    second `llama_context` over the same weights with
-    `llama_context_params.nextn_draft = true`, so there is **no second
-    mmap of the GGUF, no second tokenizer and no second weight load**.
-    Composes with TurboQuant3 KV (`-ctk turbo3 -ctv turbo3`) — on Qwen 3.6
-    35B-A3B MoE the combination is **+24-36 % tps** vs the same target
-    without speculation.
+    Bei **Qwen-3.6**-kombinierten `*_MTP.gguf`-Checkpoints (der offizielle
+    Qwen-Converter packt die NextN-Hilfskopf-Gewichte in dieselbe Datei wie
+    das Target) **`--spec-type draft-mtp`** ohne `-md` uebergeben — der
+    Server fordert `llama_model_n_layer_nextn(model) > 0` und baut einen
+    zweiten `LLAMA_CONTEXT_TYPE_MTP`-Kontext auf dem bereits geladenen
+    Target-Modell. Kombinierbar mit TurboQuant3-KV
+    (`-ctk turbo3 -ctv turbo3`); fruehere Messungen auf Qwen 3.6 35B-A3B MoE
+    zeigten zweistellige t/s-Gewinne — historischer, modellspezifischer
+    Beleg (siehe `NEXTN.md`), keine Zusicherung.
 
     Pre-built combined `_MTP.gguf` quants (recommended **`Q4_K_XL`**,
     matches the matrix bench cells):
@@ -795,46 +796,32 @@ To learn more about model quantization, [read this documentation](tools/quantize
     | Qwen 3.6 27B (dense)   — Unsloth        | [`unsloth/Qwen3.6-27B-MTP-GGUF`](https://huggingface.co/unsloth/Qwen3.6-27B-MTP-GGUF) |
 
     ```bash
-    # Pull both target (-hf) and draft (-hfd) from the same HF combined _MTP.gguf.
     llama-server \
-      -hf  unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL \
-      -hfd unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL \
-      --spec-type nextn \
-      --draft-max 2 --draft-min 1 \
-      -c 8192 \
-      -ngl 99 -ngld 99 \
-      -ctk turbo3 -ctv turbo3 -fa on \
+      -m /path/to/Qwen3.6-35B-A3B-UD-Q4_K_XL_MTP.gguf \
+      --spec-type draft-mtp \
+      --spec-draft-n-max 2 --spec-draft-n-min 1 \
+      -c 8192 -ngl 99 -ctk turbo3 -ctv turbo3 -fa on \
       --host 127.0.0.1 --port 8080
     ```
 
-    Or with a local file:
-
-    ```bash
-    llama-server \
-      -m   /path/to/Qwen3.6-35B-A3B-UD-Q4_K_XL_MTP.gguf \
-      -md  /path/to/Qwen3.6-35B-A3B-UD-Q4_K_XL_MTP.gguf \
-      --spec-type nextn --draft-max 2 --draft-min 1 \
-      -c 8192 -ngl 99 -ngld 99 -ctk turbo3 -ctv turbo3 -fa on
-    ```
-
-    Repo helpers pick the right defaults per target:
+    **Fork-Hinweis (Legacy):** die Repo-Helper-Skripte sind **nicht** gegen
+    die aktuellen Flags geprueft und gelten bis zur CLI-Reparatur als
+    unverifiziert — siehe `scripts/AGENTS.md` und
+    [`docs/speculative.md`](docs/speculative.md).
 
     ```bash
     scripts/run-qwen36-27b-nextn-server.sh        # Qwen 3.6 27B dense
     scripts/run-qwen36-35ba3b-nextn-server.sh     # Qwen 3.6 35B-A3B MoE
     ```
 
-    Standalone NEXTN_ONLY GGUFs
-    (`general.architecture = qwen35*_mtp`) are still supported as a
-    fallback (the server then performs a second `llama_model_load_from_file`
-    with `override_arch`). The shared-model path is preferred whenever the
-    same combined `_MTP.gguf` can be used as both `--model` and
-    `--model-draft`.
+    Eigenstaendige `*_mtp`-GGUFs (separates Draft-Artefakt) sind als
+    Fallback weiterhin nutzbar — `-md` auf diese Datei zeigen.
 
-    Full architecture, KV-only-NextN trick, hidden-state transfer and the
-    matrix bench (incl. the 27B-dense compute-bound analysis) live in
-    [NEXTN.md](NEXTN.md). User-facing CLI flags (`--spec-type nextn`,
-    `--draft-*`) are documented in [docs/speculative.md](docs/speculative.md).
+    Die vollstaendige Architektur, KV-only-NextN-Dimensionierung,
+    Hidden-State-Transfer und der Matrix-Bench (inkl. der
+    27B-Dense-Compute-Bound-Analyse) stehen in [NEXTN.md](NEXTN.md)
+    (HISTORISCH). Aktuelle CLI-Flags:
+    [docs/speculative.md](docs/speculative.md).
 
     </details>
 

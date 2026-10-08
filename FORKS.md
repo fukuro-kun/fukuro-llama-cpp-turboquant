@@ -1,7 +1,8 @@
 # Fork-Abstammung und -Vergleich
 
 > Zentrale Dokumentation der Repository-Lineage, der Unterschiede zwischen Fork-Ebenen und der Branch-Strategie.
-> Siehe auch [BRANCHES.md](BRANCHES.md) fuer Branch-Details und [AGENTS.md](AGENTS.md) fuer Arbeitsvertraege.
+> Siehe auch [§7 Branch-Strategie](#7-branch-strategie-aktuell) und [AGENTS.md](AGENTS.md) fuer Arbeitsvertraege.
+> Datierte Abschnitte (Sync-Stand Juni 2026, §5-Fehllisten/Tabelle, §8-Workflow-Historie, §10 Quota) beschreiben den damaligen Stand — §7 Branch-Strategie ist dagegen der **aktuelle** Vertrag; der aktuelle Backlog steht in `docs/fork/ROADMAP.md`.
 
 ---
 
@@ -24,7 +25,7 @@ fukuro-kun/fukuro-llama-cpp-turboquant  (GitHub-Mirror)
     |
     |  (+ DiffusionGemma, Vulkan-Turbo3, lokale Anpassungen)
     v
-git.eulenhorst.lan/fukuro/fukuro-llama-cpp-turboquant  (PRIMARY REMOTE — Forgejo europa, seit 2026-09-29; vormals codeberg.org)
+Self-hosted Forgejo (PRIMARY REMOTE seit 2026-09-29; vormals codeberg.org — URL siehe `git remote -v` / `LOKAL.md`)
 ```
 
 ---
@@ -33,7 +34,7 @@ git.eulenhorst.lan/fukuro/fukuro-llama-cpp-turboquant  (PRIMARY REMOTE — Forge
 
 | Remote | URL | Rolle |
 |--------|-----|-------|
-| **Primary** | `git@git.eulenhorst.lan:fukuro/fukuro-llama-cpp-turboquant.git` | Haupt-Repository (Forgejo `europa`, LXC 233 auf pluto). Hier laeuft die Entwicklung. |
+| **Primary** | Self-hosted Forgejo (`origin`; URL via `git remote -v`, Details in `LOKAL.md`) | Haupt-Repository. Hier laeuft die Entwicklung. |
 | **Codeberg** | `git@codeberg.org:fukuro/fukuro-llama-cpp-turboquant.git` | Legacy-Remote (nicht mehr gepusht, Mirror-Option). |
 | **GitHub** | `git@github.com:fukuro-kun/fukuro-llama-cpp-turboquant.git` | Mirror und Sync-Punkt mit AtomicBot-ai. |
 | **AtomicBot (Upstream-Fork)** | `git@github.com:AtomicBot-ai/atomic-llama-cpp-turboquant.git` | Direkter Upstream-Fork. PR-Ziel fuer saubere Aenderungen. |
@@ -42,8 +43,8 @@ git.eulenhorst.lan/fukuro/fukuro-llama-cpp-turboquant  (PRIMARY REMOTE — Forge
 
 **Empfohlener Workflow:**
 ```bash
-# Standard-Entwicklung
-origin = git.eulenhorst.lan:fukuro/... (push/pull)  # Forgejo europa
+# Standard-Entwicklung (origin = self-hosted Forgejo)
+git push origin feat/<thema>
 
 # Sync mit AtomicBot
 upstream = github.com:AtomicBot-ai/... (fetch only)
@@ -83,7 +84,7 @@ git fetch upstream
 | **Gemma 4 MTP** | Multi-Token Prediction mit `gemma4_assistant`-Drafter. Single-context, cross-attention in target KV. +30–50 % Throughput. |
 | **Qwen 3.x NextN** | Shared-model spekulative Decodierung. Kein zweites mmap. +24–36 % tps (MoE), +5–7 % (dense). |
 | **UDT-Quantisierung** | Tensor-type Masks: NextN/MTP → `Q8_0`, attn Q/K → `Q6_K`, paart mit TurboQuant3 KV. |
-| **Multimodal + Spec** | `--mmproj` gleichzeitig mit `mtp`/`nextn`/`eagle3` auf einem Slot. |
+| **Multimodal + Spec** | `--mmproj` neben Spekulation auf einem Slot (damalige Whitelist; in unserem aktuellen Code entfernt — Kombination ist offenes Gate, siehe `docs/speculative.md`). |
 | **GGUF-Conversion** | Erweiterte `convert_hf_to_gguf.py` fuer Gemma4Assistant, NextN-Tensoren. |
 | **Architektur** | `llama_model_base`-Klassenhierarchie (sehe Sync-Merge 2026-06-19). |
 
@@ -92,7 +93,7 @@ git fetch upstream
 | Aspekt | Status |
 |--------|--------|
 | **Architektur** | ✅ `llama_model_base`-Klassenhierarchie (via Sync-Merge mit AtomicBot 2026-06-19). Die monolithische Aera ist beendet. |
-| **DiffusionGemma** | ✅ `llama_model_diffusion_gemma : public llama_model_base` (`src/models/models.h` Zeile 851, `src/models/diffusion-gemma.cpp` 747 Zeilen). Forward-Pass und Entropy-Bound Decoder vollstaendig. Limitierung: Self-Conditioning (SC-Tensoren fehlen in GGUFs). **Offen:** gguf-py Registrierung (`MODEL_ARCH.DIFFUSION_GEMMA`, `add_diffusion_*` Funktionen) fehlt. |
+| **DiffusionGemma** | ✅ `llama_model_diffusion_gemma` in `src/models/` + `tools/diffusion-cli/`. Forward-Pass und Entropy-Bound Decoder vollstaendig. Limitierung: Self-Conditioning (SC-Tensoren fehlen in GGUFs). gguf-py Registrierung ist inzwischen vorhanden (`MODEL_ARCH.DIFFUSION_GEMMA` in `constants.py`, Writer-Handling in `gguf_writer.py`). |
 | **Vulkan TurboQuant** | ✅ turbo3 (~5.1x) und turbo4 (~3.8x) KV-Cache auf Vulkan. turbo4 hat FlashAttention (`flash_attn_cm1.comp`), turbo3 FA ist deaktiviert (glslc bug → scalar fallback). Benchmark 2026-07-09: turbo3/3 ist trotzdem konsistent schneller als turbo4/4 (Dequant-Overhead überwiegt FA-Vorteil bei ctx ≤8192). |
 | **Vulkan-Optimierungen** | ✅ Q3_K/Q6_K Block-Load (+57%/+78% tg128 Intel BMG), iq1 shared-memory, host-memory Lock-Kontention. |
 | **Vulkan APU GPU-Hang Fix** | ✅ `nodes_per_submit=10` für UMA-Geräte (Issue #21724). Behebt GPU-Hangs bei >188k Kontext und >16k Prompts. |
@@ -136,7 +137,7 @@ Unsere Fork-Features wurden erfolgreich portiert:
 
 **Aktuell:**
 - Sync-Merge Branch `feature/sync-atomicbot-2026-06-19` verifizieren und nach `master` mergen.
-- DiffusionGemma gguf-py Registrierung fehlt (siehe §3.4).
+- DiffusionGemma gguf-py Registrierung ist inzwischen vorhanden (§3.4) — damaliger Offen-Punkt erledigt.
 - tg32-Tests auf AMD-APU laufen (Pipeline-Cache wird aufgebaut).
 
 **Kurzfristig:**
@@ -152,6 +153,8 @@ Unsere Fork-Features wurden erfolgreich portiert:
 
 ## 5. Was uns von upstream fehlt
 
+> **HISTORISCH (Stand 2026-06-22, nicht erneut verifiziert).** Die Listen in §5.2/§5.3 und die Cherry-Pick-Tabelle §5.4 beschreiben den damaligen Sync-Stand — sie sind kein aktueller Backlog. Aktuell: `docs/fork/ROADMAP.md`.
+>
 > Update 2026-06-22: Nach dem Sync-Merge mit AtomicBot sind die meisten Features integriert. Verbleibende Differenzen zu upstream (ggml-org) sind in §5.2 gelistet.
 
 ### 5.1 SYCL — Referenz
@@ -241,30 +244,40 @@ Alle Cherry-Picks wurden vor dem Sync-Merge abgeschlossen oder blockiert. Detail
 
 ---
 
-## 7. Branch-Strategie
+## 7. Branch-Strategie (aktuell)
 
-| Branch | Remote | Zweck |
+- `master` — gepflegte Basislinie.
+- `feat/<thema>` — aktive Feature-Arbeit; wird auf `origin` (self-hosted Forgejo) gepusht.
+- Vergleichs-/Benchmark-Arbeit laeuft auf gepinnten Commits in **separaten Worktrees** (z.B. das Flash-Next-TopK-Workspace); Produktiv-Checkouts bleiben unangetastet.
+- Kein bedingungsloses Rebase auf alte Sync-Branches — die untenstehende Tabelle ist historisch.
+
+> **HISTORISCH (Stand Juni–Juli 2026):**
+
+| Branch | Remote | Zweck (damalig) |
 |--------|--------|-------|
-| `master` | Forgejo `europa` (primary) | Hauptentwicklung (vor Sync-Merge). |
-| `feature/sync-atomicbot-2026-06-19` | lokal | Sync-Merge mit AtomicBot 2026-06-19. Sauber als Squash-Commit auf master neu aufgebaut (Original-Branch hatte korrupte Git-Objekte). Neuer Haupt-Branch nach Verifikation. |
-| `feature/diffusion-gemma-v2` | Forgejo `europa` | DiffusionGemma V2 (Entropy-Bound Decoder, PREFILL/DECODE-Fix, PKV pro Layer). |
+| `master` | primary | Hauptentwicklung (vor Sync-Merge). |
+| `feature/sync-atomicbot-2026-06-19` | lokal | Sync-Merge mit AtomicBot 2026-06-19. Sauber als Squash-Commit auf master neu aufgebaut (Original-Branch hatte korrupte Git-Objekte). |
+| `feature/diffusion-gemma-v2` | primary | DiffusionGemma V2 (Entropy-Bound Decoder, PREFILL/DECODE-Fix, PKV pro Layer). |
 
-**Nach Sync-Merge:** `feature/sync-atomicbot-2026-06-19` wird nach `master` gemerged. Die alten Branches sind gelöscht.
-
-Details: [BRANCHES.md](BRANCHES.md)
+Aktuelle Branch-Namen und HEADs siehe `git branch -vv` / `LOKAL.md`.
 
 ---
 
 ## 8. Sync- und PR-Workflow
 
-### Saubere Aenderungen an AtomicBot-ai
+> **HISTORISCH.** Der untenstehende Ablauf beschreibt den Juni-2026-Sync. Der
+> aktuelle Workflow steht im Root-AGENTS.md (Git-Workflow): `feat/`-Branches
+> auf `origin` verteilen, `master` als Basis, keine neuen Remote-/PR-Status-
+> Behauptungen ohne Verifikation.
+
+### Saubere Aenderungen an AtomicBot-ai (historisch)
 
 1. Auf `feature/sync-atomicbot-2026-06-19` rebasen.
 2. Neue Aenderung auf einem Feature-Branch entwickeln.
 3. Gegen `feature/sync-atomicbot-2026-06-19` rebasen.
 4. PR an `AtomicBot-ai/atomic-llama-cpp-turboquant` erstellen.
 
-### Upstream-Sync (ggml-org)
+### Upstream-Sync (ggml-org) (historisch)
 
 - Der Sync-Merge mit AtomicBot 2026-06-19 hat den `llama_model_base`-Refactor integriert. Wir sind jetzt architektonisch kompatibel mit upstream.
 - Einzelne Features (neue Modell-Unterstuetzungen, Bugfixes) koennen gezielt cherry-picked werden. Siehe [§5.2](#52-noch-fehlende-features-upstream) fuer die priorisierte Liste.
@@ -339,7 +352,7 @@ Quota-Freigabe (ohne 30-Tage Grace-Periode).
 | `master` | Branch | Hauptentwicklung (AtomicBot-Basis) |
 | `archive/cherry-dflash` | Branch | DFlash-Migration (archiviert) |
 | `archive/sync-atomicbot-2026-06-19` | Tag | Archiv-Checkpoint |
-| `origin` | Remote | Codeberg (primary) |
+| `origin` | Remote | Self-hosted Forgejo (primary, seit 2026-09-29; zuvor Codeberg) |
 | `github` | Remote | GitHub (mirror) |
 | `tomtemp` | Remote | TheTom (fetch-only) |
 | `upstream` | Remote | ggml-org (fetch-only) |

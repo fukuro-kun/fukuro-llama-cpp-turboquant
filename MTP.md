@@ -1,5 +1,14 @@
 # Gemma 4 MTP — Multi-Token Prediction speculative decoding
 
+> **HISTORISCH.** Dieser Bericht beschreibt den alten MTP-Pfad mit Namen und
+> APIs, die im aktuellen Code nicht mehr existieren (`--spec-type mtp`,
+> `--mtp-head`, `--draft-block-size`, `llama_decode_mtp_async`/`_wait`,
+> `llama_model_load_mtp_from_file`, `mtp.pre_projection`-Benennung u.a.) sowie
+> Benchmark-Gewinne, die nicht als aktuelle Defaults gelten. **Aktuelle
+> Referenz: `docs/speculative.md`** (Mechanismenuebersicht `--spec-type draft-mtp`,
+> `-md`-Draft, generischer MTP-Kontext). Der Text unten bleibt als historische
+> Implementierungsdokumentation erhalten.
+
 > Scope: this document covers the MTP (Multi-Token Prediction) speculative
 > decoding path added to this fork on top of `llama.cpp`, currently specialised
 > to **Gemma 4** targets (`gemma4`) paired with the official **Gemma 4

@@ -1,7 +1,7 @@
 # SESSION_PLAN: Strata + OptLlama A/B-Eval auf Uranus (Qwen3.8-Flash-Next)
 
 **Erstellt:** 2026-10-06
-**Status:** [x] Vergleich abgeschlossen (2026-10-07); [ ] Fork-Optimierung in Umsetzung — P1a implementiert/lokal geprueft, Modell-Gate offen. [Aktueller Fortschritt und Checklisten](#100-statusuebersicht-und-aktualisierungsvertrag).
+**Status:** [x] Vergleich abgeschlossen (2026-10-07); [ ] Fork-Optimierung in Umsetzung — P1a-/P1b-Gates bestanden, Baseline B0–B5 gemessen; S1/S2/M-Gates offen (Stand 2026-10-08). [Aktueller Fortschritt und Checklisten](#100-statusuebersicht-und-aktualisierungsvertrag).
 **Bezug:** Trilium `TaWve7nWU3kF` (Strata-Notiz) + Subnote `5Ec9sW4aCN6S` (Eval-Bewertung); ROADMAP #99 Phase 9
 **Ziel:** Empirische Obergrenze der MoE-Offload-Performance fuer Qwen3.8-Flash-Next auf Uranus-Hardware bestimmen — als Entscheidungsgrundlage, ob/welche Strata- oder OptLlama-Techniken in den Fork portiert werden
 
@@ -150,18 +150,18 @@ Implementierungs-Gates. Keine Produktions-Checkouts fuer Entwicklung aendern.
 
 ### 10.0 Statusuebersicht und Aktualisierungsvertrag
 
-**Stand:** 2026-10-07. Abgeschlossene Teilaufgaben sind von noch offenen
+**Stand:** 2026-10-08. Abgeschlossene Teilaufgaben sind von noch offenen
 Laufzeit-/Modell- und Gesamtfreigaben getrennt.
 
 | Paket | Stand |
 |---|---|
 | P1a Offset/Q2_0 | **abgeschlossen** — Gate bestanden 2026-10-07 (echte IQ3-Inferenz Dual-GPU, kohärente Ausgabe, 134/134 CUDA-Backend-Paritaet je GPU) |
 | P1b Prefetch | **abgeschlossen** — Gate bestanden 2026-10-07 (`3f3d272f69`, `819af39886`): 5 Prefill-/Decode-Laeufe ohne Crash, 15840/15840 Backend-Tests; Output-Vergleich durch inhaerente Kernel-Nichtdeterministik nur qualitativ |
-| Baseline/Profil | keine neue faire Fork-Baseline nach P1-Fixes — **offen** |
-| S1 / S1b Streaming | nicht implementiert — **offen** |
-| S2 Host-Residenz | nicht implementiert — **offen** |
-| M MTP | nur Read-only-Vertragsanalyse; Assets/Code/Gates **offen** |
-| Integration | P1a-Branch verteilt; Gesamtgates **offen** |
+| Baseline/Profil | B0–B5 jeweils 3 Reps vorhanden; Konsolidierung, no-mmap-Kontrollen und Zeitanteil-Profilierung **offen** (§10.4) |
+| S1 / S1b Streaming | nicht implementiert — **offen**; vorhandener Full-Tensor-Prefetch ist kein abgeschlossenes Streaming-Gate |
+| S2 Host-Residenz | RAM-adaptive Expert-Arena nicht implementiert — **offen**; vorhandene no-mmap-/Hostregister-Pfade zuerst kontrollieren |
+| M MTP | Graph/Sidecar laufen; kurze f16-Smokes bestanden, q8_0-Spec-Fehler eingegrenzt, Ursachen- und kontrolliertes Performance-/Korrektheits-Gate **offen** (§10.7); separater Multistream-Fullstate-Restore-Bug **behoben** (f16-Fix/Test abgeschlossen vor Commit `ab6e9dfcea`, §10.9); q8_0-Paritaet und Gesamt-M-Gate **offen** |
+| Integration | P1a-Branch verteilt (Remote-Stand seitdem nicht erneut verifiziert); P1b besitzt eigene Commits `3f3d272f69`/`819af39886` auf noch offenen Folge-Branches; Gesamtgates **offen** |
 
 **Aktualisierungsvertrag fuer diese Checklisten:**
 
@@ -430,11 +430,17 @@ laufen; produktiv belegte Maschinen sind keine Test-Hosts.
       - B3 hyb44 (`--n-cpu-moe 44` + prefetch): pp 84/270/264/302 t/s,
         tg ~11,6 t/s
       - B4 +GGML_CUDA_REGISTER_HOST: pp 72/262/256/296 t/s —
-        neutral bis leicht negativ, kein eigener Gewinn
-      - B5 IQ3_XXS + prefetch: pp 90/**320**/**311**/343 t/s —
-        dominiert Prefill ab ~3k (H2D-Volumen), tg ~10,4 t/s
-      - ⚠ Der 23k-Prompt terminiert nach 1 Token (EOS) → tg dort
-        unbrauchbar, pp-Werte valide.
+        gegen B1 etwa +4–5 % bei mittleren/langen Prompts, bei 0,8k
+        leicht negativ; kein isolierter Beleg fuer den Arena-Nutzen
+      - B5 IQ3_XXS + prefetch: pp 90/**320**/**311**/321 t/s —
+        23k-Median 320,7; 343,0 ist das Maximum, nicht der Median.
+        Quant-/Gewichtsvolumen-Effekt nicht separat vom Kernelpfad isoliert;
+        tg ~10,4 t/s
+      - Der 23k-Prompt terminiert in B0–B4 nach 1 Token (EOS) → tg
+        dort unbrauchbar. B5 erzeugt 128/1/1 Tokens; nur ein langer
+        Decode-Lauf reicht nicht fuer einen Medianvergleich. B5 weist
+        zudem grosse Kalt-/Warm-Streuung auf; pp-Mediane sind Datenpunkte,
+        keine abgeschlossene I/O-/Korrektheits-Ablation.
 - [x] IQ3_XXS-Baseline gemessen (B5, siehe oben; „beider Engines"
       — Strata/OptLlama-Vergleich folgt bei der Final-Auswertung,
       Fork-Werte stehen).
@@ -672,8 +678,8 @@ Hook. Stratas `--mtp`-Dateien sind kein automatisch ladbares GGUF.
    Regressionstests fuer bestehende K2-, Gemma- und NextN-Drafts.
    Erst danach Default oder Integration in Produktivprofile erwaegen.
 
-**Fortschritt M (Stand 2026-10-07 — nur Read-only-Vertragsanalyse, kein
-MTP-Port):**
+**Fortschritt M (Port und kurze Laufzeittests vorhanden; Gesamtgate nach
+Methodikpruefung wieder offen):**
 
 - [x] Vertragsanalyse Strata `82f46a8c8`: 31 `mtp.*`-Tensoren/Shapes
       bekannt (HC 4x2560=10240, `fc_embedding`/`fc_hidden` 2560x2560,
@@ -715,9 +721,11 @@ MTP-Port):**
         verengt) nochmals `get_rows(cur, inp_out_ids)` → OOB-Zeilen-
         Zugriff → Trunk-Logits korrupt ("isfdb"-Garbage) auch **ohne**
         Spec. Fix wie upstream: kein trailing `get_rows`.
-      - `[FIXED — ROOT CAUSE 2026-10-08]` Spec-Degeneration: der
-        Korrumpierer ist **nicht** der Graph sondern der
-        **Attention-KV-Cache-Dtype**. Dtype-Matrix (France-MC, temp=0):
+      - `[EINGEGRENZT, NICHT GEFIXT]` Spec-Degeneration korreliert in
+        den bisherigen Kontrolltests mit q8_0-Attention-KV. Der genaue
+        Fehlermechanismus (Write/Read, Verify-Batch, Restore oder
+        Rollback) ist **nicht bewiesen**; Graph-/Batch-Interaktionen
+        bleiben moeglich. Beobachtete Dtype-Matrix:
 
         | attn ctk/ctv | idx-K | h_tgt | Ausgabe |
         |---|---|---|---|
@@ -728,11 +736,17 @@ MTP-Port):**
 
         non-MTP + q8_0 ist sauber (`Paris`) → der Bug ist
         **spec-decode-spezifisch** (Draft+Verify+Checkpoint-Pfad), kein
-        generelles q8_0-QSA-Problem. Die `indexer_*`-Score-NaNs sind ein
-        harmloses Mask-Artefakt (top_k waehlt NaN nie); `h_tgt` ist der
-        echte Korruptions-Indikator. Unter q8_0 entsteht ein
-        Rollback-Livelock: pos 83/84 committed, Draft-Kandidat bei 85
-        flipt und wird dauerhaft rejected → kein Fortschritt.
+        pauschaler Nachweis eines generellen q8_0-QSA-Problems.
+        Indexer-Score-NaNs allein beweisen keine Output-Korruption;
+        ihre Harmlosigkeit und das NaN-Verhalten von top_k sind aber
+        ebenfalls **nicht bewiesen**. Endliches h_tgt garantiert keine
+        korrekten Logits. Wiederholte Positionen 83/84 und wechselnde
+        Kandidaten bei 85 wurden beobachtet; echter No-Progress-Livelock
+        muss gegen normale Checkpoint-Replays/Cache-Aufholung geprueft werden.
+        User hat einen weiteren Diagnoseblock mit 60-Minuten-Budget
+        freigegeben: Mehrtoken-Forward gegen sequenziellen Forward,
+        Byte-/Logit-Paritaet vor/nach Restore, K/V-Isolation und
+        Commit-Fortschritt messen, statt weitere unkontrollierte Toggles.
       - `[FIXED]` Hybrid-Indexer-Restore (`5925020d35`): `mem_idx` wurde
         ueber eigenes `find_slot` restauriert und divergierte nach
         Checkpoint-Rewrites vom Attn-Layout. Neu: `state_read_sinfo`
@@ -740,39 +754,72 @@ MTP-Port):**
         Notwendig, aber nicht hinreichend (q8_0-Attn bleibt broken).
       - `[TODO]` q8_0-Attn-Spec-Pfad weiter debuggen ODER explizit
         f16 forcieren/dokumentieren; Rollback-Retry-Cap gegen Livelock.
-      - `[TODO]` Rollbacks nach Rejection, Mismatched-Checkpoint-
-        Ablehnung, Greedy-/Sampling-Tests erst nach dem Fix sinnvoll.
-- [x] Performance-Stufen + Gate M (Uranus, 2026-10-08, f16, temp=0,
-      `-ngl 99 --cpu-moe -c 8192 -b 2048 -ub 512 -fa on`, debug-frei):
-      - Korrektheit: **PASS** — `B. Paris`, kohärentes reasoning_content,
-        saubere Primzahl-/Summen-Generierung.
-      - non-MTP Baseline: **11.08 t/s** decode.
-      - n_max-Sweep (gleiche Config, France/Primzahl-Prompts):
+      - `[TODO]` Getrennt halten: (a) f16-Kontrollen laufen **jetzt**
+        — Rollbacks nach Rejection, Mismatched-Checkpoint-Ablehnung,
+        Greedy-/Sampling-Tests auf f16 sind nicht vom q8_0-Root-Cause-
+        Fix blockiert; (b) q8_0 ist die gebundene **Negativkontrolle**
+        — sie bleibt bis zum Fix erwartbar failing und dient der
+        Diagnose, nicht als Gate fuer die f16-Arbeit.
+- [ ] `[WIEDER OFFEN]` Performance-/Korrektheits-Gate M: Die ersten
+      debug-freien f16-Einzelmessungen liefern Hinweise, aber keinen
+      kontrollierten Speedup und kein Optimum:
 
-        | n_max | Akzeptanz | decode t/s | vs non-MTP |
-        |---|---|---|---|
-        | 2 | 0.910 | 9.44 | **−15%** |
-        | 4 | 0.969 | 13.27 | **+20%** |
-        | 8 | 0.931 | 14.19 | **+28%** |
+      | Konfiguration | Prompt | tatsaechlich erzeugte Tokens | Akzeptanz | decode t/s |
+      |---|---|---|---|---|
+      | non-MTP | France + Erklaerung | 83, EOS, Content geliefert | — | 11.08 |
+      | n_max=2 | France + Erklaerung | 300, length, Content leer | 0.910 | 9.44 |
+      | n_max=4 | Primzahlen + Summe | 200, length, Content leer | 0.969 | 13.27 |
+      | n_max=8 | Primzahlen + Summe | 200, length, Content leer | 0.931 | 14.19 |
 
-      - Mechanismus: bei n_max=2 dominiert der Draft+Verify-Overhead
-        (MTP-Head-Forward + h_nextn-Extraktion 10240 float +
-        Checkpoint-Save/Restore) die magere ~1.9 Token-Ausbeute →
-        netto negativ. Ab n_max≈4 steigt die Yield pro Verify-Runde und
-        MTP wird ein echter Speedup; Optimum hier ~n_max=8 (**+28%**).
-        → `--spec-draft-n-max` sollte auf ≥4 (Default-Empfehlung 8).
-      - Nebenbefund: Server-"Init-Deadlock" entpuppte sich als
-        **Log-Buffering-Fehldiagnose** — stderr `> file` + asynchroner
-        `common_log`-Worker puffert; der Server war gesund (backtrace
-        zeigte `server_queue::start_loop`-Idle + accept4). Status immer
-        via `/health` pruefen, nicht nur via Log-Tail.
-      - `[OFFEN]` q8_0-Attn-Spec-Bug (siehe Dtype-Matrix oben): f16-
-        Attn-KV ist die einzige verifiziert korrekte Spec-Config; ob die
-        +28% unter q8_0 erreichbar sind, haengt am offenen Attn-KV-Bug.
+      Gleiche Serveroptionen reichen nicht: verschiedene Texte und
+      generierte Laengen machen die frueher angegebenen −15/+20/+28 %
+      **nicht zu belastbaren MTP-Effekten**. n=4/8 haben denselben
+      Prompt/Budget, aber je nur eine Messung. Ein kurzes `B. Paris`
+      war ein bestandener Smoke, keine Gesamtfreigabe. Kohaerentes
+      abgeschnittenes Reasoning ist kein bestandener Delivery-/Qualitaetstest.
+      Hohe Akzeptanz beweist weder korrekte Zielverteilung noch Speedup.
+      Draft-/Verify-/Checkpoint-Kosten sind noch nicht separat gemessen;
+      Akzeptanzrate mal Draft-Obergrenze ist nicht die gemessene Yield.
+      Keine Default-Empfehlung fuer n=8 bis zum kontrollierten Sweep.
+
+      **Strata-Vertrag verifiziert (`82f46a8`):** `--spec T` zaehlt das
+      ganze Verify-Fenster (ein feststehendes Token plus T−1 Drafts).
+      Der gemessene UD-IQ4_XS-Lauf nutzte `--spec 4 --spec-min-p 0.5`
+      und `--kv int8`; erste vergleichbare Fork-Obergrenze ist deshalb
+      `--spec-draft-n-max 3`, nicht 4. Stratas int8-KV nutzt eigene
+      64-Wert-Gruppen und separate FP16-Skalen, GGML-Q8_0 andere
+      Block-/Layout-/Kernelpfade; beide sind quantisierte Attention-KV.
+
+      **Verbindliche Nachmessung (User-Auftrag):**
+      - [ ] Identische Prompt-Suite: Fakten/kurze Antwort, deutsche und
+        englische Prosa/Dialog, Code, JSON/Extraktion, Mathematik/Reasoning.
+      - [ ] target-only und n_max=1/2/3/4/6/8, mindestens 3 Reps;
+        Sampling/Seed/Reasoning-Mode, Sidecar, KV, Offload, Cache und
+        Server-Slots explizit identisch halten; effektive Config sichern.
+      - [ ] Kurze/mittlere/lange Antworten und Durchsatzbudgets
+        128/512/2048 Tokens getrennt testen. EOS/length, Content und
+        Reasoning getrennt erfassen; gleiche Tokenstrecke fuer reine
+        Kostenvergleiche nutzen, keine erzwungene Fortsetzung als
+        Qualitaetsnachweis verkaufen.
+      - [ ] Kontextkapazitaet und tatsaechliche KV-Belegung getrennt
+        variieren (kurz, 4k, 16k/32k soweit stabil); VRAM und fuer den
+        Expert-Cache verbleibendes Budget mitprotokollieren.
+      - [ ] Zeitanteile Draft, Target-Verify, Hidden-State-Transfers,
+        Checkpoint-Save/Restore und Replay sowie akzeptierte Tokens
+        pro Target-Pass messen; Strata T=2/3/4 bei gleicher Textstrecke
+        und effektiver Draft-/Suffix-Policy vergleichen.
+      - [ ] Erst nach Logit-/Output-/Rollback-Paritaet, Delivery-Pruefung
+        und wiederholtem Netto-Latenz-/tg-Gewinn Gesamtgate abhaken.
+      Nebenbefund: Der untersuchte gdb-Backtrace zeigte gesunden
+      `server_queue::start_loop`-Idle und accept4, keinen Init-Deadlock.
+      Fehlende INFO-Zeilen koennen auch durch `-lv`-Filter entstehen;
+      stderr-Buffering ist nicht pauschal bewiesen. Status via `/health`
+      pruefen, nicht aus statischem RSS oder Log-Tail auf Deadlock schliessen.
 
 ### 10.8 Integration, Fairness und Entscheidungspunkte
 
-**Arbeits-Pakete (alle noch offen):**
+**Arbeits-Pakete (P1a/P1b bestanden; Baseline-Konsolidierung und
+Streaming-/Residenz-/MTP-Gesamtgates noch offen):**
 
 | Paket | Primaere Code-Orte | Freigabe/Gate |
 |---|---|---|
@@ -835,8 +882,11 @@ ist ein gepruefter Rueckfallgrund, kein Anlass fuer System-Limit-Aenderungen.
 - [x] P1a auf eigenem Feature-Branch commitiert und ueber `origin`
       verteilt (`0389e655e8`, `feat/flashnext-p1a-q2-compat`);
       Produktiv-Checkout unangetastet, Remote-Worktree isoliert.
-- [ ] `[OFFEN]` Getrennte Commits/Branches fuer P1b, S1, S2, M gemaess
-      Sequenz (P1-Fixes → Baseline → S1 → S2 → M).
+- [x] P1b auf eigenen Commits (`3f3d272f69` Slot-Padding,
+      `819af39886` ARANGE-src[0]-NULL) auf den noch offenen
+      Folge-Branches; kein neuer Push-/Remote-Status-Anspruch.
+- [ ] `[OFFEN]` Getrennte Commits/Branches fuer S1, S2, M gemaess
+      Sequenz (Baseline → S1 → S2 → M).
 - [ ] `[OFFEN]` Messziele pro Phase: reproduzierbarer Netto-Gain
       ausserhalb Streuung, korrekte Logits, keine Regresse.
 - [ ] `[OFFEN]` Stufenmatrix inkl. Streaming×Arena und Streaming×MTP
@@ -847,3 +897,157 @@ ist ein gepruefter Rueckfallgrund, kein Anlass fuer System-Limit-Aenderungen.
       CHANGELOG-Pflege erfolgt bereits waehrend der Umsetzung).
 - [ ] `[OFFEN]` Stop-Kriterien geprueft und Investitionsentscheidung
       bei Restgap dokumentiert.
+
+### 10.9 Befund-Ledger (Code-Investigation) und angepasste Arbeitsplanung — Stand 2026-10-08
+
+**Bewiesen (Restore-Bug) — zeitlich vor Commit `ab6e9dfcea`:**
+
+- **Multistream-Fullstate-Restore-Bug (vor `ab6e9dfcea`):** der
+  Whole-Context-Restore rief den KV-Cache-Clear (`clear(true)` in
+  `llama-kv-cache.cpp`) einmal global UND erneut pro Stream innerhalb
+  `state_read_meta` — frueher restaurierte Streams wurden gewiped. Test
+  `tests/test-state-restore-fragmented.cpp::test_multistream_restore`
+  (drei nicht-unifizierte Streams) schlug **vor** dem Fix auf CPU
+  TinyStories `-ngl0` fehl: `stream0(f16) differs after full restore`.
+  **Nach** Entfernen des per-Stream-Clears (in `ab6e9dfcea`):
+  f16-Byte-Paritaet aller drei Streams und bestehender
+  Fragmentierungs-/Decode-Test bestanden (Exit 0, frischer CPU-Lauf).
+  TinyStories hat Head-Dimension 48 und erlaubt kein q8_0-KV;
+  q8_0-Paritaet auf kompatiblem Modell noch offen, kein falsches PASS.
+  Test prueft f16 und optional den explizit konfigurierten K-Typ.
+  Betrifft nur den Fullstate-Pfad, **nicht** den partiellen
+  Spec-Checkpoint-Pfad. Fix/Test auf `feat/flashnext-kv-restore-regressions`,
+  Commit `ab6e9dfcea`, fokussierter Review ohne P0/P1, Diagnose-/
+  Nichtleer-/Positionsguards nachgezogen und CPU-Test erneut bestanden;
+  kein Claim einer Qwen-MTP-Reparatur.
+- Qwen4Exp klemmt `n_rs_seq` auf 0 (`llama_context`-Konstruktion;
+  `llama-arch` erlaubt den recurrent-State-Pfad nur fuer
+  qwen35/moe).
+
+**Widerlegt:**
+
+- **CPU-Rawfloat→q8_0-Write-Hypothese:** `ops.cpp:5051` und `:5071`
+  nutzen den `dst`-`from_float`-Quantizer — kein roher Float-Write
+  in q8_0-KV.
+- **Hybrididx-`init_batch` (Prae-Fix-Befund):** berechnete `n_rs_seq`,
+  ignorierte dann den Vertrag gegen base — kann wegen des
+  Qwen4Exp-`n_rs_seq=0`-Clamps den beobachteten Qwen-Lauf nicht
+  erklaeren (Nicht-Kausalitaet bleibt bestehen). Die Vertrags-
+  Korrektur selbst ist in `ab6e9dfcea` enthalten.
+
+**Prefill-Quellenpruefung und erste Laufzeitprofile:**
+
+- `--cpu-moe` legt Expert-Gewichte auf Hostspeicher; es erzwingt nicht
+  automatisch CPU-Berechnung. `op_offload` kann unterstuetzte Expert-Ops
+  auf CUDA dispatchen (`ggml-backend.cpp:963-970`). Tatsaechlichen
+  Dispatch messen, nicht aus dem Flag auf CPU-Rechenzeit schliessen.
+- CUDA besitzt MMVQ, MMQ und MMF vor dem synchronisierenden cuBLAS-
+  Fallback (`ggml-cuda.cu:2940-2963`). Die pauschale Hypothese
+  "grosse Batches haben nur sorted-cuBLAS, grouped-MMQ fehlt" ist
+  widerlegt; der real verwendete Kernel und dessen Zeitanteil sind offen.
+- Selektiver Upload benoetigt Router-IDs auf dem Host; Full-Tensor-
+  Prefetch vermeidet diesen Wait bei hoher Abdeckung, ist aber noch
+  kein expertweise vorauseilender Cross-Layer-Stager wie in Strata.
+- Erster Nsight-Lauf (UD-IQ4_XS, zwei GPUs, synthetisches pp8192,
+  Prefetch an, physischer ubp8192) **abgebrochen, CUDA-OOM**:
+  QSA-Top-k ruft `argsort_f32_i32_cuda_cub` mit 8192x8192 auf;
+  Allokation weiterer 256 MiB temporaerer Indizes scheitert.
+  Keine neue Durchsatz-/Qualitaetszahl daraus ableiten. Workspace,
+  physische Chunk-Grenze und Sortierpfad mitprofiliert untersuchen;
+  Wiederholung mit ub4096 beendet; Profil zeigt MMQ, GDN und viele
+  elementweise Ops, nicht nur sorted-cuBLAS. Wichtiger Runner-Fund:
+  `llama-bench -dev CUDA0,CUDA1` erzeugt **zwei Single-GPU-Testfaelle**;
+  echter Dual-GPU-Wert braucht `-dev CUDA0/CUDA1`. Erste Profilstatistik
+  umfasst beide Single-GPU-Faelle und Loading, ist keine isolierte
+  Dual-GPU-Zeitzerlegung. Bench meldet ausserdem alten Build-Metastand
+  `3f3d272f69`; Target wird vor weiteren Messungen frisch gebaut.
+  Nicht identisch zum serverbasierten B2-23k-Test; effektive Split-/Slot-
+  Konfiguration abgleichen. Opt-in Workspace-Prototyp angelegt auf
+  `feat/flashnext-topk-workspace`: zeilenweise CUB-Argsort-Batches statt
+  temporarer Indizes/Keys fuer alle Prefill-Zeilen gleichzeitig.
+  Default unveraendert; Build/Backend-Paritaet und netto Prefill-Gewinn
+  bleiben bis zur echten Gegenprobe offen.
+
+**Offen (unbewiesen, keine Gate-Freigabe):**
+
+- Quant-multrow/`set_rows`/FA-Pfad, Logits nach Restore,
+  `pending_h`/Tokenposition als Ursache der q8_0-Spec-Degeneration.
+- Wiederholte Positionen (83/84, wechselnde Kandidaten bei 85) allein
+  sind kein Livelock-Beweis — gegen normales Checkpoint-Replay/
+  Cache-Aufholung abgrenzen.
+
+**Angepasste Prioritaet (User-Vorgabe):** schnellstmoeglicher
+*korrekter* Prefill Richtung Strata-Latte, nicht eine Arena um ihrer
+selbst willen. Vergleichslatte niemals quant- oder GPU-uebergreifend
+mischen: Strata same-UD dual @23k = 1227 pp t/s; Strata IQ3 dual
+~1730, 1 GPU ~1154. Grosse physische Batches (`-ub/-ubp`, auch >8192
+falls unterstuetzt) sind als Test-/Konfigurationsmassnahme erlaubt.
+Gezielte Kernel-/Layout-/Scheduler-Adaptionen nur bei profiliertem
+Restengpass, in spezialisierten Feature-Branches. Nach kleinen
+Gewinnen weiteriterieren, nicht aufhoeren.
+
+**Neue verifizierte Zwischenschritte (keine Gesamtfreigabe):**
+
+- Frisches Dual-GPU-Profil mit Slash-Device-Liste (`CUDA0/CUDA1`),
+  Build `cf86da5927`, synthetisches pp8192/ub4096: MMQ und GDN aktiv;
+  Prozessprofil inkl. Laden zeigt ~128 GB H2D und ~21,5 s summierte
+  H2D-Kopierzeit. Keine exakte Prefill-Zeitzerlegung daraus ableiten.
+- Unprofiliertes pp8192/ub8192, gleiche UD-IQ4_XS-Datei, Dual-GPU,
+  Prefetch an/Cache aus, drei Reps: 425,3 / 469,7 / 469,9 t/s.
+  Median ~469,7; erste/warmere Laeufe getrennt betrachten. Noch kein
+  Same-Text-Vergleich mit Strata und kein Qualitaetsgate. Passende
+  unprofilierte ub4096-Gegenmessung gestartet.
+- MTP-Runner implementiert, Mock-Tests und echte CPU-Server-Probe
+  vorhanden. Main-Gegenpruefung fand trotz anfaenglich gruener Mocks
+  entfernte CLI-Flags, falsche Thinking-Payload und zu schwache
+  Delivery-/Identitaetschecks; korrigiert. Das Re-Review ist
+  abgeschlossen (f2a6afc6) und hat verbleibende P2-Befunde
+  identifiziert (Startup-/Request-Ctrl-C-Final-Metadata,
+  Terminate-/Kill-Timeout, Fingerprint-Fehlerpfad — siehe
+  scripts/AGENTS.md); diese Lifecycle-/Test-Punkte sind offen.
+  GPU-Matrix erst nach dieser Verifikation. Kein Mock-PASS als
+  Performance-PASS.
+
+**Arbeits-Checkliste:**
+
+- [ ] `[OFFEN]` q8_0-Spec-Diagnose gebunden auf 60-Minuten-Budget:
+      nur kontrollierte Tests (Mehrtoken-Forward vs. sequenzieller
+      Forward, Byte-/Logit-Paritaet vor/nach Restore, K/V-Isolation,
+      Commit-Fortschritt). Ergebnis danach festhalten, weiter zum
+      Prefill-Pfad.
+- [ ] `[OFFEN]` Kontrollierte MTP-Matrix (§10.7): identische Prompts/
+      Laengen/Kontexte, >=3 Reps, Stage-Kosten Draft/Verify/Checkpoint
+      separat, Ein-Schritt-Orakel und Greedy-/Rollback-Paritaet **vor**
+      jeder Performancezahl.
+- [ ] `[OFFEN]` Baseline konsolidieren: `--no-mmap` warm und
+      Host-Registrierung als fehlende Kontrollen (Rest-Luecke §10.4).
+- [ ] `[OFFEN]` Prefill-Profil (NVTX/CUDA-Events pro Layer/Expert)
+      plus Chunk-Sweep 256..8192, >8192 falls unterstuetzt und Budget
+      reicht; danach den *gemessenen* Mechanismus implementieren,
+      kein festes Arena-Rezept.
+- [ ] `[OFFEN]` Iteration same-Quant auf 1 und 2 GPUs getrennt messen.
+
+**Branch-Vorschlaege (nicht angelegt — Anlage/Verifikation beim
+Main-Agent):**
+
+- `feat/flashnext-prefill-profile` — Instrumentierung + Chunk-Sweep
+- `feat/flashnext-s1-prefill-pipeline` — S1-Streaming-Mechanismus
+- `feat/flashnext-kernel-<op>` — gezielte Kernel-/Layout-Ports nach Profil
+- `feat/qwen4exp-q8-spec-fix` — falls aus der q8_0-Diagnose ein Fix folgt
+
+### DOX-Audit-Checkpoint 2026-10-08
+
+- [x] DOX-Audit durchgefuehrt und Audit-Record `docs/DOX_AUDIT.md`
+      angelegt; Root-/Child-AGENTS-Kette, kanonische Docs und aktive
+      lokale Verweise korrigiert (nur Doku, keine Builds/Tests).
+- [ ] `[OFFEN]` Trilium-Notiz-Befunde aus `DOKU_BEOBACHTUNGEN.md`
+      mit Live-Lesegriff pruefen (nicht als geloest markiert).
+- [ ] `[OFFEN]` `test-speculative-mtp.cpp`: Legacy-Testquelle auf
+      aktuelle API-Kompatibilitaet pruefen/portieren; erst danach eine
+      Registrierung entscheiden.
+- [ ] `[OFFEN]` Bench-Runner P2-Review: Ctrl-C-Final-Metadata,
+      Terminate-/Kill-Timeout, Fingerprint-Fehlerpfad.
+- [ ] `[OFFEN]` Topk-Worktree: Cross-Branch-Uebertragung der
+      korrigierten Root-/Child-DOX; TOP_K-Row-Cap CUDA-Paritaetsgate.
+- [ ] `[OFFEN]` Legacy-Docs mit Host-/Pfad-Details bei Bedarf
+      bereinigen (keine globale Sauberung in dieser Runde).

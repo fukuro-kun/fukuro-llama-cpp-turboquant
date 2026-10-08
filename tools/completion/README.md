@@ -556,7 +556,7 @@ These options help improve the performance and memory usage of the LLaMA models.
 
 ### Quantization
 
-For information about 4-bit quantization, which can significantly improve performance and reduce memory usage, please refer to llama.cpp's primary [README](../../README.md#prepare-and-quantize).
+For information about 4-bit quantization, which can significantly improve performance and reduce memory usage, please refer to llama.cpp's primary [README](../../README.md#obtaining-and-quantizing-models).
 
 ## LoRA (Low-Rank Adaptation) adapters
 

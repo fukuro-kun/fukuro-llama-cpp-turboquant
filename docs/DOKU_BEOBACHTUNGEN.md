@@ -4,6 +4,11 @@
 **Zweck:** Sammlung von Diskrepanzen, Widersprüchen und veralteten Beschreibungen
 zwischen Doku und Code-Realität. Einträge werden **notiert**, nicht selbst behoben.
 
+> **Stand 2026-10-08 (DOX-Audit):** Die Rundgaenge unten sind Juli-2026-
+> Zeitpunkte; "offen"-Stati und "(untracked)"-/Pfad-Angaben sind historische
+> Funde. Aktuelle Dispositionen siehe Abschnitt "Dispositionen 2026-10-08" am
+> Ende. Trilium-Funde wurden **nicht** live erneut verifiziert.
+
 ---
 
 ## Rundgang 1 — 2026-07-08
@@ -52,8 +57,9 @@ AGENTS.md enthält weiterhin nützliche Informationen auch ohne die verlinkten D
 **Fund:** FORKS.md verweist an zwei Stellen auf `BRANCHES.md` für Branch-Details,
 aber BRANCHES.md wurde durch Commit `f86ac47a6` gelöscht und existiert nicht mehr.
 
-**Quelle A:** `FORKS.md` Zeile 4: "Siehe auch [BRANCHES.md](BRANCHES.md) fuer
-Branch-Details" und Zeile 252: "Details: [BRANCHES.md](BRANCHES.md)"
+**Quelle A:** `FORKS.md` Zeile 4: `Siehe auch BRANCHES.md fuer Branch-Details`
+und Zeile 252: `Details: BRANCHES.md` (historisch zitierte Links auf die
+geloeschte Datei — keine aktiven Navigationslinks mehr).
 **Quelle B:** `ls BRANCHES.md` → No such file. `git log --diff-filter=D -- BRANCHES.md`
 zeigt Löschung durch `f86ac47a6`.
 **Vorschlag:** Entweder BRANCHES.md neu erstellen (Branch-Übersicht für master
@@ -69,11 +75,12 @@ und archive/cherry-dflash) oder Referenzen aus FORKS.md entfernen.
 FORKS.md wurde von 912 auf 288 Zeilen bereinigt (Commit `bfcfcdb81`) und enthält
 nur noch Sections bis §5.5.
 
-**Quelle A:** `AGENTS.md` Vulkan-Optimierungen-Tabelle:
-- "Siehe [FORKS.md §5.9](FORKS.md#59-vdot2-cherry-pick-abgebrochen)"
-- "Siehe [FORKS.md §5.7](FORKS.md#57-warum-bfloat16-fa-fuer-uns-nicht-nutzbar-ist)"
-- "Siehe [FORKS.md §5.10](FORKS.md#510-coopmat2-feature-check-ergebnis)"
-- "Siehe [FORKS.md §5.11](FORKS.md#511-cuda-fast-wht-plan)"
+**Quelle A:** `AGENTS.md` Vulkan-Optimierungen-Tabelle (historisch zitiert,
+keine aktiven Links):
+- `Siehe FORKS.md §5.9 (Anchor #59-vdot2-cherry-pick-abgebrochen)`
+- `Siehe FORKS.md §5.7 (Anchor #57-warum-bfloat16-fa-fuer-uns-nicht-nutzbar-ist)`
+- `Siehe FORKS.md §5.10 (Anchor #510-coopmat2-feature-check-ergebnis)`
+- `Siehe FORKS.md §5.11 (Anchor #511-cuda-fast-wht-plan)`
 
 **Quelle B:** `FORKS.md` Section-Header — höchste Section unter §5 ist §5.5.
 Sections §5.6-§5.11 wurden in der Bereinigung entfernt.
@@ -491,4 +498,28 @@ hydra→Dev-Host, styx→Pascal-Host, uranus→BigGPU-Host, mars→RDNA3-Host, v
 helene→MoonHost1, telesto→MoonHost2. Lokale Pfade → generische Platzhalter.
 Dateinamen umbenannt: styx→pascal. Backup: /tmp/repo-backup-20260708221923.bundle.
 Force-Push ausstehend.
+
+---
+
+## Dispositionen 2026-10-08 (DOX-Audit)
+
+Aktueller Stand der alten Funde — dokumentationsseitig, ohne Trilium-Livezugriff:
+
+| # | Fund (Juli) | Disposition 2026-10-08 |
+|---|-------------|------------------------|
+| 1 | SNAPSHOT.md DFlash-Zustand | Erledigt: `docs/SNAPSHOT.md` traegt jetzt `HISTORISCH`-Banner + Verweis auf kanonische Dateien. |
+| 2 | AGENTS.md → geloeschte docs/fork-Dateien | Erledigt: Root-AGENTS referenziert nur noch existierende Pfade (Audit 2026-10-08). |
+| 3 | FORKS.md → `BRANCHES.md` | Erledigt: Referenzen auf §7/Branch-Tabelle umgeleitet; `BRANCHES.md` wird nicht neu erfunden. |
+| 4 | AGENTS.md → FORKS §5.7/5.9/5.10/5.11 | Erledigt: tote Anchor-Referenzen entfernt (Root-AGENTS wurde neu gefasst). |
+| 5 | Trilium conda/ellama vs. uv | **Offen — nicht live verifiziert** (kein Trilium-Zugriff in dieser Session). |
+| 6 | Trilium: BRANCHES.md als kritische Datei | **Offen — nicht live verifiziert** (s.o.). |
+| 7 | Trilium Momentaufnahme DFlash | **Offen — nicht live verifiziert** (s.o.). |
+| 15/17/20/21 | Beobachtungen ohne Aktion | Historisch; Belege eingefroren. |
+| 18 | Trilium: thecodacus fehlt | **Offen — nicht live verifiziert**. |
+| 19 | scripts/AGENTS.md vs. Host-Namen-Skripte | Historische Umbenennung **nicht** erneut verifiziert: die Skript-Dateinamen enthalten weiterhin Standort-Namen (`start-styx-*`, `start-uranus-*`, `start-mars-*` u.a.). Die Datenhygiene-Regel (keine neuen privaten Daten) bleibt; die Bestandspflege der Legacy-Dateinamen ist offener Follow-up, nicht als erledigt markiert. |
+
+**Hinweis:** Forensisch zitierte Pfade in den Rundgaengen (z.B. auf `BRANCHES.md`
+oder alte FORKS-Anchors) sind bewusst als Inline-Code wiedergegeben und gelten
+nicht als aktive Navigationslinks. Weitere offene Punkte (P2-Runner-Review,
+Legacy-Helper-Flags, TopK-GPU-Validierung) stehen in `docs/DOX_AUDIT.md`.
 

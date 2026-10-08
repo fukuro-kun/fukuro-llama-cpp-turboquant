@@ -9,7 +9,7 @@
  - [Docker](#docker)
  - [Linux](#linux)
  - [Environment variable setup](#environment-variable-setup)
- - [TODO](#todo)
+ - [Updates](#updates)
 
 
 ## Background

@@ -1,5 +1,13 @@
 # Qwen 3.x NextN — shared-model speculative decoding
 
+> **HISTORISCH.** Dieser Bericht beschreibt den NextN-Pfad unter den alten
+> Namen/APIs (`--spec-type nextn`, `llama_set_nextn`,
+> `llm_build_qwen35*_nextn`, `common_speculative_state_nextn` u.a.), die im
+> aktuellen Code so nicht mehr existieren. **Aktuelle Referenz:
+> `docs/speculative.md`** (Mechanismenuebersicht, generischer `draft-mtp`-Pfad,
+> aktuelle Flag-Namen). Gemessene Zahlen unten sind datierte Befunde, keine
+> aktuellen Defaults.
+
 > Scope: **Qwen3.6** (and compatible) models with NextN / MTP auxiliary head weights in GGUF.
 > The draft context now reuses the **target** `llama_model` (no second mmap of the combined
 > `_MTP.gguf`); a second `llama_context` is built over the same model with
@@ -210,7 +218,7 @@ NextN graph builder now flows through `LLM_GRAPH_TYPE_NEXTN` instead of `overrid
 
 - Single quant: `scripts/quantize-qwen-udt.sh`
 - Full sweep: `scripts/quantize-qwen-udt-matrix.sh`
-- Remote / bench / HF: **[docs/qwen-udt/RUNBOOK.md](../docs/qwen-udt/RUNBOOK.md)**
+- Remote / bench / HF: **[docs/qwen-udt/RUNBOOK.md](docs/qwen-udt/RUNBOOK.md)**
 
 **Note:** `UDT` filenames use `…Q4_K_XL…` as a product tag; `llama-quantize` is still invoked with family types `Q4_K_M`, `Q5_K_M`, etc.
 
@@ -234,7 +242,7 @@ What's actually in each repo, and why it's a bit unusual for a quant drop:
 - **`imatrix_unsloth.gguf_file` re-hosted** — same artifact as Unsloth's (77-chunk, MTP-aware), included in each repo so the build is reproducible from a clean clone of the recipe.
 - **Apache-2.0**, attribution: Qwen team (weights), Unsloth (imatrix + BF16 sources), [@TheTom](https://github.com/TheTom) (TurboQuant), AtomicChat (UDT masks + packaging). Fork: [`AtomicBot-ai/atomic-llama-cpp-turboquant`](https://github.com/AtomicBot-ai/atomic-llama-cpp-turboquant).
 
-The whole pipeline (download → quantize on H100 → bench on M4 Max → upload) is scripted in [`docs/qwen-udt/RUNBOOK.md`](../docs/qwen-udt/RUNBOOK.md); re-running it on the same Unsloth sources reproduces the published files bit-identical.
+The whole pipeline (download → quantize on H100 → bench on M4 Max → upload) is scripted in [`docs/qwen-udt/RUNBOOK.md`](docs/qwen-udt/RUNBOOK.md); re-running it on the same Unsloth sources reproduces the published files bit-identical.
 
 ---
 

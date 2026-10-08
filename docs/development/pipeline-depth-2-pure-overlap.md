@@ -1,5 +1,10 @@
 # Pipeline depth-2: pure MTP overlap (implementation notes)
 
+> **HISTORISCH.** Beschreibt die Pipeline um `llama_decode_mtp_async` /
+> `llama_decode_mtp_wait` — beide APIs existieren im aktuellen Code nicht
+> mehr. Dokument dient der Entstehungsgeschichte; aktueller Vertrag steht in
+> `docs/speculative.md` und `common/speculative.cpp`.
+
 ## Summary
 
 `llama-server` overlaps MTP draft compute with per-iteration post-accept work by

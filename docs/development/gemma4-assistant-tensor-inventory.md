@@ -1,5 +1,14 @@
 # Gemma 4 Assistant (MTP drafter) — tensor inventory (Stage 0)
 
+> **HISTORISCH (Stage-0-Referenzinventar).** Erstellt zur Initial-Analyse der
+> Assistant-GGUF gegen die MLX-VLM-Referenz. Enthaelt bewusst alte Namen und
+> Vertraege, die im aktuellen Code nicht mehr gelten: `--spec-type mtp`,
+> `gemma4_mtp_build_one_step()` (entfernt), `mtp.pre_projection`-Benennung und
+> den unregistrierten Test `test-speculative-mtp`. **Dies ist nicht der
+> aktuelle Loader-Vertrag** — der aktuelle Assistant-Loader nutzt
+> `nextn_proj_pre` / `nextn_proj_post`; aktuelle Referenz:
+> `docs/speculative.md`.
+
 This document records the expected tensor layout for `Gemma4AssistantForCausalLM` / `model_type: gemma4_assistant`, cross-referenced with the MLX-VLM reference implementation (PR #1112).
 
 ## HF config highlights (`google/gemma-4-26B-A4B-it-assistant`)

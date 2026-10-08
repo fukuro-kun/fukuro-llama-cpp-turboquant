@@ -43,7 +43,6 @@
 | `run-gemma4-e4b-mtp-mmproj-server.sh` | Gemma 4 E4B multimodaler MTP-Server starten. |
 | `run-gemma4-12b-iq4nl-pascal-server.sh` | Gemma 4 12B IQ4_NL MTP-Server (Pascal-Host, Port 18080). |
 | `run-gemma4-26b-a4b-mtp-pascal-server.sh` | Gemma 4 26B-A4B MoE MTP-Server mit thecodacus Pinning+Prefetch (Pascal-Host). |
-| `start-mars-26b-server.sh` | Gemma 4 26B-A4B QAT (Vulkan, turbo4/4, mmproj-F16, 262144 ctx, ub 2048, Bild-Tokens 512–1984). |
 | `precompile-vulkan-shaders.sh` | Systematisches Precompile aller FA-Pipeline-Varianten mit Cache-Backup. |
 | `start-venus-26b-server.sh` | Gemma 4 26B-A4B QAT Vulkan-Server mit `--mmproj` (Vision/SigLIP). f16 KV, 256k Ctx, 2 Slots. Siehe `docs/fork/2026-08-14_GEMMA4_VISION_MMPROX.md`. |
 | `start-mars-26b-server.sh` | Vision-Produktivprofil: Gemma 4 QAT, turbo4/4 KV, 2×128k, mmproj-F16, ub ≥ Bild-Chunk; vor Neustart GTT-Freigabe prüfen. |
@@ -51,6 +50,13 @@
 | `start-uranus-26b-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Ada, GPU 0, Port 18080). MoE-Offload, MTP. |
 | `start-uranus-26b-gpu1-server.sh` | Gemma 4 26B-A4B QAT CUDA-Server (Ada, GPU 1, Port 18082). 2. Instanz, Prefetch deaktiviert. |
 | `start-uranus-qwen38-server.sh` | Qwen3.8-27B Swift-1.5 CUDA/MTP-Server (GPU 0, Port 18080); UB-Default 640 (`UB` überschreibbar), ohne parallel-decision/JEV. |
+| `start-uranus-qwen35b-server.sh` | Qwen3.5-35B-A3B CUDA-Server; siehe Skript-Header. |
+| `start-uranus-vlm-server.sh`, `stop-uranus-vlm-server.sh` | Start/Stop llama-server mit `--mmproj` (VLM); PID-Datei-basiert. |
+| `start-styx-vlm-server.sh`, `stop-styx-vlm-server.sh` | Start/Stop llama-server mit `--mmproj` auf dem Pascal-Host; Konfiguration im Skript-Header. |
+| `stop-uranus-26b-server.sh`, `stop-uranus-26b-gpu1-server.sh` | Stop-Skripte zu den Uranus-Servern (PID-Datei, warten auf Exit). |
+| `run-gemma4-26b-a4b-mars-server.sh`, `run-gemma4-26b-a4b-styx-server.sh` | Weitere 26B-A4B Server-Startskripte pro Host. |
+| `llama-server-*-26b-a4b.service` | systemd-Units fuer die Produktiv-Server (pro Host). |
+| `start-mars-26b-server-turbo4.sh` | Mars-Server-Variante mit turbo4-KV; Konfiguration im Skript-Header. |
 
 - Anpassen vor Verwendung: Kontextlaenge, GPU-Layer, Modellpfad, Port.
 - **Vision (mmproj):** Siehe `docs/fork/2026-08-14_GEMMA4_VISION_MMPROX.md` für
@@ -62,6 +68,7 @@
 |--------|-------|
 | `bench-*.sh` / `bench-*.py` | Performance- und Qualitaetsbenchmarks fuer Matrix-Tests, parallele Anfragen, TurboQuant-Setups. |
 | `bench-mtp-matrix.sh` | Universelles MTP-Matrix Benchmark (konfigurierbar fuer alle Modelle). CSV-Output, VRAM-Monitoring. |
+| `bench-flashnext-mtp.py` | Kontrollierte Text-/Tokenbudget-Matrix target-only gegen MTP; identische Prompts, echte Server-PIDs, Rohantworten/Timings und fsync-JSONL. `--probe` testet target-only und eine MTP-Konfiguration; kein Qualitaets-PASS allein aus EOS/Reasoning. |
 | `bench-mtp-matrix-196k.sh` | Vollstaendige MTP-Matrix @ ctx=196608 fuer Gemma-4 12B (9 Targets × 12 Drafts). |
 | `bench-b1-vulkan-q3k-q6k.sh` | Vulkan Q3_K/Q6_K Block-Load Benchmark (Cherry-Pick B1 Ergebnisse). Siehe [docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md](../docs/fork/2026-06-17_B1_VULKAN_Q3K_Q6K_BENCHMARK.md). |
 | `bench-vulkan-kv-cache.sh` | Vulkan KV-Cache Benchmark: turbo3/3, turbo4/3, turbo4/4, f16 bei pp512-8192 mit 26B-A4B. GTT-Cleanup zwischen Tests. Siehe [docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md](../docs/fork/2026-07-09_VULKAN_KV_CACHE_BENCHMARK.md). |
@@ -69,6 +76,9 @@
 | `bench-qwen-udt-quality.sh` | Qualitaetsbewertung fuer Qwen UDT. |
 | `bench-ea-phase3.sh` | EA Phase 3 Benchmark: EA disabled vs enabled bei 4k/16k/64k/128k Kontextlängen. Nutzt `LLAMA_ARG_EA_RATIO` env var. Siehe [docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md](../docs/fork/2026-07-15_EXPECTED_ATTENTION_DESIGN.md). |
 | `bench-decision.py` | Entscheidungsmodus-Benchmark: `/v1/decision` vs. `/v1/chat/completions` fuer dieselbe Klassifikationsaufgabe (Latenz, Tokens, Schema-Konformitaet). Rein HTTP, kein Prozess-Spawn. |
+| `server-test-*.py`, `server-bench.py`, `tool_bench.*` | Server-Endpunkt-/Tool-Testhilfen; konfiguration im Skript-Header. |
+
+**Offene Review-Punkte am Runner (P2, Dokumentationsstand 2026-10-08, kein Laufzeitfix):** Ctrl-C-Finalmetadaten, terminate/kill-Timeout-Pfad und Fingerprint-Fehlerpfade in `bench-flashnext-mtp.py` sind als Review-Items offen; Mock-Tests (`tests/test-bench-flashnext-mtp.py`) decken diese Pfade nicht ab. Keine Caching-/Output-/Speicher-Shortcuts erfinden.
 
 ### Endpoint-Tests
 
@@ -78,12 +88,12 @@
 
 **Benchmark-Best-Practices (gelernt aus InferenzQuelle):**
 
-1. **GPU-Bereinigung vor jedem Test:** `killall -9 llama-cli` + 3s Pause (verhindert OOM bei aufeinanderfolgenden Tests).
+1. **GPU-Belegung vor jedem Test pruefen:** Fremde Prozesse nicht beenden. Testserver direkt starten und echte PID merken; nur diesen eigenen Prozess per TERM stoppen, dessen Ende und Speicherfreigabe abwarten. Kein `killall`/`pkill` und kein Server unter `timeout`.
    **Auf APU-Hosts (phobos/mars, GTT == System-RAM) strengere Regel (UNVERHANDELBAR, Host-OOM am 2026-09-29):** Niemals zwei Vulkan-Server-Allokationen ueberlappen lassen. Reihenfolge: Server stoppen → `pgrep -x llama-server` leer UND `mem_info_gtt_used` gefallen → erst dann neuen Server starten. SIGTERM braucht Sekunden fuer die GTT-Freigabe; ein parallel startender Server erzeugt einen Peak > Host-RAM → Kernel-OOM legt den ganzen Host lahm. `start-mars-26b-server.sh` enthaelt diesen Guard eingebaut.
 2. **Datei-Pruefung:** Target und Draft vor dem Test auf Existenz pruefen (vermeidet Exit 127).
 3. **Output in Variable:** Statt direkte Log-Umleitung — Output in Variable speichern, dann parsen (sauberes Extrahieren von Metriken).
 4. **sync nach CSV-Eintrag:** `sync` nach jedem `echo >> "$CSV"` (Persistenz bei Absturz oder SIGKILL).
-5. **Exit 124 als OK:** Timeout (exit 124) als erfolgreich behandeln, wenn Performance-Daten vorhanden sind.
+5. **Abbruch ist kein PASS:** Timeout oder unvollstaendige Matrix bleibt fehlgeschlagen/teilweise, auch wenn einzelne Timing-Daten vorhanden sind. Fehlendes Content, EOS/Tokenlimit und tatsaechliche Tokenzahlen getrennt ausweisen; Speedup nur fuer passende Vergleichspaare.
 6. **Lock-File:** Wrapper mit Lock-File (`/tmp/<name>.lock`) verhindert parallele Ausfuehrung.
 7. **setsid:** Bei SSH-Start `setsid` verwenden, damit der Prozess nicht an die SSH-Session gebunden ist (systemd beendet sonst User-Prozesse beim Logout).
 
@@ -138,9 +148,16 @@ hf auth whoami
 ### Weitere thematische Unterverzeichnisse
 
 - `apple/` — Apple-Plattform-Validierung (iOS, macOS, tvOS, visionOS).
+- `hip/` — AMD ROCm/HIPIFY-Build-Helper.
+- `snapdragon/` — Qualcomm Snapdragon (QNN) Integrationstests; `install-oneapi.bat` gehoert zur Intel-Plattform.
 - `autoresearch/` — Automatisierte Forschungs-Track-Experimente.
 - `qwen-udt/` — Qwen UDT spezifische Hilfsskripte (Download, Upload, Remote-Bootstrap).
 - `jinja/` — Jinja-Template-Tester.
+
+### Kuratierung und Legacy-Helper
+
+- Das Inventar in diesem Dokument ist **kuratiert**, nicht vollstaendig — weitere on-disk Skripte (z.B. `sync-ggml*.sh`, `sanity-27b-turbo3-base.sh`, `get-*.sh`, `compare-*.py`) werden bei Bedarf in die Tabellen aufgenommen.
+- **Legacy-Helper sind nicht auf Laufzeitkompatibilitaet geprueft:** einige aeltere Skripte rufen entfernte Flags (`--draft`, `--spec-type mtp`) auf. Vor Verwendung die Flags gegen `docs/speculative.md` bzw. `--help` pruefen; Root-Regeln (nur eigene PIDs per TERM beenden, keine `killall`/`pkill`-Helfer auf fremde Server) gehen vor. Konkrete Reparaturen sind offener Follow-up (siehe `docs/DOX_AUDIT.md`).
 
 ---
 

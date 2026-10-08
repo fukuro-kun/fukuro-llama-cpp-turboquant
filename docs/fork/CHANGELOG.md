@@ -1,5 +1,9 @@
 # CHANGELOG — fukuro-llama-cpp-turboquant
 
+> **HISTORISCH.** Historischer Port-/Verbesserungsbericht (bis ca. Ende
+> September 2026). Die **aktive** Chronologie ist `../../CHANGELOG.md`
+> (Repository-Root); Eintraege hier werden nicht fortgeschrieben.
+
 Alle nennenswerten Änderungen am Fork. Format: Datum → Commit → Beschreibung.
 
 ---

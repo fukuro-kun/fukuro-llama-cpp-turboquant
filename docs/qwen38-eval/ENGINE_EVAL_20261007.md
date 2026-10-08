@@ -3,6 +3,21 @@
 **Datum:** 2026-10-07 · **Host:** uranus (2× RTX 4060 Ti 16 GB, i7-9700K 8 Kerne, 125 GB RAM, PCIe gemessen 6.2 GB/s H2D)
 **Bezugsplan:** `docs/fork/plans/SESSION_PLAN_20261006_strata-optllama-uranus-eval.md` · **Trilium:** `5Ec9sW4aCN6S`
 
+> **Mess-Epochen (Einordnung, Stand 2026-10-08):**
+> 1. **Initiale Engine-Evaluation** (§1–§4, master `aa1976da98`, vor den
+>    P1-Fixes): Prefetch-Crash, IQ3-Offset "unbekannter Ursache" und die
+>    `-ubp`-Aussagen sind **Initialbefunde** — §5 beschreibt die seither
+>    geloesten Fixes. Das initiale ~4.6×-Gap-Verhaeltnis ist historisch und
+>    kein universelles Versprechen.
+> 2. **Post-P1-Messungen** (§4.0): B0–B5 mit je drei Wiederholungen;
+>    Konsolidierung und Kontrollen offen.
+> 3. **Synthetischer pp8192/phys.-ub8192-Lauf** (§4.0 / Plan §10.7):
+>    425.3 / 469.7 / 469.9, median 469.7 — **anderes Benchmark** (natives
+>    Synthetic, nicht `/completion`-TTFT auf denselben Texten); keine neue
+>    Gap-Zahl.
+> 4. **MTP:** Graph/Sidecar-Smokes existieren; q8_0-KV-Spec-Degeneration und
+>    das breite M-Gate bleiben **offen** (§4.0).
+
 ---
 
 ## 1. Executive Summary
@@ -19,11 +34,12 @@
 **~4.3–4.6× schneller im Prefill** (1227 vs. ~267 t/s @23k) und **~4× schneller im Decode**
 (~45 vs. ~11.5 t/s). Die Lücke wächst mit Promptlänge: bei ~800 Tokens noch ~1.5×, bei 23k 4.6×.
 
-Der Abstand ist **nicht** durch unsere vorhandenen Features (moe-cache, ubp, prefetch) aufholbar:
+Der Abstand ist **nicht** durch unsere vorhandenen Features (moe-cache, ubp, prefetch) aufholbar
+(**Initialbefund vor den P1-Fixes** — nachtraegliche Post-P1-Werte in §4.0):
 
 - `moe-cache` (auto): **±0 %** — Cache deckt 2560/24576 Expert-Slots, kein messbarer Gewinn.
-- `-ubp 8192`: **negativ** bei kurzen Prompts (69 vs. 106 t/s), neutral bei langen.
-- `GGML_SCHED_PREFETCH_EXPERTS=1`: **Crash** (CUDA error in `ggml_cuda_op_mul_mat_cublas`, reproduzierbar).
+- `-ubp 8192`: **negativ** bei kurzen Prompts (69 vs. 106 t/s), neutral bei langen (Initialbefund; Post-P1 B2 lieferte 345,0 pp t/s @23k — siehe §4.0).
+- `GGML_SCHED_PREFETCH_EXPERTS=1`: **Crash** (CUDA error in `ggml_cuda_op_mul_mat_cublas`, reproduzierbar) — **seit P1b behoben** (`3f3d272f69`, `819af39886`, §5.2).
 - Hybrid `--n-cpu-moe 40/44`: **+10–17 %** — bester Fork-Wert (279 t/s @5.8k), OOM-Risiko ab ~23k.
 - TurboQuant-KV (turbo4/turbo3): pp +4–8 %, Decode-Einbruch ~4 t/s @23k (nicht empfohlen für dieses Modell).
 
@@ -60,8 +76,9 @@ gegatet** (siehe §5; Commits `0389e655e8`, `3f3d272f69`, `819af39886`).
 | `ISTA-DASLab GSQ-RCO IQ3_XXS` | 2 Shards | 70.6 GB | Strata, OptLlama |
 | `unsloth UD-IQ4_XS` | 3 Shards | ~88 GB | Strata, Fork |
 
-**Asymmetrie-Disclaimer:** Der Fork konnte IQ3_XXS nicht laden (GGUF-Offset-Fehler unbekannter Ursache,
-siehe §6) — Fork-Zahlen stammen von UD-IQ4_XS. Strata-UD-IQ4_XS liefert den
+**Asymmetrie-Disclaimer:** Der Fork konnte IQ3_XXS nicht laden (GGUF-Offset-Fehler,
+damals unbekannter Ursache — **seit P1a behoben**: Typkollision Q2_0=42/TURBO2_0=47,
+Fix `0389e655e8`, §5.1) — die untenstehenden Fork-Zahlen stammen von UD-IQ4_XS. Strata-UD-IQ4_XS liefert den
 1:1-Modellvergleich Fork↔Strata; Strata-IQ3_XXS ist der schnellere Quant
 (kleinere Expert-Blobs → mehr Expert-Cache-Abdeckung, 7483 vs. 4370 Slots).
 
@@ -173,6 +190,33 @@ Messfehler für pp.
 ---
 
 ## 4. Einordnung
+
+### 4.0 Nachtraeglicher Implementierungs-/Methodikstand
+
+Die Tabellen oben beschreiben die urspruengliche Engine-Evaluation,
+nicht den aktuellen Stand nach P1-Fixes. Die Post-P1-Daten B0–B5
+liegen mit je drei Wiederholungen vor: UD-IQ4_XS @23k B0 244,9 pp t/s,
+B1 Prefetch 283,4 und B2 Prefetch + ubp8192 345,0; IQ3_XXS B5
+320,7 pp t/s (343,0 ist das Maximum). Das lange Decode ist wegen
+EOS-kurzer Laeufe noch nicht sauber vergleichbar. S1-Streaming und
+S2-RAM-adaptive Expert-Arena sind **noch nicht implementiert**.
+
+Der Qwen4Exp-MTP-Graph und Q8_0-Gewichts-Sidecar laufen; kurze f16-KV-
+Smokes lieferten `B. Paris`. Die ersten n_max=2/4/8-Messungen (9,44 /
+13,27 / 14,19 t/s) wurden aber mit verschiedenen Prompts und
+83/300/200 erzeugten Tokens verglichen. Die vorherige Schlussfolgerung
++28 % und Optimum n=8 ist **nicht belastbar**; das Gesamtgate bleibt
+offen. Hohe Akzeptanz und kohärentes, abgeschnittenes Reasoning ersetzen
+weder Delivery- noch Logit-/Rollback-Paritaet. Der q8_0-KV-Spec-Fehler
+ist eingegrenzt, nicht ursachenseitig gefixt; f16 ist ein vorlaeufiger
+Workaround, kein Nachweis dass der ganze Pfad korrekt ist.
+
+Stratas gemessene Config nutzt `--spec 4 --spec-min-p 0.5 --kv int8`.
+`spec T` bedeutet ein feststehendes Token plus T−1 Drafts; im Fork
+zaehlt `spec-draft-n-max` nur Drafts. Der vergleichbare erste Fork-Punkt
+ist deshalb n_max=3. Stratas int8-KV besitzt eigene 64-Wert-Gruppen,
+Skalen und Kernel, ist nicht identisch mit GGML-Q8_0. Kontrollierte
+Text-/Laengen-/Kontext-Matrix und Diagnoseauftrag: Bezugsplan §10.7.
 
 ### 4.1 Woher kommt der Strata-Vorsprung?
 

@@ -17,7 +17,7 @@
 | CLI-Argumente | `arg.cpp`, `arg.h` | Paramater-Definition und Parsing fuer alle Binaerdateien |
 | Hilfsfunktionen | `common.cpp`, `common.h` | String-Utils, File-IO, Konsolen-Interaktion, Batching |
 | Sampling | `sampling.cpp`, `sampling.h` | Top-K/Top-P/Min-P, Temperature, Repeat-Penalty, Mirostat |
-| Spekulative Decodierung | `speculative.cpp`, `speculative.h` | **Draft-Treiber** fuer MTP (Gemma 4, K2-Horizon) und NextN (Qwen) |
+| Spekulative Decodierung | `speculative.cpp`, `speculative.h` | **Draft-Treiber** — registrierte Typen (`--spec-type`): `draft-simple`, `draft-eagle3`, `draft-mtp`, `ngram-simple`, `ngram-map-k`, `ngram-map-k4v`, `ngram-mod`, `ngram-cache`. Aktuelle Referenz: `docs/speculative.md` |
 | Chat-Formatierung | `chat.cpp`, `chat.h` | Template-Verarbeitung, Jinja-Engine-Anbindung, Gemma4-PEG-Parser |
 | PEG-Parser | `peg-parser.cpp`, `peg-parser.h` | Generische PEG-Parser-Infrastruktur fuer Chat-Format-Extraktion |
 | Chat-PEG-Parser | `chat-peg-parser.cpp`, `chat-peg-parser.h` | PEG-basierter Parser fuer Chat-Tool-Calls und Reasoning-Extraktion |
@@ -29,7 +29,7 @@
 ### Abhaengigkeiten
 
 - `speculative.cpp` greift auf `src/llama-context.cpp` und Modell-spezifische Draft-Logik zu (Gemma 4 MTP, Qwen NextN).
-- Aenderungen an Sampling-Parametern (`sampling.cpp`) koennen `tools/server/server-context.cpp` und `tools/llama-cli/` betreffen.
+- Aenderungen an Sampling-Parametern (`sampling.cpp`) koennen `tools/server/server-context.cpp` und `tools/cli/` betreffen.
 - `chat.cpp` bindet Jinja-Templates aus `common/jinja/` ein.
 
 ### K2-Horizon Sequenzentfernung
@@ -46,9 +46,10 @@
 Dies ist der zentrale Draft-Treiber des Forks. Bei Arbeit hier:
 
 1. **MTP (Gemma 4):** Pruefe Interaktion mit `src/models/gemma4-assistant.cpp` und `src/llama-context.cpp`.
-2. **MTP (K2-Horizon):** Pruefe Interaktion mit `src/models/k2-horizon.cpp` (Sidecar-Graph `blk.48.nextn.*`) und dem NextN-Embedding-Pfad in `src/llama-context.cpp` (`llama_set_embeddings_nextn`/`llama_get_embeddings_nextn_ith`). K2 benoetigt einen separaten MTP-KV-Pfad mit Catch-up: verifizierte Eintraege `(E[t_p], h_{p-1})` ab Position p=1, kein Eintrag bei p=0; provisorische Draft-Eintraege werden vor dem Verify-Batch entfernt.
-3. **NextN (Qwen):** Pruefe Interaktion mit `src/models/qwen3next.cpp`.
-3. **Verifizierung:** Spekulativen Benchmark laufen lassen (`llama-bench` mit `--draft` bzw. Server-Endpoint testen).
+2. **MTP (K2-Horizon):** Pruefe Interaktion mit `src/models/k2-horizon.cpp` (Sidecar-Graph `blk.48.nextn.*`) und dem NextN-Embedding-Pfad in `src/llama-ext.h`/`src/llama-context.cpp` (`llama_set_embeddings_nextn`/`llama_get_embeddings_nextn_ith`). K2 benoetigt einen separaten MTP-KV-Pfad mit Catch-up: verifizierte Eintraege `(E[t_p], h_{p-1})` ab Position p=1, kein Eintrag bei p=0; provisorische Draft-Eintraege werden vor dem Verify-Batch entfernt.
+3. **MTP (Qwen4Exp):** Pruefe Interaktion mit `src/models/qwen4exp.cpp` — Graph/Sidecar-Mapping (`blk.48.*`/`nextn.*`) und der Target/Draft-Breitenvertrag: der Draft-Kontext (`LLAMA_CONTEXT_TYPE_MTP`) arbeitet mit HC-Ausgangsbreite (`n_embd_out()`), nicht mit `n_embd_inp()`.
+4. **NextN (Qwen):** Pruefe Interaktion mit `src/models/qwen3next.cpp`.
+5. **Verifizierung:** Server-Test mit explizitem Draft (`--spec-type draft-mtp --spec-draft-model/-md ... --spec-draft-n-max/-min`) oder kontrollierte Runner-Matrix (`scripts/bench-flashnext-mtp.py`); die alten Flags `--draft`/`--draft-max`/`--draft-min` existieren nicht mehr.
 
 ### Aenderungen an `arg.cpp` / `arg.h`
 
@@ -70,7 +71,7 @@ Dies ist der zentrale Draft-Treiber des Forks. Bei Arbeit hier:
 ## Verifikation
 
 - [ ] `cmake --build build -j$(nproc)` erfolgreich
-- [ ] Bei Aenderungen an `speculative.cpp`: Spekulativer Decodierungs-Benchmark oder Server-Test durchgefuehrt
+- [ ] Bei Aenderungen an `speculative.cpp`: Server-Test mit `--spec-type draft-mtp` oder kontrollierte Benchmark-Matrix durchgefuehrt
 - [ ] Bei Aenderungen an `sampling.cpp`: Sampling-Tests (`./build/bin/test-sampling` falls vorhanden) bestanden
 - [ ] Keine privaten Daten in Commits (siehe Root-DOX)
 - [ ] Betroffenes Child-DOX und Root-DOX geprueft, ggf. aktualisiert

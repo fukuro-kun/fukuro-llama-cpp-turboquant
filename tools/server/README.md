@@ -672,7 +672,7 @@ Returns a JSON object with a field `prompt` containing a string of the input mes
 >
 > This endpoint is **not** OAI-compatible. For OAI-compatible client, use `/v1/embeddings` instead.
 
-The same as [the embedding example](../embedding) does.
+The same as [the embedding example](../../examples/embedding) does.
 
 This endpoint also supports multimodal embeddings. See the documentation for the `/completions` endpoint for details on how to send a multimodal prompt.
 
@@ -1855,20 +1855,18 @@ Note that the following endpoints are exempt from being considered as incoming t
 
 ### Interactive mode
 
-Check the sample in [chat.mjs](chat.mjs).
-Run with NodeJS version 16 or later:
+> **Hinweis (Fork):** ein minimaler Chat-Client fuer die OAI-kompatible
+> API ist ein simpler HTTP-Request, z.B.:
 
 ```sh
-node chat.mjs
+curl --request POST \
+  --url http://localhost:8080/v1/chat/completions \
+  --header "Content-Type: application/json" \
+  --data '{"messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
-Another sample in [chat.sh](chat.sh).
-Requires [bash](https://www.gnu.org/software/bash/), [curl](https://curl.se) and [jq](https://jqlang.github.io/jq/).
-Run with bash:
-
-```sh
-bash chat.sh
-```
+Streaming variants are shown in the [chat completions](#post-v1chatcompletions-openai-compatible-chat-completions-api)
+section above.
 
 Apart from error types supported by OAI, we also have custom types that are specific to functionalities of llama.cpp:
 

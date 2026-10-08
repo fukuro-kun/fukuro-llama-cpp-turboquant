@@ -144,7 +144,15 @@ Create empty model repos (if they do not exist):
 - `AtomicChat/Qwen3.6-27B-UDT-MTP-GGUF`
 - `AtomicChat/Qwen3.6-35B-A3B-UDT-MTP-GGUF`
 
-Add `README.md` from [release/qwen-udt/MODEL_CARD_TEMPLATE.md](../../release/qwen-udt/MODEL_CARD_TEMPLATE.md). Then:
+Add a `README.md` model card to each repo.
+
+> **Hinweis (Fork):** die hier frueher referenzierte optionale Vorlage
+> `release/qwen-udt/MODEL_CARD_TEMPLATE.md` existiert **nicht** in diesem
+> Repository — das Template zu erstellen (Quant-Tabellen, Lineage,
+> Usage-Flags) ist eine eigene Aufgabe; bis dahin die Model Cards direkt
+> schreiben.
+
+Then:
 
 ```bash
 huggingface-cli login

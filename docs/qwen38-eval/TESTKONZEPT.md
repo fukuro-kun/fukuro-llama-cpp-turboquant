@@ -1,5 +1,11 @@
 # Testkonzept: Qwen3.8-27B Quant-Vergleich (Eris/Uranus)
 
+> **Kontext (Kampagnen-Stand):** Messkampagne Stand 2026-09-28; Ergebnisse/
+> Rangfolge in `RANKING.md`, offene Nachbereitung in
+> `docs/SESSION_PLAN_qwen38-nachbereitung.md`. Queued-/Running-Stati unten
+> sind datiert, nicht aktuell. Dieses Konzept betrifft die 27B-Evaluierung —
+> nicht die Flash-Next-Engine-Arbeiten (`fork/plans/SESSION_PLAN_20261006_strata-optllama-uranus-eval.md`).
+
 **Stand:** 2026-09-28 · **Zweck:** Auswahl von zwei Produktiv-Profilen —
 (1) aligned, max. Qualität + Speed, (2) uncensored, minimal degradiert + schnell.
 Zulassungskriterium: **≥96k Kontext, vollständiger GPU-Offload**; danach

@@ -8,6 +8,31 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ## 2026-10-08
 
+### docs: DOX-Audit — Root-/Child-AGENTS-Kette und kanonische Docs konsolidiert
+
+Mechanischer Audit der gesamten AGENTS.md-Hierarchie (Root + 7 Childs +
+neues `docs/AGENTS.md`) und der kanonischen Fork-Dokumente: Root-
+Vertrag auf stabile operative Regeln verschlankt (Host-/Deployment-
+Details und Session-Status in `LOKAL.md` verwiesen), tote Verweise auf
+geloeschte Docs/Sektionen entfernt, Kill-/Remote-Sync-/Build-Regeln
+korrigiert (gezieltes PID-Handling, gepinnter Commit/Feature-Worktree,
+CPU-only-Verifikation erlaubt). `docs/speculative.md` als aktuelle
+Referenz neu geschrieben (registrierte `--spec-type`-Map, `draft-mtp`,
+Gemma-Assistant-Loader `nextn_proj_pre`/`post`, NextN-Unterscheidung,
+keine erfundenen Multimodal-/Speedup-Versprechen). Veraltete Test- und
+Policy-Namen in Child-DOX korrigiert; nicht registrierte
+`test-speculative-mtp` wird nicht mehr als Target beworben.
+Historische Dateien (MTP/NEXTN/Development-Inventare, SNAPSHOT,
+fork/CHANGELOG, TURBOQUANT_UPSTREAM_MERGE, alte SESSION_PLANs) mit
+`HISTORISCH`-Bannern bzw. Datums-Kontext markiert; aktive tote Links
+repariert (Server-/Completion-/Grammar-READMEs, RUNBOOK, CANN,
+autoparser `../`-Pfade u.a.). Plan-§10 konsistent zum Git-Stand:
+Restore-Fix `ab6e9dfcea` als abgeschlossen, q8_0-Paritaet und
+M/S1/S2-Gates und die B5-Konsolidierung/-Kontrollen offen (B5 selbst
+ist gemessen), P1b eigene Commits getrennt. Audit-Record in
+`docs/DOX_AUDIT.md`; reine Doku-Aenderungen — keine Builds, Tests oder
+Benchmarks in diesem Durchlauf, keine neuen Gate-Freigaben.
+
 ### fix: Vollstaendiger KV-Restore erhaelt alle Streams
 
 `state_read_meta` loeschte beim Fullstate-Restore den gesamten KV-Cache
