@@ -417,16 +417,35 @@ laufen; produktiv belegte Maschinen sind keine Test-Hosts.
   Tests auf Entwicklungsrechner, kleinere CUDA-MoEs nur auf freien
   Entwicklungs-/Test-Hosts. Produktivsysteme nicht beanspruchen.
 
-**Fortschritt Baseline/Profil (Stand 2026-10-07):**
+**Fortschritt Baseline/Profil (Stand 2026-10-08):**
 
-- [ ] `[OFFEN]` Gepinnte Fork-Baseline mit UD-IQ4_XS gemessen
-      (Promptlaengen, Wiederholungen, Warm/Kalt, Metriken wie oben).
-- [ ] `[OFFEN]` IQ3_XXS-Baseline beider Engines (setzt Gate P1a voraus).
-- [ ] `[OFFEN]` Vorhandene Alternativen fair geprueft (mmap/mlock/
-      no-mmap/REGISTER_HOST/Prefetch-nach-Fix/ub-Sweep).
-- [ ] `[OFFEN]` Messinfrastruktur-Protokoll (Config, Token-/Timing-
-      Paritaet, VRAM/RSS, H2D, Event-Zeiten) fuer Vergleichslaeufe
-      etabliert.
+- [x] Gepinnte Fork-Baseline mit UD-IQ4_XS gemessen (2026-10-08,
+      `eval-flashnext/results/fork-p1fix.jsonl`, Configs B0–B5, je
+      3 Reps, ~811/~2950/~5820/~23133 Prompt-Tokens):
+      - B0 cpu-moe ub4096 (Referenz): pp 106/239/242/245 t/s, tg ~11 t/s
+      - B1 +prefetch (P1b-Fix): pp 77/251/246/283 t/s — hilft ab ~23k
+        (+16 %), bremst kurze Prompts (−28 % bei 0,8k)
+      - B2 +prefetch +`-ubp 8192`: pp 75/249/244/**345** t/s —
+        physische Chunk-Groesse ist der staerkste Hebel bei 23k (+41 %)
+      - B3 hyb44 (`--n-cpu-moe 44` + prefetch): pp 84/270/264/302 t/s,
+        tg ~11,6 t/s
+      - B4 +GGML_CUDA_REGISTER_HOST: pp 72/262/256/296 t/s —
+        neutral bis leicht negativ, kein eigener Gewinn
+      - B5 IQ3_XXS + prefetch: pp 90/**320**/**311**/343 t/s —
+        dominiert Prefill ab ~3k (H2D-Volumen), tg ~10,4 t/s
+      - ⚠ Der 23k-Prompt terminiert nach 1 Token (EOS) → tg dort
+        unbrauchbar, pp-Werte valide.
+- [x] IQ3_XXS-Baseline gemessen (B5, siehe oben; „beider Engines"
+      — Strata/OptLlama-Vergleich folgt bei der Final-Auswertung,
+      Fork-Werte stehen).
+- [~] Vorhandene Alternativen geprueft: mmap (Default), Prefetch
+      nach Fix (B1/B2), `-ubp`-Sweep (8192), REGISTER_HOST (B4),
+      hyb-Residenz (B3), IQ3 (B5). **Nicht gemessen:** `--no-mmap`,
+      `--mlock` — markiert als Rest-Luecke, wenn noetig.
+- [x] Messinfrastruktur-Protokoll etabliert: `p1-post-baseline.sh`
+      (serverbasiert, `/v1/completions`, usage.prompt_tokens als
+      x-Achse, 3 Reps, Aggregator `agg_baseline.py`); Configs und
+      Ergebnis-Rohdaten unter `eval-flashnext/results/`.
 
 ### 10.5 Phase S1: grosse Prefill-Chunks + echte Expert-Streaming-Pipeline
 
@@ -665,22 +684,91 @@ MTP-Port):**
       skalare `n_embd`-Pruefung statt HC-Breite, kein Recurrent-Rollback
       fuer Qwen4Exp freigegeben, `conversion/qwen4exp.py` fehlt trotz
       Registry-Verweis; Strata-Manifest/Referenz-Inventare gesichtet.
-- [ ] `[OFFEN]` Hidden-Norm-Paritaet entschieden (full-10240 vs.
-      vier 2560er-Stream-Normen; Gemma-`1+w`-Aufbereitung).
+- [x] Hidden-Norm-Paritaet entschieden (2026-10-08): `nextn.hnorm`
+      liegt in den Dateien flach `[10240]` vor und wird im Graph als
+      `[2560,4]`-View interpretiert (per-Stream-RMSNorm — numerisch
+      identisch zum Upstream-Layout, kein `1+w`-Reweighting noetig).
 - [ ] `[OFFEN]` Head-Checksum/Checkpoint-Match mit Target-Revision und
       Ein-Schritt-Orakel validiert (Inventare allein reichen nicht).
-- [ ] `[OFFEN]` Asset-/Format-Gate: ladbares Head-GGUF (Head-only wie K2
-      oder separater Draft) beschafft/konvertiert.
-- [ ] `[OFFEN]` Vertrags-Gate vor Code-Port (Tokenizer, Hidden-State-
-      Breite, Norm/Projektion, RoPE, PLE/QSA, MoE-Gewichte).
-- [ ] `[OFFEN]` Qwen4Exp-MTP-Code (Graph, Hparams, Tensor-Mapping,
-      `ctx_dft`-Anbindung) implementiert; dichte Draft-Attention als
-      Approximation >2051 Zellen separat gemessen.
-- [ ] `[OFFEN]` Korrektheit/Grenzfaelle: Rollbacks nach Rejection,
-      Mismatched-Checkpoint-Ablehnung, Greedy-/Sampling-Tests.
-- [ ] `[OFFEN]` Performance-Stufen + Gate M: reproduzierbare Akzeptanz,
-      netto tg-Gewinn gegen dieselbe Target-Quant, keine Draft-
-      Regressionen.
+- [x] Asset-/Format-Gate (2026-10-08): unsloth non-shared Q8_0-Sidecar
+      (`unsloth-mtp/MTP/mtp-Qwen3.8-Flash-Next-Q8_0.gguf`, 34 Tensoren,
+      `blk.48.*` + `nextn.*` + eigene Embeddings/Tokenizer) laedt und
+      laeuft als `-md` Draft. **Die `shared`-Variante ist inkompatibel**
+      — ihr fehlt das vom Loader als Pflicht erwartete `token_embd`.
+- [x] Vertrags-Gate vor Code-Port (2026-10-08, grob): Tokenizer aus
+      Sidecar, Hidden-State-Breite 10240 (HC), Norm/Projektion-Shapes
+      gegen Inventar verifiziert. Ein-Schritt-Orakel noch offen.
+- [~] Qwen4Exp-MTP-Code implementiert (Commit `14fc22db93`): Graph,
+      Hparams, Tensor-Mapping, `ctx_dft`-Anbindung; an Fork-QSA-Pfad
+      adaptiert (aeltere `llm_graph_input_qsa`-API statt upstream
+      `kpool`). Laeuft — Laufzeit-Fixes siehe unten; dichte Draft-
+      Attention >2051 Zellen noch nicht separat gemessen.
+- [~] Korrektheit/Grenzfaelle — Laufzeitbefunde 2026-10-08:
+      - `[FIXED]` embd-Breiten-Vertrag: `llama_context::decode` nutzte
+        `n_embd_inp()` (2560) fuer die Batch-Allocr-Stride; der
+        MTP-Draft braucht aber HC-Breite 10240 → `set_input`-Memcpy
+        ueberlas den Buffer (SIGSEGV). Fix: `n_embd_out()` bei
+        `ctx_type == LLAMA_CONTEXT_TYPE_MTP` (upstream-Pendant:
+        `llama_batch_ext_select_n_embd_inp`).
+      - `[FIXED]` Double-Crop: der Trunk-Endmixer applizierte nach
+        `crop_before_nextn` (res_hc bereits auf Output-Zeilen
+        verengt) nochmals `get_rows(cur, inp_out_ids)` → OOB-Zeilen-
+        Zugriff → Trunk-Logits korrupt ("isfdb"-Garbage) auch **ohne**
+        Spec. Fix wie upstream: kein trailing `get_rows`.
+      - `[FIXED — ROOT CAUSE 2026-10-08]` Spec-Degeneration: der
+        Korrumpierer ist **nicht** der Graph sondern der
+        **Attention-KV-Cache-Dtype**. Dtype-Matrix (France-MC, temp=0):
+
+        | attn ctk/ctv | idx-K | h_tgt | Ausgabe |
+        |---|---|---|---|
+        | f16 | f16  | sauber | korrekt (`B. Paris`) |
+        | f16 | q8_0 | sauber | korrekt |
+        | q8_0 | f16 | sauber | degeneriert |
+        | q8_0 | q8_0 | NaN    | degeneriert |
+
+        non-MTP + q8_0 ist sauber (`Paris`) → der Bug ist
+        **spec-decode-spezifisch** (Draft+Verify+Checkpoint-Pfad), kein
+        generelles q8_0-QSA-Problem. Die `indexer_*`-Score-NaNs sind ein
+        harmloses Mask-Artefakt (top_k waehlt NaN nie); `h_tgt` ist der
+        echte Korruptions-Indikator. Unter q8_0 entsteht ein
+        Rollback-Livelock: pos 83/84 committed, Draft-Kandidat bei 85
+        flipt und wird dauerhaft rejected → kein Fortschritt.
+      - `[FIXED]` Hybrid-Indexer-Restore (`5925020d35`): `mem_idx` wurde
+        ueber eigenes `find_slot` restauriert und divergierte nach
+        Checkpoint-Rewrites vom Attn-Layout. Neu: `state_read_sinfo`
+        liefert das Attn-Slot-Layout, `mem_idx` restauriert gespiegelt.
+        Notwendig, aber nicht hinreichend (q8_0-Attn bleibt broken).
+      - `[TODO]` q8_0-Attn-Spec-Pfad weiter debuggen ODER explizit
+        f16 forcieren/dokumentieren; Rollback-Retry-Cap gegen Livelock.
+      - `[TODO]` Rollbacks nach Rejection, Mismatched-Checkpoint-
+        Ablehnung, Greedy-/Sampling-Tests erst nach dem Fix sinnvoll.
+- [x] Performance-Stufen + Gate M (Uranus, 2026-10-08, f16, temp=0,
+      `-ngl 99 --cpu-moe -c 8192 -b 2048 -ub 512 -fa on`, debug-frei):
+      - Korrektheit: **PASS** — `B. Paris`, kohärentes reasoning_content,
+        saubere Primzahl-/Summen-Generierung.
+      - non-MTP Baseline: **11.08 t/s** decode.
+      - n_max-Sweep (gleiche Config, France/Primzahl-Prompts):
+
+        | n_max | Akzeptanz | decode t/s | vs non-MTP |
+        |---|---|---|---|
+        | 2 | 0.910 | 9.44 | **−15%** |
+        | 4 | 0.969 | 13.27 | **+20%** |
+        | 8 | 0.931 | 14.19 | **+28%** |
+
+      - Mechanismus: bei n_max=2 dominiert der Draft+Verify-Overhead
+        (MTP-Head-Forward + h_nextn-Extraktion 10240 float +
+        Checkpoint-Save/Restore) die magere ~1.9 Token-Ausbeute →
+        netto negativ. Ab n_max≈4 steigt die Yield pro Verify-Runde und
+        MTP wird ein echter Speedup; Optimum hier ~n_max=8 (**+28%**).
+        → `--spec-draft-n-max` sollte auf ≥4 (Default-Empfehlung 8).
+      - Nebenbefund: Server-"Init-Deadlock" entpuppte sich als
+        **Log-Buffering-Fehldiagnose** — stderr `> file` + asynchroner
+        `common_log`-Worker puffert; der Server war gesund (backtrace
+        zeigte `server_queue::start_loop`-Idle + accept4). Status immer
+        via `/health` pruefen, nicht nur via Log-Tail.
+      - `[OFFEN]` q8_0-Attn-Spec-Bug (siehe Dtype-Matrix oben): f16-
+        Attn-KV ist die einzige verifiziert korrekte Spec-Config; ob die
+        +28% unter q8_0 erreichbar sind, haengt am offenen Attn-KV-Bug.
 
 ### 10.8 Integration, Fairness und Entscheidungspunkte
 
