@@ -2114,6 +2114,15 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
                         };
                     }
 
+                    // the MTP draft context holds the MTP block alone: its attention and indexer, no recurrent layer
+                    if (arch == LLM_ARCH_QWEN4EXP && params.ctx_type == LLAMA_CONTEXT_TYPE_MTP) {
+                        filter_attn = [&](uint32_t il) { return il >= hparams.n_layer(); };
+                        filter_recr = [&](uint32_t)    { return false; };
+                        if (filter_idx) {
+                            filter_idx = [&](uint32_t il) { return il >= hparams.n_layer(); };
+                        }
+                    }
+
                     if (hparams.swa_type != LLAMA_SWA_TYPE_NONE) {
                         // Use hybrid-iswa for hybrid models with SWA
                         res = new llama_memory_hybrid_iswa(
@@ -2762,6 +2771,23 @@ void llama_model_base::create_tensor_qkv(llama_layer & layer, int bid,
         layer.wk_b = create_tensor(tn(LLM_TENSOR_ATTN_K, "bias", bid), {n_embd_k_}, TENSOR_NOT_REQUIRED);
         layer.wv_b = create_tensor(tn(LLM_TENSOR_ATTN_V, "bias", bid), {n_embd_v_}, TENSOR_NOT_REQUIRED);
     }
+}
+
+llama_model_base::nextn_flags_t llama_model_base::nextn_flags(llama_model_loader & ml, llm_tensor trunk_probe) const {
+    int trunk = 0;
+    int mtp   = 0;
+
+    // a file without the first trunk layer is MTP-only, a file without the first NextN layer is trunk-only
+    if (hparams.n_layer_nextn > 0) {
+        if (ml.get_weight(tn(trunk_probe, "weight", 0).str().c_str()) == nullptr) {
+            trunk = TENSOR_NOT_REQUIRED;
+        }
+        if (ml.get_weight(tn(LLM_TENSOR_NEXTN_EH_PROJ, "weight", hparams.n_layer()).str().c_str()) == nullptr) {
+            mtp = TENSOR_NOT_REQUIRED;
+        }
+    }
+
+    return { trunk, mtp };
 }
 
 const int32_t * llama_model_target_layer_ids(const struct llama_model * model) {

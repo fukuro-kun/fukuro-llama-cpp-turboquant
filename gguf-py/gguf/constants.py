@@ -1006,6 +1006,9 @@ class MODEL_TENSOR(IntEnum):
     NEXTN_HNORM            = auto()
     NEXTN_SHARED_HEAD_HEAD = auto()
     NEXTN_SHARED_HEAD_NORM = auto()
+    NEXTN_HC_HEAD_NORM     = auto() # qwen4exp
+    NEXTN_HC_HEAD_DOWN     = auto() # qwen4exp
+    NEXTN_HC_HEAD_UP       = auto() # qwen4exp
     # mtp (gemma4 assistant)
     MTP_PRE_PROJECTION     = auto()
     MTP_POST_PROJECTION    = auto()
@@ -1649,6 +1652,9 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.NEXTN_HNORM:               "blk.{bid}.nextn.hnorm",
     MODEL_TENSOR.NEXTN_SHARED_HEAD_HEAD:    "blk.{bid}.nextn.shared_head_head",
     MODEL_TENSOR.NEXTN_SHARED_HEAD_NORM:    "blk.{bid}.nextn.shared_head_norm",
+    MODEL_TENSOR.NEXTN_HC_HEAD_NORM:        "blk.{bid}.nextn.hc_head_norm",
+    MODEL_TENSOR.NEXTN_HC_HEAD_DOWN:        "blk.{bid}.nextn.hc_head_down",
+    MODEL_TENSOR.NEXTN_HC_HEAD_UP:          "blk.{bid}.nextn.hc_head_up",
     MODEL_TENSOR.FC:                        "fc",
     MODEL_TENSOR.D2T:                       "d2t",
     # mtp (gemma4 assistant)

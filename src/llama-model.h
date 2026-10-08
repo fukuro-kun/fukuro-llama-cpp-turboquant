@@ -219,6 +219,11 @@ struct llama_layer_nextn {
     struct ggml_tensor * shared_head_head_s    = nullptr;
     struct ggml_tensor * shared_head_head_in_s = nullptr;
     struct ggml_tensor * shared_head_norm      = nullptr;
+
+    // qwen4exp: the MTP block collapses its hyper-connection streams with its own mixer
+    struct ggml_tensor * hc_head_norm          = nullptr;
+    struct ggml_tensor * hc_head_down          = nullptr;
+    struct ggml_tensor * hc_head_up            = nullptr;
 };
 
 struct llama_layer {
@@ -780,6 +785,13 @@ struct llama_model_base : public llama_model {
     void create_tensor_qkv(llama_layer & layer, int bid,
                 int64_t n_embd_, int64_t n_embd_q_, int64_t n_embd_k_, int64_t n_embd_v_,
                 int flags);
+
+    // helper: tensor flags for a file that holds the trunk, the NextN layers, or both
+    struct nextn_flags_t {
+        int trunk; // TENSOR_NOT_REQUIRED when the file holds only the NextN layers
+        int mtp;   // TENSOR_NOT_REQUIRED when the file holds only the trunk
+    };
+    nextn_flags_t nextn_flags(llama_model_loader & ml, llm_tensor trunk_probe = LLM_TENSOR_ATTN_NORM) const;
 
     void load_stats  (llama_model_loader & ml) override;
     void load_hparams(llama_model_loader & ml) override;

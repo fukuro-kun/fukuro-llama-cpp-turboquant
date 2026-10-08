@@ -870,7 +870,9 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
         GGML_ASSERT(ctx_tgt && ctx_dft && "MTP requires ctx_tgt and ctx_dft to be set");
 
         n_embd = llama_model_n_embd_out(llama_get_model(ctx_dft));
-        GGML_ASSERT(n_embd == llama_model_n_embd(llama_get_model(ctx_tgt)) &&
+        // compare against the target's h_nextn width: for HC architectures (qwen4exp)
+        // n_embd_out(tgt) is the hc-wide residual, which is what t_h_nextn exports
+        GGML_ASSERT(n_embd == llama_model_n_embd_out(llama_get_model(ctx_tgt)) &&
                 "MTP input row width must match the target h_nextn width");
 
         LOG_INF("%s: adding speculative implementation 'draft-mtp'\n", __func__);
