@@ -3506,6 +3506,19 @@ private:
 
         SRV_DBG("decoding batch, n_tokens = %d\n", batch.n_tokens);
 
+        if (getenv("P1MTPDBG")) {
+            std::string dump;
+            for (int32_t i = 0; i < batch.n_tokens && i < 32; ++i) {
+                char tmp[128];
+                snprintf(tmp, sizeof(tmp), " [%d]tok=%d pos=%d seq=%d logit=%d",
+                        i, batch.token[i], (int) batch.pos[i],
+                        batch.n_seq_id[i] > 0 ? batch.seq_id[i][0] : -1,
+                        batch.logits ? (int) batch.logits[i] : -1);
+                dump += tmp;
+            }
+            SRV_ERR("P1MTPDBG decode batch:%s\n", dump.c_str());
+        }
+
         auto accept_special_token = [&](server_slot & slot, llama_token token) {
             return params_base.special ||
                 slot.task->params.sampling.preserved_tokens.find(token) != slot.task->params.sampling.preserved_tokens.end();

@@ -1423,6 +1423,108 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
         ggml_backend_sched_reset(sched.get());
         ggml_backend_sched_set_eval_callback(sched.get(), cparams.cb_eval, cparams.cb_eval_user_data);
 
+        // P1MTPDBG: per-node NaN trap - reports the first graph node whose output contains NaN/Inf
+        static const bool dbg_nan = getenv("P1MTPDBG_NAN") != nullptr;
+        if (dbg_nan) {
+            struct nan_trap {
+                static bool cb(ggml_tensor * t, bool ask, void * ud) {
+                    const char * ctx_tag = ud ? "MTP" : "TGT";
+                    if (ask) {
+                        // pre-eval: verify get_rows index tensors are in range on the device buffer
+                        if (t != nullptr && t->op == GGML_OP_GET_ROWS && t->src[0] != nullptr && t->src[1] != nullptr && t->src[1]->type == GGML_TYPE_I32) {
+                            ggml_tensor * idx = t->src[1];
+                            if (idx->data == nullptr) { return true; }
+                            const int64_t n_idx = ggml_nelements(idx);
+                            if (n_idx <= 0) { return true; }
+                            const int64_t n_rows = t->src[0]->ne[1];
+                            std::vector<int32_t> ibuf(n_idx);
+                            ggml_backend_tensor_get(idx, ibuf.data(), 0, n_idx * sizeof(int32_t));
+                            int32_t lo = ibuf[0], hi = ibuf[0];
+                            int n_bad = 0;
+                            for (auto v : ibuf) {
+                                lo = std::min(lo, v); hi = std::max(hi, v);
+                                if (v < 0 || v >= n_rows) { n_bad++; }
+                            }
+                            if (n_bad > 0) {
+                                LLAMA_LOG_ERROR("P1MTPDBG GETROWS-OOB[%s]: name='%s' idx='%s' n_idx=%lld n_rows=%lld bad=%d range=[%d,%d]\n",
+                                        ctx_tag, t->name, idx->name, (long long) n_idx, (long long) n_rows, n_bad, lo, hi);
+                            }
+                        }
+                        return true;
+                    }
+                    if (t == nullptr || t->data == nullptr) { return true; }
+                    if (t->type != GGML_TYPE_F32 && t->type != GGML_TYPE_F16 && t->type != GGML_TYPE_BF16) { return true; }
+                    const int64_t esz = t->type == GGML_TYPE_F32 ? 4 : 2;
+                    const bool is_idx = strncmp(t->name, "indexer_", 8) == 0 || strstr(t->name, "_idx") != nullptr;
+                    static bool reported = false;
+                    if (reported && !is_idx) { return true; }
+                    const int64_t n = ggml_nelements(t);
+                    const int64_t n_scan = std::min<int64_t>(n, 4096);
+                    std::vector<float> buf(n_scan);
+                    // strided sampling across the tensor (dtype-aware)
+                    for (int64_t i = 0; i < n_scan; ++i) {
+                        const int64_t off = n == n_scan ? i : (i * n) / n_scan;
+                        float v;
+                        if (t->type == GGML_TYPE_F32) {
+                            ggml_backend_tensor_get(t, &v, off * esz, esz);
+                        } else if (t->type == GGML_TYPE_F16) {
+                            ggml_fp16_t hv;
+                            ggml_backend_tensor_get(t, &hv, off * esz, esz);
+                            v = ggml_fp16_to_fp32(hv);
+                        } else {
+                            ggml_bf16_t hv;
+                            ggml_backend_tensor_get(t, &hv, off * esz, esz);
+                            v = ggml_bf16_to_fp32(hv);
+                        }
+                        buf[i] = v;
+                    }
+                    int n_nan = 0;
+                    for (auto v : buf) {
+                        if (std::isnan(v) || std::isinf(v)) { n_nan++; }
+                    }
+                    if (n_nan > 0 && is_idx) {
+                        float mn = 1e30f, mx = -1e30f;
+                        for (auto v : buf) { if (std::isfinite(v)) { mn = std::min(mn, v); mx = std::max(mx, v); } }
+                        LLAMA_LOG_ERROR("P1MTPDBG IDX-NODE[%s]: op=%s name='%s' ne=[%lld,%lld,%lld,%lld] bad=%d/%lld range=[%g,%g]\n",
+                                ctx_tag, ggml_op_name(t->op), t->name,
+                                (long long) t->ne[0], (long long) t->ne[1], (long long) t->ne[2], (long long) t->ne[3],
+                                n_nan, (long long) n_scan, mn, mx);
+                    }
+                    if (n_nan > 0) {
+                        LLAMA_LOG_ERROR("P1MTPDBG NAN-NODE[%s]: op=%s name='%s' type=%s ne=[%lld,%lld,%lld,%lld] nan=%d/%lld\n",
+                                ctx_tag, ggml_op_name(t->op), t->name, ggml_type_name(t->type),
+                                (long long) t->ne[0], (long long) t->ne[1], (long long) t->ne[2], (long long) t->ne[3],
+                                n_nan, (long long) n_scan);
+                        // also scan the node's inputs to see which side carried the defect
+                        for (int s = 0; s < GGML_MAX_SRC && t->src[s]; ++s) {
+                            ggml_tensor * src = t->src[s];
+                            if (src->data == nullptr || src->type != GGML_TYPE_F32) { continue; }
+                            const int64_t sn = ggml_nelements(src);
+                            const int64_t s_scan = std::min<int64_t>(sn, 1024);
+                            int s_nan = 0, s_inf = 0;
+                            float smn = 1e30f, smx = -1e30f;
+                            for (int64_t i = 0; i < s_scan; ++i) {
+                                const int64_t off = sn == s_scan ? i : (i * sn) / s_scan;
+                                float v = 0.0f;
+                                ggml_backend_tensor_get(src, &v, off * sizeof(float), sizeof(float));
+                                if (std::isnan(v)) { s_nan++; }
+                                else if (std::isinf(v)) { s_inf++; }
+                                else { smn = std::min(smn, v); smx = std::max(smx, v); }
+                            }
+                            LLAMA_LOG_ERROR("P1MTPDBG   src[%d]: op=%s name='%s' type=%s ne=[%lld,%lld,%lld,%lld] nan=%d inf=%d range=[%g,%g]\n",
+                                    s, ggml_op_name(src->op), src->name, ggml_type_name(src->type),
+                                    (long long) src->ne[0], (long long) src->ne[1], (long long) src->ne[2], (long long) src->ne[3],
+                                    s_nan, s_inf, smn, smx);
+                        }
+                        reported = true; // one-shot: first offender only
+                    }
+                    return true;
+                }
+            };
+            ggml_backend_sched_set_eval_callback(sched.get(), nan_trap::cb,
+                    (void *) (intptr_t) (cparams.ctx_type == LLAMA_CONTEXT_TYPE_MTP ? 1 : 0));
+        }
+
         //const auto t_start_us = ggml_time_us();
 
         gf = model.build_graph(gparams);
@@ -1807,7 +1909,8 @@ int llama_context::decode(const llama_batch & batch_inp) {
     const auto & hparams = model.hparams;
 
     const int64_t n_vocab = vocab.n_tokens();
-    const int64_t n_embd  = hparams.n_embd_inp();
+    // MTP contexts consume hc-wide hidden states (n_embd_out) as their embd input
+    const int64_t n_embd  = cparams.ctx_type == LLAMA_CONTEXT_TYPE_MTP ? (int64_t) hparams.n_embd_out() : (int64_t) hparams.n_embd_inp();
 
     // when computing embeddings, all tokens are output
     const bool output_all   = cparams.embeddings;
@@ -2095,6 +2198,8 @@ int llama_context::decode(const llama_batch & batch_inp) {
 
                 GGML_ASSERT((offset + n_rows)*n_embd <= (int64_t) embd_nextn.size);
                 ggml_backend_tensor_get_async(backend_h, t_h_nextn, embd_nextn_out, 0, n_rows*n_embd*sizeof(float));
+            } else if (embd_nextn.data && cparams.pooling_type == LLAMA_POOLING_TYPE_NONE) {
+                LLAMA_LOG_ERROR("P1MTPDBG nextn extract skipped: t_h_nextn=%p n_rows=%d\n", (const void *) t_h_nextn, (int) n_rows);
             }
         }
 
@@ -2414,8 +2519,9 @@ void llama_context::extract_layer_inputs(const llm_graph_result * res, size_t to
 }
 
 void llama_context::output_reorder() {
-    const uint64_t n_vocab = model.vocab.n_tokens();
-    const uint64_t n_embd  = model.hparams.n_embd;
+    const uint64_t n_vocab     = model.vocab.n_tokens();
+    const uint64_t n_embd      = model.hparams.n_embd;
+    const uint64_t n_embd_out  = model.hparams.n_embd_out();
 
     for (size_t s = 0; s < output_swaps.size(); ++s) {
         const uint64_t i0 = output_swaps[s].i0;
@@ -2428,14 +2534,14 @@ void llama_context::output_reorder() {
         }
 
         if (embd.size > 0) {
-            for (uint64_t k = 0; k < n_embd; k++) {
-                std::swap(embd.data[i0*n_embd + k], embd.data[i1*n_embd + k]);
+            for (uint64_t k = 0; k < n_embd_out; k++) {
+                std::swap(embd.data[i0*n_embd_out + k], embd.data[i1*n_embd_out + k]);
             }
         }
 
         if (embd_nextn.size > 0) {
-            for (uint64_t k = 0; k < n_embd; k++) {
-                std::swap(embd_nextn.data[i0*n_embd + k], embd_nextn.data[i1*n_embd + k]);
+            for (uint64_t k = 0; k < n_embd_out; k++) {
+                std::swap(embd_nextn.data[i0*n_embd_out + k], embd_nextn.data[i1*n_embd_out + k]);
             }
         }
 

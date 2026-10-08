@@ -325,13 +325,11 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
     }
 
     // the final mixer is the output norm: there is no separate one
+    // res_hc is already narrowed to the output rows (crop_before/after_nextn),
+    // so no trailing get_rows here
     ggml_tensor * cur = build_hc_mix(res_hc,
             model.hc_head_norm, model.hc_head_down, model.hc_head_up,
             nullptr, nullptr, -1);
-
-    if (inp_out_ids) {
-        cur = ggml_get_rows(ctx0, cur, inp_out_ids);
-    }
 
     cb(cur, "result_norm", -1);
     res->t_embd = cur;

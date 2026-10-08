@@ -2134,9 +2134,31 @@ void common_prompt_checkpoint::load_tgt(
         return;
     }
 
+    if (getenv("P1MTPDBG")) {
+        const float * f = (const float *) data_tgt.data();
+        const size_t nf = data_tgt.size() / sizeof(float);
+        size_t n_nan = 0;
+        for (size_t i = 0; i < nf; ++i) {
+            if (std::isnan(f[i])) { n_nan++; }
+        }
+        LOG_ERR("P1MTPDBG ckpt data_tgt: %zu floats, nan=%zu\n", nf, n_nan);
+    }
+
     const size_t n = llama_state_seq_set_data_ext(ctx, data_tgt.data(), data_tgt.size(), seq_id, flags);
     if (n != data_tgt.size()) {
         GGML_ABORT("checkpoint size mismatch: expected %zu, got %zu\n", data_tgt.size(), n);
+    }
+
+    if (getenv("P1MTPDBG")) {
+        const size_t probe_size = llama_state_seq_get_size_ext(ctx, seq_id, flags);
+        std::vector<uint8_t> probe(probe_size);
+        const size_t pn = llama_state_seq_get_data_ext(ctx, probe.data(), probe_size, seq_id, flags);
+        const float * f = (const float *) probe.data();
+        size_t n_nan = 0;
+        for (size_t i = 0; i < pn / sizeof(float); ++i) {
+            if (std::isnan(f[i])) { n_nan++; }
+        }
+        LOG_ERR("P1MTPDBG post-restore state: %zu floats, nan=%zu\n", pn / sizeof(float), n_nan);
     }
 }
 

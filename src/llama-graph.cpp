@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <numeric>
+#include <typeinfo>
 #include <sstream>
 #include <unordered_set>
 
@@ -934,7 +935,11 @@ void llm_graph_result::reset() {
 }
 
 void llm_graph_result::set_inputs(const llama_ubatch * ubatch) {
+    static const bool dbg = getenv("LLAMA_DEBUG_SET_INPUTS") != nullptr;
     for (auto & input : inputs) {
+        if (dbg) {
+            fprintf(stderr, "set_input: %s\n", typeid(*input).name());
+        }
         input->set_input(ubatch);
     }
 }
