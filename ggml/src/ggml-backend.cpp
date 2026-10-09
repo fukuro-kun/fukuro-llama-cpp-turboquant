@@ -1893,9 +1893,16 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     }
                 }
 
-                // wait for the split backend to finish using the input before overwriting it
-                if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
-                    ggml_backend_event_wait(split_backend, sched->events[split_backend_id][sched->cur_copy]);
+                // wait for the split backend to finish using the input before overwriting it.
+                // dev->dev copies run on the *source* stream, so that stream must wait on the
+                // destination's event; for host->dev (copy issued on the dst stream) and
+                // same-backend copies the dst-stream wait is sufficient.
+                ggml_backend_event_t prev_ev = sched->events[split_backend_id][sched->cur_copy];
+                if (prev_ev != NULL) {
+                    ggml_backend_t write_backend =
+                        (input_backend != split_backend && input_backend != sched->backends[sched->n_backends - 1])
+                            ? input_backend : split_backend;
+                    ggml_backend_event_wait(write_backend, prev_ev);
                 } else {
                     ggml_backend_synchronize(split_backend);
                 }
@@ -2006,6 +2013,8 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     if (!split_backend->iface.cpy_tensor_async || !split_backend->iface.cpy_tensor_async(input_backend, split_backend, input, input_cpy)) {
                         ggml_backend_synchronize(input_backend);
                         if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
+                            // input is written via a synchronous copy below; wait on the host
+                            // for the destination backend to finish using the previous copy
                             ggml_backend_event_synchronize(sched->events[split_backend_id][sched->cur_copy]);
                         } else {
                             ggml_backend_synchronize(split_backend);
@@ -2248,10 +2257,11 @@ ggml_backend_sched_t ggml_backend_sched_new(
         sched->bufts[b] = bufts ? bufts[b] : ggml_backend_get_default_buffer_type(backends[b]);
         GGML_ASSERT(ggml_backend_supports_buft(backends[b], sched->bufts[b]));
 
-        if (sched->n_copies > 1) {
-            for (int c = 0; c < sched->n_copies; c++) {
-                sched->events[b][c] = ggml_backend_event_new(backends[b]->device);
-            }
+        // always allocate: input copies wait on events[backend][cur_copy]; an
+        // unrecorded event makes the wait a no-op, while a NULL entry forces a
+        // full backend drain per split input (host-side cudaStreamSynchronize)
+        for (int c = 0; c < sched->n_copies; c++) {
+            sched->events[b][c] = ggml_backend_event_new(backends[b]->device);
         }
     }
 
