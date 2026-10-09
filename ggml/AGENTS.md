@@ -32,6 +32,7 @@
 - `GGML_SCHED_PREFETCH_CHUNK_MB=N`: staged Uploads in N-MiB-Segmenten (Default 64, 0=aus). Messstand: kein messbarer Effekt auf das ~500-t/s-Plateau.
 - Prefetch-State ist **pro Split-Backend** (Slot-Ring, Ready-/Free-Events, eigene Copy-Instanz pro Device) — ein CUDA1-Input landet nie in einem CUDA0-Slot. Slot-Groesse = groesster eligible Expert-Tensor; ~3,5 GB/Device bei 8 Slots.
 - Die Standalone-Prefetch-Slots tragen seit dem P1b-Fix ein `+512 B` Padding mit genulltem Tail — MMQ liest wenige Bytes ueber das Tensorende hinaus; das Padding ist fuer MMQ erforderlich, nicht optional.
+- `GGML_SCHED_MOE_ZCOPY=1` (erfordert `GGML_CUDA_REGISTER_HOST=1`, das die Model-mmap mit `cudaHostRegisterMapped` device-mapt): Host-Expert-Weights bleiben an Ort; `mul_mat_q` streamt Expert-Ranges per dediziertem Copy-Stream durch einen Slot-Ring (`GGML_CUDA_MOE_STREAM_RANGES` default 8, `GGML_CUDA_MOE_STREAM_SLOTS` default 3). Messbefund auf Uranus/dual-4060Ti pp8192: max ~433 t/s vs ~508 mit Scheduler-Prefetch — Regression, daher opt-in. Demand-Reads direkt aus dem Kernel sind nochmal deutlich langsamer (~250 t/s). RANGES=1 crasht derzeit (non-mmq mul_mat_id-Pfade vertragen den Host-Pointer nicht).
 - Siehe Plan `docs/fork/plans/SESSION_PLAN_20261006_strata-optllama-uranus-eval.md` §10.3.
 
 ### Sprachtrennung
