@@ -129,6 +129,7 @@ struct moe_cache_device {
     // per-phase wall time (thread-0 serial cost), microseconds
     long long t_plan_us = 0, t_disp_us = 0, t_coll_us = 0, n_nodes = 0;
     long long redirect_claims = 0, redirect_misses_up = 0;
+    long long gather_calls = 0, gather_hits = 0, gather_total = 0, gather_fallbacks = 0;
 };
 
 struct moe_cache_job {
@@ -256,6 +257,11 @@ struct moe_cache_global {
     };
     std::unordered_map<const void *, redirect_entry> redirect;
     bool redirect_on = true;       // GGML_CUDA_MOE_CACHE_REDIRECT=0 to disable
+
+    // gather-path admission: misses fill only EMPTY slots (never evict —
+    // mirrors backfill discipline); once a pool is more than half full,
+    // only prior-hot experts (hot-pair/hot-down bitmaps, eid < 256) get in
+    bool gather_admit = true;      // GGML_CUDA_MOE_CACHE_GATHER_ADMIT=0 to disable
 
     long long collect_calls = 0;
 
@@ -1564,6 +1570,153 @@ extern "C" size_t ggml_moe_cache_trim(int device) {
     return freed;
 }
 
+// ---- API: gather (hit-aware expert-tensor assembly for multi-token uploads) ---------
+//
+// Fills dst (device memory on dst_backend) with the expert slices of one
+// weight tensor: resident experts come D2D from the pool slab, the rest H2D
+// from the host image. All copies go onto the dst backend's stream, so the
+// caller's ready-event ordering still holds and no extra synchronization is
+// needed.
+//
+// Copy-source snapshots are taken under g.mu; in-flight D2D reads cannot be
+// torn because slot eviction only happens inside plan() — which is
+// caller-serialized with the scheduler on the same thread, and any consuming
+// kernel (therefore also these copies) has executed before the next plan()
+// of this process can run. Backfill/demand inserts only ever fill EMPTY
+// slots (queued slots read as misses here and are simply uploaded instead).
+//
+// Returns the number of cache-sourced experts, or -1 when the tensor cannot
+// be served — the caller then runs its plain upload, which rewrites dst
+// completely (partial gathers are harmless).
+static int moe_cache_gather(const char * name, const void * host_base, void * dst,
+                            int64_t n_expert, size_t expert_size, int wtype,
+                            const uint32_t * needed, void * dst_backend_v) {
+    if (!g.enabled || !name || !host_base || !dst || !dst_backend_v ||
+        n_expert <= 0 || expert_size < g.min_expert_bytes) {
+        return -1;
+    }
+
+    const char * p = strstr(name, "blk.");
+    if (!p || !strstr(name, "_exps")) return -1;
+    const int blk = atoi(p + 4);
+    if (blk < 0 || blk >= 1024) return -1;
+    int role = -1;
+    if      (strstr(name, "_gate_exps")) role = 0;
+    else if (strstr(name, "_up_exps"))   role = 1;
+    else if (strstr(name, "_down_exps")) role = 2;
+    if (role < 0) return -1;
+
+    ggml_backend_t dst_backend = (ggml_backend_t) dst_backend_v;
+    ggml_backend_cuda_context * cctx = (ggml_backend_cuda_context *) dst_backend->context;
+
+    const int di = blk % g.n_dev;
+    if (cctx->device != di) return -1;   // resident bytes live on their owning dev
+    moe_cache_device & d = g.dev[di];
+    if (d.dead) return -1;
+
+    const int pi = (role == 2) ? (int)g.blk_down_pool[blk] : (int)g.blk_pair_pool[blk];
+    if (pi < 0 || pi >= d.n_pools) { d.gather_fallbacks++; return -1; }
+    moe_cache_pool & pool = d.pools[pi];
+    if (!pool.slab || pool.expert_size != expert_size || pool.wtype != wtype) {
+        d.gather_fallbacks++;
+        return -1;
+    }
+    const bool paired = pool.paired && (role == 0 || role == 1);
+    if (paired && role == 0 && !pool.slab2) return -1;
+
+    uint64_t key_base;
+    if (paired) {
+        // pair entries key on the GATE tensor's host base (see begin())
+        const void * anchor = g.role_base[0][blk];
+        if (!anchor) return -1;
+        key_base = MOE_CACHE_PAIR_KEY_TAG ^ ((uint64_t)blk << 32) ^ moe_cache_ptr_hash(anchor);
+    } else {
+        key_base = moe_cache_fnv1a(name) ^ moe_cache_ptr_hash(host_base);
+    }
+
+    // snapshot copy sources under mu: slab pointer for resident slices
+    // (D2D), host_base + e*expert_size for the rest (H2D)
+    std::vector<const char *> src_of(n_expert, nullptr);
+    std::vector<char>         is_hit(n_expert, 0);
+    int n_hits = 0;
+    {
+        std::lock_guard<std::mutex> lk(g.mu);
+        for (int64_t e = 0; e < n_expert; e++) {
+            if (needed && !((needed[e >> 5] >> (e & 31)) & 1u)) continue;
+            auto it = pool.map.find(moe_cache_key(key_base, (int)e));
+            if (it != pool.map.end()) {
+                const int si = it->second;
+                if (pool.slots[si].valid) {
+                    const char * slab = (role == 0) ? pool.slab2 : pool.slab;
+                    src_of[e] = slab + (size_t)si * expert_size;
+                    is_hit[e] = 1;
+                    n_hits++;
+                    continue;
+                }
+            }
+            src_of[e] = (const char *)host_base + (size_t)e * expert_size;
+        }
+
+        // admission: enqueue missed slices into free slots so the NEXT chunk
+        // gathers them D2D. Only empty slots are taken (n_used < n_slots):
+        // eviction during prompt processing would thrash a pool sized for the
+        // decode working set. Once a pool is more than half full, admission
+        // narrows to prior-hot experts (eid < 256 bitmap coverage limit).
+        if (g.gather_admit) {
+            const uint64_t * prior = (role == 2 ? g.hot_down : g.hot_pair)[blk];
+            for (int64_t e = 0; e < n_expert; e++) {
+                if (!src_of[e] || is_hit[e]) continue;
+                if (pool.n_used >= pool.n_slots || (int)g.queue.size() >= g.queue_max) break;
+                if (pool.n_used * 2 >= pool.n_slots &&
+                    (e >= 256 || !((prior[e >> 6] >> (e & 63)) & 1ull))) {
+                    continue;
+                }
+                const uint64_t key = moe_cache_key(key_base, (int)e);
+                if (pool.map.count(key)) continue;   // already queued/resident
+                const char * gate_b = (const char *)g.role_base[0][blk];
+                const char * up_b   = (const char *)g.role_base[1][blk];
+                if (paired && (!up_b || !gate_b)) continue;   // incomplete pair sources
+                const int si = pool.n_used++;
+                pool.slots[si] = moe_cache_slot{key, -1, -1, false, true, 1, g.tick};
+                moe_cache_lru_push_back(pool, si);
+                pool.map[key] = si;
+                moe_cache_job job{di, pi, key, si,
+                    paired ? (const void *)(up_b + (size_t)e * expert_size)
+                           : (const void *)(src_of[e]),
+                    paired ? (const void *)(gate_b + (size_t)e * expert_size)
+                           : nullptr,
+                    expert_size, blk, (int)e};
+                g.queue.push_back(job);
+                d.inserts++;
+            }
+            if (!g.queue.empty()) g.cv.notify_all();
+        }
+    }
+
+    char * dst_c = (char *)dst;
+    cudaStream_t stream = cctx->stream();
+    const size_t pad = std::min<size_t>(expert_size, 512);
+    for (int64_t e = 0; e < n_expert; e++) {
+        if (!src_of[e]) continue;
+        const cudaMemcpyKind kind = is_hit[e] ? cudaMemcpyDeviceToDevice : cudaMemcpyHostToDevice;
+        // the MMQ tail overread needs +512B past the last expert; replicate the
+        // selective-upload behaviour and source them from the host image
+        const size_t bytes = (e == n_expert - 1 && kind == cudaMemcpyHostToDevice)
+                             ? expert_size + pad : expert_size;
+        if (!moe_cache_ok(di, cudaMemcpyAsync(dst_c + (size_t)e * expert_size, src_of[e], bytes,
+                                            kind, stream), "gather copy")) {
+            return -1;
+        }
+    }
+
+    d.gather_calls++;
+    d.gather_hits += n_hits;
+    for (int64_t e = 0; e < n_expert; e++) d.gather_total += src_of[e] != nullptr;
+    MOE_CACHE_DBG("[moe-cache-dbg] gather %s blk=%d dev=%d hits=%d/%lld\n",
+            name, blk, di, n_hits, (long long)n_expert);
+    return n_hits;
+}
+
 // ---- API: invalidate (host weight buffer teardown) -------------------------------------
 //
 // Called when a host buffer is freed (model unload). Queued insert jobs whose
@@ -1691,6 +1844,10 @@ static void moe_cache_stats(void) {
                 i, d.miss_compulsory, d.miss_capacity, d.miss_admission, d.queued_misses,
                 d.ever_seen.size(), d.ever_inserted.size(),
                 d.skip_throttle, d.skip_budget, d.skip_qfull, d.skip_lrubusy);
+        MOE_CACHE_LOG("[moe-cache] dev=%d gather: calls=%lld hits=%lld/%lld (%.1f%%) fallbacks=%lld\n",
+                i, d.gather_calls, d.gather_hits, d.gather_total,
+                d.gather_total ? 100.0 * d.gather_hits / d.gather_total : 0.0,
+                d.gather_fallbacks);
         for (int pi = 0; pi < d.n_pools; pi++) {
             const long long ptot = d.pool_hits[pi] + d.pool_miss[pi];
             MOE_CACHE_LOG("[moe-cache] dev=%d pool[%d]: hits=%lld/%lld (%.1f%%) slots=%d slot=%zuKB\n",
@@ -1877,9 +2034,11 @@ void ggml_moe_cache_register(void) {
     ggml_moe_cache.redirect_offer    = moe_cache_redirect_offer;
     ggml_moe_cache.redirect_finalize = moe_cache_redirect_finalize;
     ggml_moe_cache.glu_hits          = moe_cache_glu_hits;
+    ggml_moe_cache.gather            = moe_cache_gather;
     ggml_moe_cache.invalidate        = moe_cache_invalidate;
     ggml_moe_cache.node_time         = moe_cache_node_time;
     if (const char * e = getenv("GGML_CUDA_MOE_CACHE_REDIRECT")) g.redirect_on = atoi(e) > 0;
+    if (const char * e = getenv("GGML_CUDA_MOE_CACHE_GATHER_ADMIT")) g.gather_admit = atoi(e) > 0;
 
     MOE_CACHE_LOG("[moe-cache] enabled: n_dev=%d budget=%s inserts/plan=%d workers=%d stats_every=%d\n",
             g.n_dev, g.budget_mb ? "env" : "auto-70%-free", g.inserts_per_plan,

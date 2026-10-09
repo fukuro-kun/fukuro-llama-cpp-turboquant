@@ -868,6 +868,10 @@ struct ggml_backend_sched {
     // stay in place; the kernel streams them over PCIe via the UVA device
     // mapping of the registered range instead of an explicit input copy
     bool moe_zcopy;
+    // GGML_SCHED_MOE_CACHE_GATHER=1: assemble offloaded expert tensors from
+    // the MoE cache where possible — resident slices are D2D-copied from the
+    // pool, only misses go over PCIe (prefill + multi-token verify paths)
+    bool moe_cache_gather;
     struct ggml_backend_sched_prefetch_dev {
         ggml_backend_t        backend;
         int                   n_slots;
@@ -1850,6 +1854,49 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                 // of the previous split. CPU backend splits never stage: a failed
                 // prefetch_init there would disable prefetch for all devices
                 const bool split_is_cpu = split_backend_id == sched->n_backends - 1;
+
+                // hit-aware gather needs the routed set even on the
+                // full-upload path: resident slices skip PCIe and only routed
+                // misses get admitted to the pool. Without gather this stays
+                // on the selective path's own readback below (unchanged).
+                const bool moe_want_ids = moe_weights &&
+                    (sched->moe_cache_gather || !moe_full_upload);
+                if (moe_want_ids) {
+                    ggml_backend_synchronize(input_backend);
+
+                    // get the ids
+                    ggml_tensor * ids_tensor = moe_node->src[2];
+                    ggml_backend_t ids_backend = split_backend;
+
+                    // if the ids tensor is also an input of the split, it may not have been copied yet to the split backend
+                    // in that case, we use the original ids tensor
+                    for (int i = input_id + 1; i < split->n_inputs; i++) {
+                        if (ids_tensor == tensor_copy(split->inputs[i], split_backend_id, sched->cur_copy)) {
+                            ids_tensor = split->inputs[i];
+                            ids_backend = ggml_backend_sched_get_tensor_backend(sched, split->inputs[i]);
+                            break;
+                        }
+                    }
+
+                    if (ids_tensor != prev_ids_tensor) {
+                        ids.resize(ggml_nbytes(ids_tensor) / sizeof(int32_t));
+                        ggml_backend_tensor_get_async(ids_backend, ids_tensor, ids.data(), 0, ggml_nbytes(ids_tensor));
+                        ggml_backend_synchronize(ids_backend);
+
+                        // find the used experts
+                        used_ids.clear();
+                        used_ids.resize(ggml_bitset_size(input->ne[2]));
+                        for (int64_t i1 = 0; i1 < ids_tensor->ne[1]; i1++) {
+                            for (int64_t i0 = 0; i0 < ids_tensor->ne[0]; i0++) {
+                                int32_t id = ids[i1 * ids_tensor->nb[1]/sizeof(int32_t) + i0 * ids_tensor->nb[0]/sizeof(int32_t)];
+                                GGML_ASSERT(id >= 0 && id < input->ne[2]);
+                                ggml_bitset_set(used_ids.data(), id);
+                            }
+                        }
+
+                        prev_ids_tensor = ids_tensor;
+                    }
+                }
                 // zero-copy: with the host range registered+mapped the kernel reads
                 // the expert weights over PCIe straight from the host pointer -
                 // under UVA host_ptr == dev_ptr, so a plain rebind suffices and no
@@ -1887,7 +1934,18 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                         prefetch_rebinds.push_back({input_cpy, input_cpy->buffer, input_cpy->data, slot});
                         input_cpy->buffer = pf->slots[slot];
                         input_cpy->data   = ggml_backend_buffer_get_base(pf->slots[slot]);
-                        ggml_backend_sched_prefetch_copy(sched, pf->backend, input_cpy, input->data, ggml_nbytes(input));
+                        // hit-aware assembly: resident expert slices come D2D
+                        // from the MoE cache, only misses go over PCIe
+                        if (sched->moe_cache_gather && ggml_moe_cache.gather &&
+                            ggml_nbytes(input) == (size_t)input->ne[2] * input->nb[2] &&
+                            ggml_moe_cache.gather(input->name, input->data, input_cpy->data,
+                                                  input->ne[2], input->nb[2], (int)input->type,
+                                                  moe_want_ids ? used_ids.data() : nullptr,
+                                                  pf->backend) >= 0) {
+                            // slot fully assembled from cache hits + host misses
+                        } else {
+                            ggml_backend_sched_prefetch_copy(sched, pf->backend, input_cpy, input->data, ggml_nbytes(input));
+                        }
                         ggml_backend_event_record(pf->ready[slot], pf->backend);
                         continue;
                     }
@@ -1966,37 +2024,45 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                             expert_size_copy + padding_end);
                     };
 
-                    // Expert upload skipping (#37): if expert cache is enabled,
-                    // build a need_upload bitset that only includes experts that
-                    // are used but not yet valid in the input_cpy buffer.
-                    // This avoids re-uploading experts that were already copied
-                    // in a previous forward pass.
-                    const std::vector<ggml_bitset_t> & upload_ids = used_ids;
+                    // hit-aware assembly: used experts resident in the MoE
+                    // cache are copied D2D from the pool; only used misses go
+                    // over PCIe. Falls back to the range upload below.
+                    const bool gathered = sched->moe_cache_gather &&
+                        !split_is_cpu &&
+                        ggml_moe_cache.gather &&
+                        ggml_nbytes(input) == (size_t)n_expert * expert_size &&
+                        ggml_moe_cache.gather(input->name, input->data, input_cpy->data,
+                                              n_expert, expert_size, (int)input->type,
+                                              used_ids.data(), split_backend) >= 0;
 
-                    int id = 0;
-                    while (id < n_expert && !ggml_bitset_get(upload_ids.data(), id)) {
-                        id++;
-                    }
-                    if (id < n_expert) {
-                        int32_t first_id = id;
-                        int32_t last_id = first_id;
+                    if (!gathered) {
+                        const std::vector<ggml_bitset_t> & upload_ids = used_ids;
 
-                        for (++id; id < n_expert; ++id) {
-                            if (!ggml_bitset_get(upload_ids.data(), id)) {
-                                continue;
-                            }
-
-                            if (id == last_id + 1) {
-                                last_id = id;
-                                continue;
-                            }
-
-                            copy_experts(first_id, last_id);
-
-                            first_id = id;
-                            last_id = id;
+                        int id = 0;
+                        while (id < n_expert && !ggml_bitset_get(upload_ids.data(), id)) {
+                            id++;
                         }
-                        copy_experts(first_id, last_id);
+                        if (id < n_expert) {
+                            int32_t first_id = id;
+                            int32_t last_id = first_id;
+
+                            for (++id; id < n_expert; ++id) {
+                                if (!ggml_bitset_get(upload_ids.data(), id)) {
+                                    continue;
+                                }
+
+                                if (id == last_id + 1) {
+                                    last_id = id;
+                                    continue;
+                                }
+
+                                copy_experts(first_id, last_id);
+
+                                first_id = id;
+                                last_id = id;
+                            }
+                            copy_experts(first_id, last_id);
+                        }
                     }
                 } else {
                     // MoE expert cache dst handoff: if the cache populated this
@@ -2124,7 +2190,15 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                     staged_ahead.emplace(fcpy, prefetch_rebind{fcpy, fcpy->buffer, fcpy->data, slot});
                     fcpy->buffer = fpf->slots[slot];
                     fcpy->data   = ggml_backend_buffer_get_base(fpf->slots[slot]);
-                    ggml_backend_sched_prefetch_copy(sched, fpf->backend, fcpy, finput->data, ggml_nbytes(finput));
+                    if (sched->moe_cache_gather && ggml_moe_cache.gather &&
+                        ggml_nbytes(finput) == (size_t)finput->ne[2] * finput->nb[2] &&
+                        ggml_moe_cache.gather(finput->name, finput->data, fcpy->data,
+                                              finput->ne[2], finput->nb[2], (int)finput->type,
+                                              nullptr, fpf->backend) >= 0) {
+                        // slot fully assembled from cache hits + host misses
+                    } else {
+                        ggml_backend_sched_prefetch_copy(sched, fpf->backend, fcpy, finput->data, ggml_nbytes(finput));
+                    }
                     ggml_backend_event_record(fpf->ready[slot], fpf->backend);
                 }
             }
@@ -2319,6 +2393,12 @@ ggml_backend_sched_t ggml_backend_sched_new(
     const char * GGML_CUDA_REGISTER_HOST = getenv("GGML_CUDA_REGISTER_HOST");
     sched->moe_zcopy = GGML_SCHED_MOE_ZCOPY != NULL && atoi(GGML_SCHED_MOE_ZCOPY) > 0 &&
         GGML_CUDA_REGISTER_HOST != NULL && atoi(GGML_CUDA_REGISTER_HOST) > 0;
+
+    // GGML_SCHED_MOE_CACHE_GATHER=1: expert uploads consult the MoE cache and
+    // source resident slices D2D (see ggml_moe_cache_api::gather)
+    const char * GGML_SCHED_MOE_CACHE_GATHER = getenv("GGML_SCHED_MOE_CACHE_GATHER");
+    sched->moe_cache_gather = GGML_SCHED_MOE_CACHE_GATHER != NULL &&
+        atoi(GGML_SCHED_MOE_CACHE_GATHER) > 0;
 
     ggml_backend_sched_reset(sched);
 
