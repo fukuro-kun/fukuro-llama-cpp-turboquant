@@ -1224,3 +1224,44 @@ gedeckelt auf ~2 Layer -> **S2-Decke bestaetigt: 514.9 ± 0.1 t/s**
 nutzbaren Headroom — der TQ-Workspace frisst die KV-Ersparnis,
 `ncmoe=46` OOM't damit sogar. S2-Gate damit erreicht: weiterer
 Fortschritt nur via S1b (Kernel-Ebene), nicht via Residenz.
+
+#### 10.6 Phase A: Strata-Transferanalyse (nsys, 2026-10-09)
+
+Setup: `nsys profile --trace=cuda --cuda-flush-interval=2000` um
+`serve/server.py --engine strata --config strata-unsloth-ud-iq4_xs.json`
+(Request: 1653 Prompt + 512 Gen). WICHTIG: nsys bremst Strata massiv
+(prompt 80.8 statt ~650 t/s, decode 2.7 statt ~50 t/s) — tausende kleine
+Kernel-Launches vervielfachen CUPTI-Overhead. Byte-Zaehlungen bleiben
+valide, Timing unter nsys nicht.
+
+**Memcpy-Phasen (kind=1 H2D):**
+
+| Phase | Bytes | Kopien | Bemerkung |
+|---|---|---|---|
+| Startup (~5 s) | 5947 MB | 1083 | residente Tensoren + 4356-Expert-Cache-Fill |
+| Request-Fenster (~5 s Capture) | **23158 MB** | **9492** | ~2.4 MB avg, alles auf einem Copy-Stream (dev1/stream27) |
+| D2D | 67.7 MB | 1100 | vernachlaessigbar |
+
+**Runtime-API im Request:** 10597 cudaMemcpyAsync, 14445
+cudaEventRecord, 11324 cudaStreamWaitEvent, 275 cudaGraphLaunch.
+Top-Kernel: mul_mat_q 219 ms, copy16_group_kernel 2264x/137 ms,
+dequant 68.8 ms, prompt_attn_i8.
+
+**Korrigiertes Fazit (ersetzt die Vermutung "weniger Bytes"):**
+
+- Strata bewegt im Prefill **gleiche Groessenordnung** an Bytes pro
+  Token (~4.6 GB/s sustained H2D auf EINEM Link ~73 % Link-Rate) —
+  der Unterschied ist **Pipelining**, nicht Volumen: ~10k kleine
+  async Memcpys + dichtes Event-Interlocking statt monolithischer
+  440-MB-Bloecke. Fork aggregiert nur ~3.9 GB/s ueber BEIDE Links
+  (~2 GB/s pro Link = ~32 % Auslastung).
+- Decode: Strata-Cache 90.2 % Hit, nur 0.5 % der gerouteten Experten
+  via PCIe (Server-eigener Zaehler /v1/status: lookups/offloaded).
+  MTP aktiv (265/404 Drafts). Unprofiled: 40-52 t/s decode.
+- Fork decode: 7.7 t/s, moe-cache inert (0 Hits in 512 tok;
+  gate_up erreicht begin() nie — fused-Tensor-Problem; eligible_seen
+  nur ~2-4/tok → Bail-Gate nie erreicht).
+
+**Konsequenz fuer Phase B:** der Fork-Copy-Stream verhungert — Strata
+beweist dass ~4.6 GB/s pro Link machbar sind. Frage: wo verliert der
+Fork-Scheduler die Copy-Engine-Duty-Cycle?
