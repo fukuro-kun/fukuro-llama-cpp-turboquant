@@ -716,7 +716,10 @@ ggml_tensor * llama_model_qwen4exp::graph::build_attn_qsa(
     ggml_tensor * k = mctx_cur->get_k(ctx0, il);
     ggml_tensor * v = mctx_cur->get_v(ctx0, il);
 
-    ggml_tensor * cur = build_attn_mha(q, k, v, nullptr, kq_mask_top_k, nullptr, nullptr, kq_scale, il);
+    // the sparse top-k mask leaves whole KV tiles fully masked, which the FA kernel
+    // turns into NaNs; upstream solves this by compacting the mask (ggml_flash_attn_ext_set_n_kv_max).
+    // until that is ported, QSA attention takes the softmax path - correct for arbitrary -inf masks.
+    ggml_tensor * cur = build_attn_mha(q, k, v, nullptr, kq_mask_top_k, nullptr, nullptr, kq_scale, il, true);
     cb(cur, "kqv_out", il);
 
     return cur;
