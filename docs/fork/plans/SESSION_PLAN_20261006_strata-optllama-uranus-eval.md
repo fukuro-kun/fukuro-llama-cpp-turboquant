@@ -1265,3 +1265,59 @@ dequant 68.8 ms, prompt_attn_i8.
 **Konsequenz fuer Phase B:** der Fork-Copy-Stream verhungert — Strata
 beweist dass ~4.6 GB/s pro Link machbar sind. Frage: wo verliert der
 Fork-Scheduler die Copy-Engine-Duty-Cycle?
+
+#### 10.7 Phase B: Lookahead-Starvation (nsys + Scheduler-Instrumentierung, 2026-10-09)
+
+**Profil (fork-pref.nsys-rep, pp8192 best config):**
+
+- Ein Copy-Stream (dev0/stream74) traegt ~112.6 GB in 276 Kopien
+  (~408 MB avg) — Duty nur **59 %**, Luecken ~200 ms/Layer.
+- Kernel-Duty: dev0 48 %, dev1 18 %. MoE-Ops konzentrieren sich auf
+  CUDA0 (`eligible[0]` ohne OFFLOAD_SPREAD): mul_mat_q 792 vs 338,
+  mm_ids_helper 276 vs 6.
+- 1772 cudaStreamSynchronize-Calls, davon ~1425 direkt nach
+  cudaMemcpyAsync (D2H-Readbacks + generische Syncs).
+
+**Instrumentierung (dbg-Counter, pro Eval):**
+
+- slot_hit=138, slot_miss=92, wait=92 — jeder Slot-Miss = ein
+  voller Drain. in=69, cpy_fb=6 → ~167 volle Drains/Eval.
+- Die Misses sind **keine** Expert-Weights (die bekommen alle Slots),
+  sondern Boundary-Tensoren an Split-Kanten: input_embed, ple_embd,
+  hc_mixed, ffn_moe_topk/out (2-20 MB), mehrere host=0 (P2P-Kopien,
+  per Definition nicht prefetchbar — werden erst in dieser Eval
+  erzeugt).
+
+**Mechanismus:**
+
+- `sched->events[b][c]` wird upstream nur bei `n_copies > 1`
+  allokiert. Bei n_copies==1 ist jeder Event-Pointer NULL → jeder
+  Input ohne Prefetch-Slot faellt auf `ggml_backend_synchronize()`
+  = host-blockierender Full-Drain.
+
+**Fix (commit 89af4780c8, feat/flashnext-s1-lookahead):**
+
+- Events immer allokieren + Wait auf dem **schreibenden** Stream:
+  dev->dev-Kopien laufen auf dem Source-Stream (cpy_tensor_async),
+  der muss auf das Destination-Event warten; host->dev laeuft auf
+  dem dst-Stream (bisheriges Verhalten). Naiver Fix (nur Events
+  allokieren, Wait auf dst) crasht — der dst-Wait ordnet den
+  P2P-Write nicht; CUDA_LAUNCH_BLOCKING bewies die Race.
+- Ergebnis: wait=0 (alle Drains eliminiert), **522.0 ± 0.4 t/s**
+  (vorher 514.9) — +1.4 %, tg-Pfad unveraendert.
+
+**Residuale Bubbles (nach Fix, fork-fix.nsys-rep):**
+
+- Copy-Duty bleibt ~58.5 % — die verbleibenden Luecken sind
+  Dependency-Bubbles (Slot free_ev wartet auf Consumer-Kernel),
+  kein Host-Starvation mehr.
+- SLOTS 4→8: neutral (521.4). OFFLOAD_SPREAD: neutral (521.1).
+  ncmoe=44: OOM auch mit SLOTS=2.
+
+**Phase-B-Fazit:** Starvation-Mechanismus gefunden und behoben,
+aber der verbleibende Engpass ist das **Transfer-Volumen selbst**:
+~63 GB/Pass ueber PCIe vs. Strata ~23 GB fuer 23k Tokens
+(~2.7x weniger Bytes/Token via feingranularem persistentem
+Expert-Cache + Profil-Preload). Weitere Scheduler-Optimierung
+bringt <2 %; der grosse Hebel ist Byte-Reduktion (Cache) — was
+gleichzeitig der Decode-Hebel ist (7.7 vs ~48 t/s).
