@@ -1153,6 +1153,47 @@ Compute/Copy-Overlap **innerhalb** des MoE-Kernels
 (grouped-GEMM/MMID-Pfad), nicht auf Split-Ebene. Das ist ein
 deutlich groesserer Eingriff und steht als separates Item an.
 
+#### 10.5c S1b-Versuch: Zero-Copy und Expert-Range-Streaming
+
+Zwei Kernel-Ebenen-Ansaetze wurden implementiert und ausgemessen
+(Branch `feat/flashnext-s1-lookahead`, Commits `df0d04acac`,
+`04ab5b5fba`; beide opt-in via `GGML_SCHED_MOE_ZCOPY`):
+
+1. **Demand-Read-Zero-Copy** (Host-Pointer direkt im Kernel,
+   cudaHostRegister+Mapped, UVA host==dev): Mikro-Benchmark saturiert
+   den Link (6.36 GB/s = memcpy-Rate), im realen MMQ-Kernel aber
+   **250 t/s** — SM-Stalls auf PCIe-Latenz, Demand-Reads sind
+   latency- nicht bandwidth-bound. Abgelehnt.
+
+2. **Expert-Range-Streaming** (Ranges per DMA durch Slot-Ring,
+   ready/done-Event-Pipeline, Range-Launch via x+=slot,
+   bounds+=e0, nchannels=n_e): funktioniert korrekt, aber
+   Sweep-Ergebnis:
+
+   | RANGES x SLOTS | t/s |
+   |---|---|
+   | 4x3 | **433.4** |
+   | 8x3 | 425.1 |
+   | 16x4 | 423.1 |
+   | 32x4 | 412.7 |
+
+   → bester Fall 15 % UNTER dem Scheduler-Prefetch-Baseline (508).
+   Mechanismus: die Kopien overlappten hier mit dem schwersten
+   Kernel des Modells (Memory-Controller-Contention H2D vs.
+   VRAM-Reads), waehrend das Scheduler-Prefetch die 440-MB-Kopie
+   hinter leichtem Compute (Attention/Router) versteckt. Die
+   Transfer-Gesamtarbeit (~10 s/Pass) ist in beiden Ansaetzen
+   identisch — Granularitaet aendert daran nichts. Zusaetzlich
+   crasht RANGES=1 (non-mmq mul_mat_id-Pfade vertragen den
+   rebound Host-Pointer nicht; zcopy-Pfad ist env-gated).
+
+**S1b-Fazit:** Auf dieser Hardware (2x PCIe-Gen3-x8) ist die
+Transfer-Arbeit von ~63 GB/Pass (~10 s/Link) der harte Term.
+Strata's Vorteil liegt vermutlich nicht in besserem Overlap,
+sondern in geringerem Transfer-Volumen oder anderem
+Execution-Modell — das bleibt eine offene Forschungsfrage
+(Strata-interne Analyse ausstehend).
+
 Shipped auf `feat/flashnext-s1-lookahead` (push `389011007b`):
 per-Device-Prefetch-Slot-Ring (korrekt fuer Dual-GPU), Multi-Input-
 Staging (`PREFETCH_ALL`), opt-in Lookahead (`PREFETCH_LOOKAHEAD`)
