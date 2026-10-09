@@ -154,7 +154,7 @@ struct moe_cache_global {
     int    throttle_mod     = 8; // at capacity admit 1-in-N misses (GGML_CUDA_MOE_CACHE_THROTTLE)
     int    queue_max        = 512;
     int    n_workers        = 4;
-    size_t min_expert_bytes = 1u << 20; // skip models whose experts are too small
+    size_t min_expert_bytes = 256u << 10; // skip models whose experts are too small (Flash-Next IQ4_XS experts are ~690 KB; the 1 MB floor disabled the cache entirely)
                                         // to amortize per-node dispatch (measured:
                                         // 0.45MB experts lose, 3MB+ win big)
     int    max_batch        = 1; // decode batches up to this size use the cache
