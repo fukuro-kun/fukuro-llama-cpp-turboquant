@@ -1005,26 +1005,48 @@ void llm_graph_input_ple::set_input(const llama_ubatch * ubatch) {
     // image-token fallback: multimodal ubatches may not carry token IDs
     const llama_token pad_token = hp.ple_image_token_id ? hp.ple_image_token_id : hp.ple_eos_token_id;
 
+    const int64_t eos = hp.ple_eos_token_id;
+
     for (int64_t s = 0; s < ubatch->n_seqs; ++s) {
-        const llama_seq_id seq_id = ubatch->seq_id[s * ubatch->n_seq_tokens][0];
+        const int64_t s0 = s * ubatch->n_seq_tokens;
+        const llama_seq_id seq_id = ubatch->seq_id[s0][0];
         auto & hist = pmodel.ple_hist[seq_id];
 
-        // snapshot predecessors from before this ubatch
-        std::vector<llama_token> ctx = hist.toks;
-        hist.next_pos = ubatch->pos[s * ubatch->n_seq_tokens + ubatch->n_seq_tokens - 1] + 1;
+        // drop stale predecessors: a rollback or slot reset rewound the sequence,
+        // so anything at or beyond this ubatch's first position never happened
+        const llama_pos first_pos = ubatch->pos[s0];
+        while (!hist.toks.empty() && hist.toks.back().first >= first_pos) {
+            hist.toks.pop_back();
+        }
 
         for (int64_t t = 0; t < ubatch->n_seq_tokens; ++t) {
-            const int64_t i = s * ubatch->n_seq_tokens + t;
+            const int64_t i = s0 + t;
+            const llama_pos p_t = ubatch->pos[i];
             const llama_token tok = ubatch->token ? ubatch->token[i] : pad_token;
 
-            // build the n-gram context: last (ngram-1) tokens before this one
-            std::vector<llama_token> window;
-            for (int64_t j = (int64_t) ctx.size() - (ngram - 1); j < (int64_t) ctx.size(); ++j) {
-                if (j < 0) {
-                    window.push_back(pad_token);
-                } else {
-                    window.push_back(ctx[j]);
+            // n-gram context: ctx[0] is the token itself, ctx[k] the predecessor
+            // k positions back - a missing one or an EOS cuts the rest to EOS,
+            // matching the reference (vLLM ngram_context)
+            int64_t ctx[LLAMA_MAX_PLE_NGRAM] = {0};
+            ctx[0] = tok;
+            bool cut = false;
+            for (int64_t k = 1; k < ngram; ++k) {
+                llama_token pred = LLAMA_TOKEN_NULL;
+                if (!cut) {
+                    if (t - k >= 0) {
+                        // predecessor inside this ubatch, same seq slice
+                        pred = ubatch->token ? ubatch->token[i - k] : pad_token;
+                    } else {
+                        // predecessor before this ubatch: read the seq history
+                        const llama_pos want = p_t - k;
+                        for (auto it = hist.toks.rbegin(); it != hist.toks.rend(); ++it) {
+                            if (it->first == want) { pred = it->second; break; }
+                            if (it->first <  want) { break; }
+                        }
+                    }
+                    cut = pred == LLAMA_TOKEN_NULL || pred == eos;
                 }
+                ctx[k] = cut ? eos : pred;
             }
 
             // hash each n-gram size: for n=2..ngram, compute
@@ -1032,31 +1054,20 @@ void llm_graph_input_ple::set_input(const llama_ubatch * ubatch) {
             // then assign per_gram heads per n-gram size
             const int64_t per_gram = hp.ple_heads_per_ngram;
             for (int64_t n = 2; n <= ngram; ++n) {
-                uint64_t mixed = (uint64_t) window[0] * (uint64_t) hp.ple_layer_multipliers[0];
+                uint64_t mixed = (uint64_t) ctx[0] * (uint64_t) hp.ple_layer_multipliers[0];
                 for (int64_t j = 1; j < n; ++j) {
-                    mixed ^= (uint64_t) window[j] * (uint64_t) hp.ple_layer_multipliers[j];
+                    mixed ^= (uint64_t) ctx[j] * (uint64_t) hp.ple_layer_multipliers[j];
                 }
                 const int64_t base = (n - 2) * per_gram;
                 for (int64_t g = 0; g < per_gram; ++g) {
                     const int64_t h_i = base + g;
                     const uint64_t vocab_size = hp.ple_head_vocab_sizes[h_i];
                     const uint64_t offset     = hp.ple_head_offsets[h_i];
-                    dst[h_i * n_tokens + i] = (int32_t) ((mixed % vocab_size) + offset);
+                    dst[i * n_heads + h_i] = (int32_t) ((mixed % vocab_size) + offset);
                 }
             }
 
-            // update history: EOS resets predecessors
-            if (tok == hp.ple_eos_token_id) {
-                ctx.clear();
-            }
-            ctx.push_back(tok);
-        }
-
-        // commit the updated history
-        hist.toks = ctx;
-        // trim to the last (ngram-1) tokens to bound memory
-        if ((int64_t) hist.toks.size() > ngram - 1) {
-            hist.toks.erase(hist.toks.begin(), hist.toks.end() - (ngram - 1));
+            hist.toks.emplace_back(p_t, tok);
         }
     }
 }
