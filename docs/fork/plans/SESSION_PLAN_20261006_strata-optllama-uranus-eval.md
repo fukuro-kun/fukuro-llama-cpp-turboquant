@@ -1321,3 +1321,32 @@ aber der verbleibende Engpass ist das **Transfer-Volumen selbst**:
 Expert-Cache + Profil-Preload). Weitere Scheduler-Optimierung
 bringt <2 %; der grosse Hebel ist Byte-Reduktion (Cache) — was
 gleichzeitig der Decode-Hebel ist (7.7 vs ~48 t/s).
+
+#### 10.8 Decode-Cache: Engagement-Fix (2026-10-09)
+
+**Befund:** der bisherige Befund "moe-cache strukturell inert" war
+falsch attribuiert — das Modell nutzt **getrennte** gate/up/down_exps
+(kein fused gate_up in diesem GGUF) und alle drei erreichen den
+CPU-Callsite. Per-Return-Site-Zaehler zeigten 2642/2642 Rejects an
+`expert_size < min_expert_bytes` — der **1-MB-Default-Floor**
+exkludierte das Modell komplett (IQ4_XS-Expert-Slices ~690-900 KB).
+
+**Fix (commit 8d549a7b3a):** Default 1 MB -> 256 KB
+(`GGML_CUDA_MOE_CACHE_MIN_EXPERT_KB` ueberschreibt weiterhin).
+
+**Gemessen (Uranus, 2x 4060Ti, ncmoe=46):**
+
+- Pools gebaut: dev0 4 Pools (~9.4 GB), dev1 2 Pools (~7 GB) —
+  paired gate/up-Slots + down + weitere Shapes.
+- Hit-Rate steady-state: **~90 %** (dev0 93 %, dev1 94 % nach
+  Warmup) — Strata-Niveau; bail-ewma on=50.8us vs base=426.1us
+  pro Node -> Judge haelt den Cache dauerhaft aktiv.
+- tg256: **9.87 t/s**; tg512: **11.37 t/s** (vorher 7.7) —
+  +48 % ohne weitere Arbeit, nur der Floor-Fix.
+- Warmstart-Persistenz vorhanden (~/.cache/llama.cpp/moe-cache-hotset-*.bin).
+
+**Restluecke zu Strata (~48 t/s):** Strata's Zahl enthaelt MTP
+(spec4, ~50-80 % Akzeptanz ~ 2-3x Multiplikator) — rohes Decode
+schaetzungsweise ~19-24 t/s. Verbleibende Hebel: MTP-Portierung
+(Sidecar-Pfad existiert), ggf. tieferes Overlap im collect-Pfad
+(plan+disp+coll ~26 us/Node gemessen).
