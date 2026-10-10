@@ -130,6 +130,7 @@ struct moe_cache_device {
     long long t_plan_us = 0, t_disp_us = 0, t_coll_us = 0, n_nodes = 0;
     long long redirect_claims = 0, redirect_misses_up = 0;
     long long gather_calls = 0, gather_hits = 0, gather_total = 0, gather_fallbacks = 0;
+    long long gather_d2d_bytes = 0, gather_h2d_bytes = 0;
 };
 
 struct moe_cache_job {
@@ -1696,6 +1697,7 @@ static int moe_cache_gather(const char * name, const void * host_base, void * ds
     char * dst_c = (char *)dst;
     cudaStream_t stream = cctx->stream();
     const size_t pad = std::min<size_t>(expert_size, 512);
+    long long d2d_b = 0, h2d_b = 0;
     for (int64_t e = 0; e < n_expert; e++) {
         if (!src_of[e]) continue;
         const cudaMemcpyKind kind = is_hit[e] ? cudaMemcpyDeviceToDevice : cudaMemcpyHostToDevice;
@@ -1707,13 +1709,19 @@ static int moe_cache_gather(const char * name, const void * host_base, void * ds
                                             kind, stream), "gather copy")) {
             return -1;
         }
+        if (is_hit[e]) d2d_b += bytes; else h2d_b += bytes;
     }
 
     d.gather_calls++;
     d.gather_hits += n_hits;
+    d.gather_d2d_bytes += d2d_b;
+    d.gather_h2d_bytes += h2d_b;
     for (int64_t e = 0; e < n_expert; e++) d.gather_total += src_of[e] != nullptr;
     MOE_CACHE_DBG("[moe-cache-dbg] gather %s blk=%d dev=%d hits=%d/%lld\n",
             name, blk, di, n_hits, (long long)n_expert);
+    // stats are tied to collect() which only runs on the decode path; emit a
+    // periodic line here too so pure-prefill runs leave a measurement trace
+    if (g.stats_every > 0 && d.gather_calls % 256 == 0) moe_cache_stats();
     return n_hits;
 }
 
@@ -1844,10 +1852,11 @@ static void moe_cache_stats(void) {
                 i, d.miss_compulsory, d.miss_capacity, d.miss_admission, d.queued_misses,
                 d.ever_seen.size(), d.ever_inserted.size(),
                 d.skip_throttle, d.skip_budget, d.skip_qfull, d.skip_lrubusy);
-        MOE_CACHE_LOG("[moe-cache] dev=%d gather: calls=%lld hits=%lld/%lld (%.1f%%) fallbacks=%lld\n",
+        MOE_CACHE_LOG("[moe-cache] dev=%d gather: calls=%lld hits=%lld/%lld (%.1f%%) fallbacks=%lld d2d=%.2fGiB h2d=%.2fGiB\n",
                 i, d.gather_calls, d.gather_hits, d.gather_total,
                 d.gather_total ? 100.0 * d.gather_hits / d.gather_total : 0.0,
-                d.gather_fallbacks);
+                d.gather_fallbacks,
+                d.gather_d2d_bytes / 1073741824.0, d.gather_h2d_bytes / 1073741824.0);
         for (int pi = 0; pi < d.n_pools; pi++) {
             const long long ptot = d.pool_hits[pi] + d.pool_miss[pi];
             MOE_CACHE_LOG("[moe-cache] dev=%d pool[%d]: hits=%lld/%lld (%.1f%%) slots=%d slot=%zuKB\n",
