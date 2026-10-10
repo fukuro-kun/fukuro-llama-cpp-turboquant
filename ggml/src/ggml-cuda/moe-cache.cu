@@ -64,6 +64,11 @@ struct moe_cache_pool {
     int    wtype       = -1;
     char * slab        = nullptr;   // up weights (mmv x operand)
     char * slab2       = nullptr;   // gate weights (fusion operand), paired pools only
+    // slab-read barriers: readers (dispatch on compute_stream, gather on the
+    // dst backend's stream) record an event per stream; an insert job that
+    // REUSES an evicted slot waits on all of them before overwriting, so an
+    // in-flight read of the evicted expert cannot be torn by the copy
+    std::unordered_map<cudaStream_t, cudaEvent_t> read_evs;
     bool   paired      = false;     // one entry covers the (gate, up) pair of an expert
     int    n_slots     = 0;
     int    n_used      = 0;
@@ -143,6 +148,8 @@ struct moe_cache_job {
     size_t     bytes;
     int        blk = -1;     // routing-bias bitmap maintenance
     int        eid = -1;
+    bool       barrier = false;  // slot was evicted from a valid occupant:
+                                 // wait on pool read_evs before overwriting
 };
 
 struct moe_cache_global {
@@ -486,6 +493,14 @@ static void moe_cache_worker_main(int wid) {
         moe_cache_pool & p = g.dev[job.dev].pools[job.pool];
         cudaSetDevice(job.dev);
         MOE_CACHE_DBG("[moe-cache-dbg] worker job dev=%d slot=%d bytes=%zu\n", job.dev, job.slot_idx, job.bytes);
+
+        // slot reused from an evicted resident: order the overwrite behind all
+        // slab reads recorded so far (dispatch matvecs, gather D2D hits)
+        if (job.barrier) {
+            for (const auto & kv : p.read_evs) {
+                cudaStreamWaitEvent(cstream[job.dev], kv.second, 0);
+            }
+        }
 
         char * dst = p.slab + (size_t)job.slot_idx * p.expert_size;
         char * dst_gate = job.src_gate ? p.slab2 + (size_t)job.slot_idx * p.expert_size : nullptr;
@@ -1038,6 +1053,7 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
         }
 
         int si = -1;
+        bool reused = false;
         if (p.n_used < p.n_slots) {
             si = p.n_used++;
         } else {
@@ -1068,6 +1084,7 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
             }
             if (cand < 0) { d.insert_skips++; d.skip_lrubusy++; continue; }
             si = cand;
+            reused = p.slots[si].valid;
             moe_cache_slot & old = p.slots[si];
             if (old.valid || old.queued) {
                 p.map.erase(old.key);
@@ -1112,7 +1129,7 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
             const int bblk = (g.cur_role == 2 || pair_entry) ? g.cur_blk : -1;
             g.queue.push_back(moe_cache_job{di, g.cur_pool, key, si, src_up,
                                       pair_entry ? src_gate : nullptr,
-                                      g.cur_expert_size, bblk, eid});
+                                      g.cur_expert_size, bblk, eid, reused});
         }
         g.cv.notify_one();
     }
@@ -1128,6 +1145,18 @@ static int moe_cache_plan(int di, const int32_t * ids, int n_ids, int32_t * slot
 }
 
 // ---- API: dispatch ------------------------------------------------------------------
+
+// record that `st` now has slab reads in flight on this pool — eviction-reuse
+// inserts must wait on every recorded reader before overwriting a slot
+static void moe_cache_record_read(moe_cache_pool & p, cudaStream_t st) {
+    auto it = p.read_evs.find(st);
+    if (it == p.read_evs.end()) {
+        cudaEvent_t ev = nullptr;
+        if (cudaEventCreateWithFlags(&ev, cudaEventDisableTiming) != cudaSuccess || !ev) return;
+        it = p.read_evs.emplace(st, ev).first;
+    }
+    cudaEventRecord(it->second, st);
+}
 
 static void moe_cache_dispatch(int di, int wtype_int, int64_t n_in, int64_t n_out, int n_hits,
                          const int32_t * slot_idx_compact, const float * const * act_rows) {
@@ -1270,6 +1299,7 @@ static void moe_cache_dispatch(int di, int wtype_int, int64_t n_in, int64_t n_ou
     // net loss — the chain is GPU-exec-bound, not launch-bound, and pools can
     // hold mixed (n_in, n_out) shapes which makes graph keying hazardous.
     emit_chain(st);
+    moe_cache_record_read(p, st);
 
     d.out_rows += n_hits;
     d.t_disp_us += ggml_time_us() - t0;
@@ -1560,6 +1590,8 @@ extern "C" size_t ggml_moe_cache_trim(int device) {
         moe_cache_pool & p = d.pools[i];
         if (p.slab)  { freed += (size_t)p.n_slots * p.expert_size; cudaFree(p.slab);  p.slab  = nullptr; }
         if (p.slab2) { freed += (size_t)p.n_slots * p.expert_size; cudaFree(p.slab2); p.slab2 = nullptr; }
+        for (auto & kv : p.read_evs) cudaEventDestroy(kv.second);
+        p.read_evs.clear();
         p.map.clear();
         p.n_slots = 0;
         p.n_used  = 0;
@@ -1732,6 +1764,8 @@ static int moe_cache_gather(const char * name, const void * host_base, void * ds
         }
         if (is_hit[e]) d2d_b += bytes; else h2d_b += bytes;
     }
+    // mark slab reads in flight so an eviction-reuse insert cannot tear them
+    if (d2d_b > 0) moe_cache_record_read(pool, stream);
 
     d.gather_calls++;
     d.gather_hits += n_hits;
