@@ -166,15 +166,27 @@ die gerouteten (~10/512); ~51 t/s unabhaengig vom Cache. Die 522-Bench-
 Zahl kam von llama-bench mit anderem Ubatch-Regime — NICHT auf Server-
 Pfade uebertragen. Regel: PF-Envs nur im llama-bench-Kontext bewerten.
 
-**Naechste Gates:** (a) Hits/Misses + H2D-Bytes je Phase instrumentieren;
-(b) Verify-Pfad (`MAX_BATCH>=5`) unter Gather erneut messen; (c) Budget-
-Sweep (groesserer Pool → mehr Hits?); (d) Gather default-on erwae gen,
-sobald (a)-(c) stabil.
+**Byte-Instrumentierung (Gate a, `f5bba4b26d`):** dev0 `d2d`/`h2d` GiB in
+der Stats-Zeile. Messung 8-GB-Arm: 48.3 GiB D2D / 45.4 GiB H2D.
 
-**Gates:** (a) Instrumentierung Hits/Misses/Bytes je Phase; (b) Verify-Hits
-via MAX_BATCH>=5 schon messbar (getan: marginal); (c) Prefill-Gather erst bei
-reproduzierbarem pp-Gewinn default-faehig, sonst opt-in; (d) Backfill/
-Admission-Contention waehrend Prefill messen und ggf. waehrend pp drosseln.
+**Budget-Sweep (Gate c, 2026-10-10, gleicher Build, Gather an):**
+
+| BUDGET_MB/dev | pp t/s (10560 tok) | gather hits | h2d |
+|---|---|---|---|
+| 3072 | 560.6/619.6/619.2 | ~83 % (3G-Run) | 10.6 GiB |
+| 6144 | 618.0/693.6/694.6 | — | — |
+| 8192 | 533.9/599.2/604.2 | 51.1 % | 45.4 GiB |
+
+**6 GB ist der Sweet Spot (~694 t/s).** Gegenintuitiv: 8 GB ist langsamer —
+unter halb-vollem Pool admittet Gather ALLE Misses ohne Hot-Filter
+(`n_used*2 < n_slots`-Schwelle), laedt also Experten hoch die nie
+wiederkehren → h2d 45 vs 10.6 GiB, pp faellt. Tuning-Hebel: Hot-Prior-
+Gate auch bei leerem Pool oder Admission-Rate deckeln.
+
+**MTP-Verify unter Gather (Gate b, nach `4fa346fbf7`):** MTP+Gather+
+ADMIT+MAX_BATCH=8 sauber, Acceptance 0.54-0.59, tg 10.7-13.1 t/s vs.
+Target-only 11.5/15.7 t/s — **MTP bleibt ~break-even**, kein Nettogewinn
+unter dieser Config. n_max-Sweep (3/4/8) als moeglicher Hebel offen.
 
 ## Offen
 
