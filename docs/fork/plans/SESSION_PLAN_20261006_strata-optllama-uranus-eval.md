@@ -178,6 +178,25 @@ Admission-Contention waehrend Prefill messen und ggf. waehrend pp drosseln.
 
 ## Offen
 
+- **Upstream-Vergleich (User-Entscheid 2026-10-10): separater Upstream-Build,
+  NICHT Merge in den Fork.** Upstream `llama.cpp` hat mit #29887 (GPU-Cache
+  fuer host-residente MoE-Experten, Bank+Slot-Map im Graph) + #30112
+  (Multi-GPU-Variante) eine graph-level Alternative zu unserem CUDA-level
+  Gather gelandet. Vorgehen: sauberen upstream-Checkout/Build auf Uranus,
+  gleiches Modell + Config (`UD-IQ4_XS`, `ncmoe`, Budget), A/B gegen Fork-
+  Gather: pp/tg t/s, H2D+D2D Bytes, Hit-Rate, MTP-Verify, VRAM. Ergebnis
+  entscheidet welcher Codepfad langfristig getragen wird — moegliche
+  Outcomes: Fork-Gather behalten, upstream-Pfad portieren/uebernehmen,
+  oder Koexistenz (Fetch-upstream-Integration).
+- ~~MTP x Gather x Admission = `!!!`-Korruption~~ **GEFIXT (`4fa346fbf7`):**
+  Root-Cause war ein pre-existing Race — Eviction-Reuse-Inserts
+  ueberschrieben Slots waehrend Dispatch-Matvecs/Gather-D2D sie noch
+  asynchron lasen (3 unsynchronisierte Streams). Ohne Admission blieben
+  Pools leer → Race latent; Admission fuellte den Pool → Evictions beim
+  Verify → `!!!` (0 % Acceptance). Fix: pro-Pool `read_evs` (Event je
+  Leser-Stream), dispatch/gather recorden, Reuse-Jobs warten via
+  `cudaStreamWaitEvent`. Verifiziert: 3 Reps MTP+Gather+ADMIT+MAX_BATCH=8
+  sauber, Acceptance 0.54-0.59, tg 10.7-13.1 t/s.
 - S3 Implementierung (oben). n_max-Sweep unter neuem Verify-Pfad.
 - Strata `--spec 4` ≙ Fork `n_max 3`-Semantik bei Vergleichen beachten.
 - `dry`-Sampler verfaelscht Trajektorien — Correctness nur mit `top_k=1`.

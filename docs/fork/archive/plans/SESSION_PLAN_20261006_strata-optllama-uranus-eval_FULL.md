@@ -1350,3 +1350,45 @@ exkludierte das Modell komplett (IQ4_XS-Expert-Slices ~690-900 KB).
 schaetzungsweise ~19-24 t/s. Verbleibende Hebel: MTP-Portierung
 (Sidecar-Pfad existiert), ggf. tieferes Overlap im collect-Pfad
 (plan+disp+coll ~26 us/Node gemessen).
+
+#### 10.9 Treiber-Fix + MTP-Draft-Artefakt (2026-10-09)
+
+**NVML/KMod-Mismatch behoben:** Der Reboot auf Kernel 7.0.0-38
+offenbarte eine halbfertige Paket-Transaktion —
+`linux-modules-nvidia-595-7.0.0-38-generic` blieb `iF`
+(half-configured), nur `.ko.sig`-Stubs vorhanden. Fix:
+`dpkg --configure -a` + `depmod -a` + `modprobe nvidia` →
+`nvidia-smi` 595.99.02 konsistent, beide GPUs sichtbar.
+Hinweis: die zwei Prod-llama-server-Units (qwen38-standard/unc,
+Ports 18084/18085) starten per systemd automatisch und belegen
+~15 GB je GPU — vor Flash-Next-Benchmarks stoppen.
+
+**MTP-Draft existiert bereits fertig konvertiert:**
+`.../unsloth-mtp/MTP/mtp-Qwen3.8-Flash-Next-Q8_0.gguf` (4,1 GB)
+enthaelt alle 34 erwarteten Tensoren im Fork-Namensschema:
+`token_embd`/`output` (Q8_0), `blk.48.nextn.{eh_proj,enorm,hnorm,
+hc_head_*}`, `blk.48.hc_{attn,ffn}_*`, `attn_{q,k,v,o}` +
+q/k_norm, `indexer.{q,k}_proj` + Normen (bereits gesplittet),
+MoE getrennt `ffn_{gate,up,down}_exps` + shexp. Metadaten:
+`block_count=49` → n_layer()=48, `nextn_predict_layers=1`,
+`compress_ratios` 49 Eintrage mit [48]=4 (MTP-Layer via QSA,
+nicht dense wie bei Strata). Vocab 248320 = Target.
+
+**Ladepfad:** `--spec-draft-model <gguf> --spec-type draft-mtp
+--spec-draft-n-max N` → `LLAMA_CONTEXT_TYPE_MTP` alloziert
+nur Layer>=48 (Attn+Idx-Cache). `nextn_flags()` macht fehlende
+Trunk-Tensoren optional (`blk.0.hc_attn_norm` absent →
+trunk=TENSOR_NOT_REQUIRED). Vertrag Assert: draft
+n_embd_out == target n_embd_out (10240 hc-wide, stimmt).
+
+**Strata-Referenz (src/core/mtp.cpp):** MTP-Draft nutzt dense
+Attention ueber alle Zellen ("no indexer state is read");
+alle 512 Experten resident in VRAM (~700 MB Q2_0). Der
+Strata-Sidecar `Strata-data/mtp/mtp-q2_0.gguf` (889 MB,
+`mtp.*`-Namen, block-Dims fuer Q2_0) waere konvertierbar —
+nicht mehr noetig, das unsloth-GGUF ist fertig.
+
+**Bench-Harness vorhanden:** `scripts/bench-flashnext-mtp.py`
+(untracked) + `tests/test-bench-flashnext-mtp.py` — Server-Matrix
+n_max=[0,1,2,3,4,6,8] x lengths=[128,512,2048], misst
+draft_n/draft_n_accepted aus timings.
