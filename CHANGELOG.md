@@ -37,6 +37,15 @@ vollem Pool lieferte `!!!` (0 % Acceptance). Pro-Pool `read_evs`
 (Events je Leser-Stream); Reuse-Jobs warten via `cudaStreamWaitEvent`.
 Verifiziert: MTP+Gather+MAX_BATCH=8 sauber, Acceptance 0.54-0.59.
 
+### perf: Gather per Default aktiv (`GGML_SCHED_MOE_CACHE_GATHER=0` schaltet ab)
+
+Nach bestandenen Gates (Verify-Korrektheit, Budget-Sweep 3/6/8 GB →
+Sweet Spot 6 GB / ~694 t/s pp) und dem Upstream-Vergleich — upstream
+`--moe-cache-mib` erreicht auf identischer Hardware ~80-100 t/s pp
+(Slot-Indirektion nur ≤32 Tokens, Pipeline-Parallel deaktiviert bei
+aktivem Cache), Fork-Gather ~694 t/s — ist Gather jetzt Default.
+Fallback bei Reject/OOM bleibt der bisherige Upload-Pfad.
+
 ### fix: MTP-Korrektheit Qwen4Exp (`eff47330`, `7e858065`, `ba27fff8`)
 
 PLE-Token-major-Layout + rollback-sichere (pos,tok)-History;

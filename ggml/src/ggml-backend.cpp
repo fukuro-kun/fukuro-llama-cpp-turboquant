@@ -868,7 +868,8 @@ struct ggml_backend_sched {
     // stay in place; the kernel streams them over PCIe via the UVA device
     // mapping of the registered range instead of an explicit input copy
     bool moe_zcopy;
-    // GGML_SCHED_MOE_CACHE_GATHER=1: assemble offloaded expert tensors from
+    // GGML_SCHED_MOE_CACHE_GATHER (default on, =0 disables): assemble
+    // offloaded expert tensors from
     // the MoE cache where possible — resident slices are D2D-copied from the
     // pool, only misses go over PCIe (prefill + multi-token verify paths)
     bool moe_cache_gather;
@@ -2394,10 +2395,13 @@ ggml_backend_sched_t ggml_backend_sched_new(
     sched->moe_zcopy = GGML_SCHED_MOE_ZCOPY != NULL && atoi(GGML_SCHED_MOE_ZCOPY) > 0 &&
         GGML_CUDA_REGISTER_HOST != NULL && atoi(GGML_CUDA_REGISTER_HOST) > 0;
 
-    // GGML_SCHED_MOE_CACHE_GATHER=1: expert uploads consult the MoE cache and
-    // source resident slices D2D (see ggml_moe_cache_api::gather)
+    // expert uploads consult the MoE cache and source resident slices D2D
+    // (see ggml_moe_cache_api::gather). Default on: every rejection path is
+    // a graceful fallback to the baseline upload, and the worst measured
+    // case still beats the non-gather baseline ~5x. Set
+    // GGML_SCHED_MOE_CACHE_GATHER=0 to disable.
     const char * GGML_SCHED_MOE_CACHE_GATHER = getenv("GGML_SCHED_MOE_CACHE_GATHER");
-    sched->moe_cache_gather = GGML_SCHED_MOE_CACHE_GATHER != NULL &&
+    sched->moe_cache_gather = GGML_SCHED_MOE_CACHE_GATHER == NULL ||
         atoi(GGML_SCHED_MOE_CACHE_GATHER) > 0;
 
     ggml_backend_sched_reset(sched);
