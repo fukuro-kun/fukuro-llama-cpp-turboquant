@@ -216,6 +216,14 @@ struct moe_cache_global {
     // under mu at job-pull time; plain arrays, blk-indexed)
     int8_t       blk_pair_pool[1024];    // paired-pool index on the owning dev, -1 unknown
     int8_t       blk_down_pool[1024];    // down-pool index, -1 unknown
+    // gather-side registry: pool index per (blk, COMPUTE device). The parity
+    // assignment blk%n_dev balances pool memory for the decode path (which
+    // computes on the pool device itself); gather instead needs the weights
+    // on the device that runs the layer. Keys are block-tagged so any pool
+    // can hold any block's experts — same-device lookup only, peer D2D over
+    // PCIe buys nothing vs H2D.
+    int8_t       gather_pair_pool[1024][8];
+    int8_t       gather_down_pool[1024][8];
     int          blk_n_expert[1024] = {};
     uint64_t     blk_down_kb[1024] = {}; // down key base (name-hash ^ ptr-hash)
     const void * blk_down_base[1024] = {};
@@ -1610,20 +1618,33 @@ static int moe_cache_gather(const char * name, const void * host_base, void * ds
     ggml_backend_t dst_backend = (ggml_backend_t) dst_backend_v;
     ggml_backend_cuda_context * cctx = (ggml_backend_cuda_context *) dst_backend->context;
 
-    const int di = blk % g.n_dev;
-    if (cctx->device != di) return -1;   // resident bytes live on their owning dev
+    // pools serve the COMPUTE device here, not blk%n_dev: under
+    // --split-mode layer contiguous block ranges live on one GPU and a
+    // parity-assigned pool would put half of them on the wrong device
+    // (peer D2D over PCIe is no cheaper than the H2D fallback)
+    if (cctx->device < 0 || cctx->device >= g.n_dev || cctx->device >= 8) return -1;
+    const int di = cctx->device;
     moe_cache_device & d = g.dev[di];
     if (d.dead) return -1;
 
-    const int pi = (role == 2) ? (int)g.blk_down_pool[blk] : (int)g.blk_pair_pool[blk];
-    if (pi < 0 || pi >= d.n_pools) { d.gather_fallbacks++; return -1; }
-    moe_cache_pool & pool = d.pools[pi];
-    if (!pool.slab || pool.expert_size != expert_size || pool.wtype != wtype) {
-        d.gather_fallbacks++;
-        return -1;
+    int8_t & pi_ref = (role == 2) ? g.gather_down_pool[blk][di] : g.gather_pair_pool[blk][di];
+    int pi = pi_ref;
+    if (pi < 0 || pi >= d.n_pools || !d.pools[pi].slab ||
+        d.pools[pi].expert_size != expert_size || d.pools[pi].wtype != wtype ||
+        (role == 2 ? d.pools[pi].paired : !(d.pools[pi].paired && d.pools[pi].slab2))) {
+        pi = -1;
+        for (int i = 0; i < d.n_pools; i++) {
+            const moe_cache_pool & p = d.pools[i];
+            if (!p.slab || p.expert_size != expert_size || p.wtype != wtype) continue;
+            if (role == 2 ? p.paired : !(p.paired && p.slab2)) continue;
+            pi = i;
+            break;
+        }
+        pi_ref = (int8_t)pi;
+        if (pi < 0) { d.gather_fallbacks++; return -1; }
     }
+    moe_cache_pool & pool = d.pools[pi];
     const bool paired = pool.paired && (role == 0 || role == 1);
-    if (paired && role == 0 && !pool.slab2) return -1;
 
     uint64_t key_base;
     if (paired) {
@@ -1776,6 +1797,8 @@ static void moe_cache_invalidate(const void * base, size_t size) {
         if (hit_role0 || hit_role1 || hit_down) {
             g.blk_pair_pool[b] = -1;
             g.blk_down_pool[b] = -1;
+            memset(g.gather_pair_pool[b], -1, sizeof(g.gather_pair_pool[b]));
+            memset(g.gather_down_pool[b], -1, sizeof(g.gather_down_pool[b]));
             g.safe_fuse_blk[b] = false;
         }
         if (in_range(g.learn_gate_dst[b])) g.learn_gate_dst[b] = nullptr;
@@ -2033,6 +2056,8 @@ void ggml_moe_cache_register(void) {
     }
     g.hotset_last_save = ggml_time_us();   // first save no sooner than one period in
     memset(g.blk_pair_pool, -1, sizeof(g.blk_pair_pool));
+    memset(g.gather_pair_pool, -1, sizeof(g.gather_pair_pool));
+    memset(g.gather_down_pool, -1, sizeof(g.gather_down_pool));
     memset(g.blk_down_pool, -1, sizeof(g.blk_down_pool));
 
     ggml_moe_cache.begin    = moe_cache_begin;
