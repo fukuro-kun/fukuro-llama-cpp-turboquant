@@ -76,6 +76,20 @@ struct ggml_moe_cache_api {
     unsigned long long (*glu_hits)(const void * src0_data, const void * src1_data,
                                    void * dst_data, size_t dst_nb1, int ith);
 
+    // ---- prefill/verify path: hit-aware expert-tensor assembly ----
+    // Assemble an expert weight tensor into dst (device memory on
+    // dst_backend): expert slices already resident in the cache are copied
+    // device-to-device from the pool slab, missing ones host-to-device from
+    // host_base. All copies are issued on dst_backend's stream, so the
+    // caller's event ordering still applies.
+    //   needed_bits: uint32 bitset over expert ids; NULL assembles ALL experts.
+    // Returns the number of cache-sourced experts, or -1 when the tensor
+    // cannot be served — the caller must then run its plain upload path
+    // (partial gathers are always overwritten completely by the fallback).
+    int (*gather)(const char * tensor_name, const void * host_base, void * dst,
+                  int64_t n_expert, size_t expert_size, int wtype,
+                  const uint32_t * needed_bits, void * dst_backend);
+
     // Host weight buffer teardown notification (model unload): drops queued
     // insert jobs sourced from the range and resets per-block tensor-base
     // learning. Must be called before the memory is unmapped/freed.

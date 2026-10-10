@@ -223,6 +223,69 @@ void ggml_cuda_mul_mat_q(
         ne03, ne13, s03, s13, s3,
         use_stream_k, ne12};
 
+    // host-resident expert weights (GGML_SCHED_MOE_ZCOPY rebind): stream
+    // expert ranges through a ring of device slots on a dedicated copy
+    // stream; each range's compute overlaps the next range's H2D instead
+    // of waiting on the whole ~440 MiB tensor. Range launches only need a
+    // shifted x/bounds base: expert zt indexes into bounds[e0+zt] and
+    // slot + zt*stride_channel_x
+    if (ggml_backend_buffer_is_host(src0->buffer)) {
+        const char * GGML_CUDA_MOE_STREAM_RANGES = getenv("GGML_CUDA_MOE_STREAM_RANGES");
+        const char * GGML_CUDA_MOE_STREAM_SLOTS  = getenv("GGML_CUDA_MOE_STREAM_SLOTS");
+        const int n_ranges = GGML_CUDA_MOE_STREAM_RANGES != nullptr ?
+            std::max(1, atoi(GGML_CUDA_MOE_STREAM_RANGES)) : 8;
+        const int n_slots  = GGML_CUDA_MOE_STREAM_SLOTS != nullptr ?
+            std::max(2, std::min(atoi(GGML_CUDA_MOE_STREAM_SLOTS), ctx.moe_stream_max_slots)) : 3;
+
+        const int per_range  = (int) ((ne02 + n_ranges - 1) / n_ranges);
+        const size_t slot_bytes = (size_t) per_range * src0->nb[2];
+        GGML_ASSERT(slot_bytes > 0);
+
+        if (ctx.moe_stream_buf_size < n_slots * slot_bytes) {
+            if (ctx.moe_stream_buf != nullptr) {
+                CUDA_CHECK(cudaFree(ctx.moe_stream_buf));
+            }
+            CUDA_CHECK(cudaMalloc(&ctx.moe_stream_buf, n_slots * slot_bytes));
+            ctx.moe_stream_buf_size = n_slots * slot_bytes;
+        }
+        if (ctx.moe_copy_stream == nullptr) {
+            CUDA_CHECK(cudaStreamCreateWithFlags(&ctx.moe_copy_stream, cudaStreamNonBlocking));
+        }
+        for (int i = 0; i < n_slots; i++) {
+            if (ctx.moe_ready_ev[i] == nullptr) {
+                CUDA_CHECK(cudaEventCreateWithFlags(&ctx.moe_ready_ev[i], cudaEventDisableTiming));
+            }
+            if (ctx.moe_done_ev[i] == nullptr) {
+                CUDA_CHECK(cudaEventCreateWithFlags(&ctx.moe_done_ev[i], cudaEventDisableTiming));
+            }
+        }
+
+        for (int64_t e0 = 0; e0 < ne02; e0 += per_range) {
+            const int n_e = (int) std::min(ne02 - e0, (int64_t) per_range);
+            const int s   = (int) (ctx.moe_stream_seq % n_slots);
+            char * slot   = (char *) ctx.moe_stream_buf + s * slot_bytes;
+
+            if (ctx.moe_stream_seq >= n_slots) {
+                // the slot's previous consumer must finish before the refill
+                CUDA_CHECK(cudaStreamWaitEvent(ctx.moe_copy_stream, ctx.moe_done_ev[s], 0));
+            }
+            ctx.moe_stream_seq++;
+            CUDA_CHECK(cudaMemcpyAsync(slot, src0_d + (size_t) e0 * src0->nb[2],
+                (size_t) n_e * src0->nb[2], cudaMemcpyHostToDevice, ctx.moe_copy_stream));
+            CUDA_CHECK(cudaEventRecord(ctx.moe_ready_ev[s], ctx.moe_copy_stream));
+
+            CUDA_CHECK(cudaStreamWaitEvent(stream, ctx.moe_ready_ev[s], 0));
+            mmq_args rargs = args;
+            rargs.x = slot;
+            rargs.expert_bounds = expert_bounds.get() + e0;
+            rargs.nchannels_x = n_e;
+            rargs.nchannels_y = n_e;
+            ggml_cuda_mul_mat_q_switch_type(ctx, rargs, stream);
+            CUDA_CHECK(cudaEventRecord(ctx.moe_done_ev[s], stream));
+        }
+        return;
+    }
+
     ggml_cuda_mul_mat_q_switch_type(ctx, args, stream);
 }
 

@@ -5,6 +5,8 @@
 #include "llama-memory-hybrid-idx.h"
 #include "llama-model-loader.h"
 
+#include <deque>
+
 // note: almost all graphs require at least sqrtf, so include cmath globally
 #include <cmath>
 
@@ -1967,11 +1969,11 @@ struct llama_model_qwen4exp : public llama_model_base {
     llama_model_qwen4exp(const struct llama_model_params & params) : llama_model_base(params) {}
 
     // PLE predecessors are absent from a decode ubatch, so remember them here
-    // (vLLM's ngram_context). next_pos guards it: a mismatch means the sequence
-    // was reset or rewound, and the hash falls back to EOS padding.
+    // (vLLM's ngram_context). Entries carry their position: anything recorded at
+    // or beyond the next ubatch's first position is stale - a rollback or slot
+    // reset rewound the sequence - and is dropped before the window is read.
     struct ple_history {
-        llama_pos                next_pos = -1;
-        std::vector<llama_token> toks;
+        std::deque<std::pair<llama_pos, llama_token>> toks;
     };
     mutable std::unordered_map<llama_seq_id, ple_history> ple_hist;
     void load_arch_hparams(llama_model_loader & ml) override;

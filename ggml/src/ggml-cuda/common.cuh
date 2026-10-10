@@ -1406,6 +1406,21 @@ struct ggml_backend_cuda_context {
     cudaEvent_t copy_event = nullptr;
     bool disable_mmq_stream_k_default = false;
 
+    // MoE expert weight streaming (GGML_SCHED_MOE_ZCOPY keeps host weights in
+    // place): ring of device slots fed by an async copy stream so that range
+    // compute overlaps the next range's H2D transfer. The buffer persists so
+    // the slot addresses are stable for CUDA graph capture.
+    void * moe_stream_buf = nullptr;
+    size_t moe_stream_buf_size = 0;
+    cudaStream_t moe_copy_stream = nullptr;
+    static constexpr int moe_stream_max_slots = 8;
+    cudaEvent_t moe_ready_ev[moe_stream_max_slots] = {};
+    cudaEvent_t moe_done_ev[moe_stream_max_slots] = {};
+    // global range counter: slots are reused across mul_mat_id calls, so the
+    // refill wait must consult the total number of streamed ranges, not the
+    // range index inside the current call
+    int64_t moe_stream_seq = 0;
+
     cudaStream_t streams[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { { nullptr } };
     cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES] = {nullptr};
 

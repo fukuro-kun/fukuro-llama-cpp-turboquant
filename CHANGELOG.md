@@ -6,6 +6,55 @@ Format: `YYYY-MM-DD — <type>: <Was> — <Warum>`
 
 ---
 
+## 2026-10-10
+
+### perf: hit-aware Expert-Gather fuer MoE-Uploads (`96541837be`) — **opt-in**
+
+`ggml_moe_cache.gather()` assembliert offloaded Expert-Tensoren pro
+Slice: residente Hits per D2D aus dem Cache-Pool, Misses per H2D vom
+Host + Admission in freie Slots. Damit ist der `#37`-Stub
+(`upload_ids = used_ids` ungefiltert) real umgesetzt: derselbe Expert
+wandert nicht mehr in jedem Ubatch erneut ueber PCIe.
+
+**Wichtig — opt-in, Default AUS:** Aktivierung nur via
+`GGML_SCHED_MOE_CACHE_GATHER=1`. Ohne die Variable laeuft exakt der
+alte Upload-Pfad; Produktiv-Deployments profitieren nur mit gesetztem
+Env. Fallback bei Reject/OOM ist der bisherige Upload. Admission
+abschaltbar via `GGML_CUDA_MOE_CACHE_GATHER_ADMIT=0`, Pool-Deckel via
+`GGML_CUDA_MOE_CACHE_BUDGET_MB`.
+
+Messstand llama-server (ncmoe 46, Prompt 10560 tok, dual-4060Ti):
+~125 → ~620 t/s pp (~5x). Detail-Mechanismus: `ggml/AGENTS.md`
+(Abschnitt CUDA-Expert-Prefetch) und
+`docs/fork/plans/SESSION_PLAN_20261006_strata-optllama-uranus-eval.md`.
+
+### fix: Eviction-Reuse-Inserts warten auf Slab-Reader (`4fa346fbf7`)
+
+Pre-existing Race, erst durch Gather-Admission sichtbar: evictete Slots
+wurden auf `cstream` ueberschrieben waehrend Dispatch-Matvecs
+(`compute_stream`) oder Gather-D2D sie noch lasen → MTP-Verify mit
+vollem Pool lieferte `!!!` (0 % Acceptance). Pro-Pool `read_evs`
+(Events je Leser-Stream); Reuse-Jobs warten via `cudaStreamWaitEvent`.
+Verifiziert: MTP+Gather+MAX_BATCH=8 sauber, Acceptance 0.54-0.59.
+
+### perf: Gather per Default aktiv (`GGML_SCHED_MOE_CACHE_GATHER=0` schaltet ab)
+
+Nach bestandenen Gates (Verify-Korrektheit, Budget-Sweep 3/6/8 GB →
+Sweet Spot 6 GB / ~694 t/s pp) und dem Upstream-Vergleich — upstream
+`--moe-cache-mib` erreicht auf identischer Hardware ~80-100 t/s pp
+(Slot-Indirektion nur ≤32 Tokens, Pipeline-Parallel deaktiviert bei
+aktivem Cache), Fork-Gather ~694 t/s — ist Gather jetzt Default.
+Fallback bei Reject/OOM bleibt der bisherige Upload-Pfad.
+
+### fix: MTP-Korrektheit Qwen4Exp (`eff47330`, `7e858065`, `ba27fff8`)
+
+PLE-Token-major-Layout + rollback-sichere (pos,tok)-History;
+rs_rollback-Plumbing (is_empty, seq_rm-Bounds, conv_state_at,
+n_rs_seq); QSA no_fa gegen all-masked-FA-Tile-NaN. Greedy-Output
+byte-identisch zu Target-only, Draft-Acceptance ~47-50 %.
+
+---
+
 ## 2026-10-08
 
 ### docs: DOX-Audit — Root-/Child-AGENTS-Kette und kanonische Docs konsolidiert
