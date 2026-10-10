@@ -28,6 +28,15 @@ Messstand llama-server (ncmoe 46, Prompt 10560 tok, dual-4060Ti):
 (Abschnitt CUDA-Expert-Prefetch) und
 `docs/fork/plans/SESSION_PLAN_20261006_strata-optllama-uranus-eval.md`.
 
+### fix: Eviction-Reuse-Inserts warten auf Slab-Reader (`4fa346fbf7`)
+
+Pre-existing Race, erst durch Gather-Admission sichtbar: evictete Slots
+wurden auf `cstream` ueberschrieben waehrend Dispatch-Matvecs
+(`compute_stream`) oder Gather-D2D sie noch lasen → MTP-Verify mit
+vollem Pool lieferte `!!!` (0 % Acceptance). Pro-Pool `read_evs`
+(Events je Leser-Stream); Reuse-Jobs warten via `cudaStreamWaitEvent`.
+Verifiziert: MTP+Gather+MAX_BATCH=8 sauber, Acceptance 0.54-0.59.
+
 ### fix: MTP-Korrektheit Qwen4Exp (`eff47330`, `7e858065`, `ba27fff8`)
 
 PLE-Token-major-Layout + rollback-sichere (pos,tok)-History;
